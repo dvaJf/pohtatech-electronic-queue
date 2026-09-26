@@ -51,6 +51,7 @@ type FakeUseCases struct {
 	RegisterFunc       func(ctx context.Context, email, password string) (domain.User, error)
 	ConfirmEmailFunc   func(ctx context.Context, token string) error
 	LoginFunc          func(ctx context.Context, email, password string) (domain.Session, error)
+	LoginOAuthFunc     func(ctx context.Context, email string) (domain.Session, error)
 	LogoutFunc         func(ctx context.Context, token string) error
 	GetSessionUserFunc func(ctx context.Context, token string) (domain.User, error)
 	ListUsersFunc      func(ctx context.Context, limit, offset int, search, role string) (domain.UserPage, error)
@@ -267,6 +268,13 @@ func (f *FakeUseCases) Login(ctx context.Context, email, password string) (domai
 		return f.LoginFunc(ctx, email, password)
 	}
 	return domain.Session{}, nil
+}
+
+func (f *FakeUseCases) LoginOAuth(ctx context.Context, email string) (domain.Session, error) {
+	if f.LoginOAuthFunc != nil {
+		return f.LoginOAuthFunc(ctx, email)
+	}
+	return domain.Session{Token: "fake-oauth-token", UserID: "fake-user-id", ExpiresAt: time.Now().Add(time.Hour)}, nil
 }
 
 func (f *FakeUseCases) Logout(ctx context.Context, token string) error {

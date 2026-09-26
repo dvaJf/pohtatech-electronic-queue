@@ -195,6 +195,21 @@ export function UsersManagement() {
               {counts.client}
             </span>
           </button>
+
+          <button
+            type="button"
+            onClick={() => { setRoleFilter('terminal'); setPage(1); }}
+            className={`px-3 py-1 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+              roleFilter === 'terminal'
+                ? 'bg-[#003B73] text-white shadow-xs'
+                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            <span>Терминалы</span>
+            <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${roleFilter === 'terminal' ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'}`}>
+              {counts.terminal}
+            </span>
+          </button>
         </div>
       </div>
 

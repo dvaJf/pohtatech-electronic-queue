@@ -101,6 +101,50 @@ func (p *Postgres) Login(ctx context.Context, email, password string) (domain.Se
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// LoginOAuth (VK, Yandex, etc.)
+// ─────────────────────────────────────────────────────────────────────────────
+
+func (p *Postgres) LoginOAuth(ctx context.Context, email string) (domain.Session, error) {
+	var u domain.User
+	err := p.pool.QueryRow(ctx, `
+		SELECT id::text, email, password_hash, role, is_terminal, confirmed
+		FROM users WHERE email = $1
+	`, email).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Role, &u.IsTerminal, &u.Confirmed)
+
+	if errors.Is(err, pgx.ErrNoRows) {
+		var newID string
+		err = p.pool.QueryRow(ctx, `
+			INSERT INTO users (email, password_hash, role, is_terminal, confirmed)
+			VALUES ($1, 'OAUTH_ACCOUNT', 'client', false, true)
+			RETURNING id::text
+		`, email).Scan(&newID)
+		if err != nil {
+			return domain.Session{}, dbError(err)
+		}
+		u.ID = newID
+		u.Email = email
+		u.Role = domain.RoleClient
+		u.Confirmed = true
+	} else if err != nil {
+		return domain.Session{}, dbError(err)
+	}
+
+	token, err := randomToken()
+	if err != nil {
+		return domain.Session{}, err
+	}
+	expiresAt := time.Now().Add(sessionTTL)
+	_, err = p.pool.Exec(ctx, `
+		INSERT INTO sessions (token, user_id, expires_at)
+		VALUES ($1, $2::uuid, $3)
+	`, token, u.ID, expiresAt)
+	if err != nil {
+		return domain.Session{}, dbError(err)
+	}
+	return domain.Session{Token: token, UserID: u.ID, ExpiresAt: expiresAt}, nil
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Logout
 // ─────────────────────────────────────────────────────────────────────────────
 

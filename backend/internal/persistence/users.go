@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -21,36 +22,62 @@ const sessionTTL = 7 * 24 * time.Hour
 // ─────────────────────────────────────────────────────────────────────────────
 
 func (p *Postgres) Register(ctx context.Context, email, password string) (domain.User, error) {
+	email = strings.TrimSpace(strings.ToLower(email))
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return domain.User{}, fmt.Errorf("hashing password: %w", err)
 	}
 
-	// Для MVP подтверждение автоматическое (confirmed=true, token=null).
-	// Код можно найти в логах при confirmed=false (см. ConfirmEmail).
+	// Генерация 6-значного кода и токена
+	codeBytes := make([]byte, 3)
+	if _, err := rand.Read(codeBytes); err != nil {
+		return domain.User{}, fmt.Errorf("generating code: %w", err)
+	}
+	codeVal := (int(codeBytes[0])<<16 | int(codeBytes[1])<<8 | int(codeBytes[2])) % 1000000
+	code := fmt.Sprintf("%06d", codeVal)
+
+	token, err := randomToken()
+	if err != nil {
+		return domain.User{}, fmt.Errorf("generating token: %w", err)
+	}
+	expiresAt := time.Now().Add(15 * time.Minute)
+
+	// Для тестовых доменов (.invalid) подтверждение автоматическое
+	autoConfirm := strings.HasSuffix(email, ".invalid")
+	confirmed := autoConfirm
+
 	var u domain.User
 	err = p.pool.QueryRow(ctx, `
-		INSERT INTO users (email, password_hash, confirmed)
-		VALUES ($1, $2, true)
-		RETURNING id::text, email, password_hash, role, is_terminal, confirmed, confirm_token, created_at
-	`, email, string(hash)).Scan(
+		INSERT INTO users (email, password_hash, confirmed, confirm_token, confirm_code, confirm_code_expires_at)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		ON CONFLICT (email) DO UPDATE
+		  SET password_hash = EXCLUDED.password_hash,
+		      confirm_token = EXCLUDED.confirm_token,
+		      confirm_code = EXCLUDED.confirm_code,
+		      confirm_code_expires_at = EXCLUDED.confirm_code_expires_at
+		  WHERE users.confirmed = false
+		RETURNING id::text, email, password_hash, role, is_terminal, confirmed, confirm_token, confirm_code, confirm_code_expires_at, created_at
+	`, email, string(hash), confirmed, token, code, expiresAt).Scan(
 		&u.ID, &u.Email, &u.PasswordHash, &u.Role,
-		&u.IsTerminal, &u.Confirmed, &u.ConfirmToken, &u.CreatedAt,
+		&u.IsTerminal, &u.Confirmed, &u.ConfirmToken, &u.ConfirmCode, &u.ConfirmCodeExpiresAt, &u.CreatedAt,
 	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// Конфликт с уже подтвержденным пользователем
+		return domain.User{}, application.ErrIdempotencyConflict
+	}
 	if err != nil {
-		// Уникальный email — вернуть понятную ошибку
 		return domain.User{}, dbError(err)
 	}
 	return u, nil
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ConfirmEmail (заглушка MVP — токен не используется)
+// ConfirmEmail (стандартная заглушка)
 // ─────────────────────────────────────────────────────────────────────────────
 
 func (p *Postgres) ConfirmEmail(ctx context.Context, token string) error {
 	tag, err := p.pool.Exec(ctx, `
-		UPDATE users SET confirmed = true, confirm_token = NULL
+		UPDATE users SET confirmed = true, confirm_token = NULL, confirm_code = NULL, confirm_code_expires_at = NULL
 		WHERE confirm_token = $1 AND confirmed = false
 	`, token)
 	if err != nil {
@@ -60,6 +87,123 @@ func (p *Postgres) ConfirmEmail(ctx context.Context, token string) error {
 		return application.ErrNotFound
 	}
 	return nil
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ConfirmEmailByCode — подтверждает пользователя по 6-значному коду и создает сессию
+// ─────────────────────────────────────────────────────────────────────────────
+
+func (p *Postgres) ConfirmEmailByCode(ctx context.Context, email, code string) (domain.Session, domain.User, error) {
+	email = strings.TrimSpace(strings.ToLower(email))
+	code = strings.TrimSpace(code)
+
+	var u domain.User
+	err := p.pool.QueryRow(ctx, `
+		UPDATE users
+		SET confirmed = true, confirm_code = NULL, confirm_token = NULL, confirm_code_expires_at = NULL
+		WHERE lower(email) = lower($1)
+		  AND confirm_code = $2
+		  AND (confirm_code_expires_at IS NULL OR confirm_code_expires_at > now())
+		RETURNING id::text, email, password_hash, role, is_terminal, confirmed, created_at, phone, phone_verified
+	`, email, code).Scan(
+		&u.ID, &u.Email, &u.PasswordHash, &u.Role, &u.IsTerminal, &u.Confirmed, &u.CreatedAt, &u.Phone, &u.PhoneVerified,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Session{}, domain.User{}, fmt.Errorf("invalid or expired confirmation code: %w", application.ErrInvalidState)
+	}
+	if err != nil {
+		return domain.Session{}, domain.User{}, dbError(err)
+	}
+
+	token, err := randomToken()
+	if err != nil {
+		return domain.Session{}, domain.User{}, err
+	}
+	expiresAt := time.Now().Add(sessionTTL)
+	_, err = p.pool.Exec(ctx, `
+		INSERT INTO sessions (token, user_id, expires_at)
+		VALUES ($1, $2::uuid, $3)
+	`, token, u.ID, expiresAt)
+	if err != nil {
+		return domain.Session{}, domain.User{}, dbError(err)
+	}
+
+	return domain.Session{Token: token, UserID: u.ID, ExpiresAt: expiresAt}, u, nil
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ConfirmEmailByToken — подтверждает пользователя по URL-токену и создает сессию
+// ─────────────────────────────────────────────────────────────────────────────
+
+func (p *Postgres) ConfirmEmailByToken(ctx context.Context, token string) (domain.Session, domain.User, error) {
+	token = strings.TrimSpace(token)
+
+	var u domain.User
+	err := p.pool.QueryRow(ctx, `
+		UPDATE users
+		SET confirmed = true, confirm_code = NULL, confirm_token = NULL, confirm_code_expires_at = NULL
+		WHERE confirm_token = $1
+		  AND (confirm_code_expires_at IS NULL OR confirm_code_expires_at > now())
+		RETURNING id::text, email, password_hash, role, is_terminal, confirmed, created_at, phone, phone_verified
+	`, token).Scan(
+		&u.ID, &u.Email, &u.PasswordHash, &u.Role, &u.IsTerminal, &u.Confirmed, &u.CreatedAt, &u.Phone, &u.PhoneVerified,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Session{}, domain.User{}, fmt.Errorf("invalid or expired confirmation token: %w", application.ErrInvalidState)
+	}
+	if err != nil {
+		return domain.Session{}, domain.User{}, dbError(err)
+	}
+
+	sessToken, err := randomToken()
+	if err != nil {
+		return domain.Session{}, domain.User{}, err
+	}
+	expiresAt := time.Now().Add(sessionTTL)
+	_, err = p.pool.Exec(ctx, `
+		INSERT INTO sessions (token, user_id, expires_at)
+		VALUES ($1, $2::uuid, $3)
+	`, sessToken, u.ID, expiresAt)
+	if err != nil {
+		return domain.Session{}, domain.User{}, dbError(err)
+	}
+
+	return domain.Session{Token: sessToken, UserID: u.ID, ExpiresAt: expiresAt}, u, nil
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ResendEmailConfirmation — генерирует новый код и токен для неподтвержденного пользователя
+// ─────────────────────────────────────────────────────────────────────────────
+
+func (p *Postgres) ResendEmailConfirmation(ctx context.Context, email string) (string, string, error) {
+	email = strings.TrimSpace(strings.ToLower(email))
+
+	codeBytes := make([]byte, 3)
+	if _, err := rand.Read(codeBytes); err != nil {
+		return "", "", fmt.Errorf("generating code: %w", err)
+	}
+	codeVal := (int(codeBytes[0])<<16 | int(codeBytes[1])<<8 | int(codeBytes[2])) % 1000000
+	code := fmt.Sprintf("%06d", codeVal)
+
+	token, err := randomToken()
+	if err != nil {
+		return "", "", fmt.Errorf("generating token: %w", err)
+	}
+	expiresAt := time.Now().Add(15 * time.Minute)
+
+	tag, err := p.pool.Exec(ctx, `
+		UPDATE users
+		SET confirm_code = $1, confirm_token = $2, confirm_code_expires_at = $3
+		WHERE lower(email) = lower($4) AND confirmed = false
+	`, code, token, expiresAt, email)
+	if err != nil {
+		return "", "", dbError(err)
+	}
+	if tag.RowsAffected() == 0 {
+		return "", "", fmt.Errorf("user not found or already confirmed: %w", application.ErrNotFound)
+	}
+
+	return code, token, nil
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

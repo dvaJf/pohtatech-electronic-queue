@@ -91,10 +91,29 @@ export async function login(email: string, password: string): Promise<void> {
   });
 }
 
-export async function register(email: string, password: string): Promise<User> {
-  return await request<User>('/auth/register', {
+export interface RegisterResponse extends User {
+  requiresConfirmation?: boolean;
+  message?: string;
+}
+
+export async function register(email: string, password: string): Promise<RegisterResponse> {
+  return await request<RegisterResponse>('/auth/register', {
     method: 'POST',
     body: JSON.stringify({ email, password }),
+  });
+}
+
+export async function confirmEmailCode(email: string, code: string): Promise<{ status: string; user: User }> {
+  return await request<{ status: string; user: User }>('/auth/confirm-code', {
+    method: 'POST',
+    body: JSON.stringify({ email, code }),
+  });
+}
+
+export async function resendEmailCode(email: string): Promise<{ status: string; message: string }> {
+  return await request<{ status: string; message: string }>('/auth/resend-code', {
+    method: 'POST',
+    body: JSON.stringify({ email }),
   });
 }
 

@@ -107,6 +107,9 @@ type UseCases interface {
 	// Auth & Roles
 	Register(ctx context.Context, email, password string) (domain.User, error)
 	ConfirmEmail(ctx context.Context, token string) error
+	ConfirmEmailByCode(ctx context.Context, email, code string) (domain.Session, domain.User, error)
+	ConfirmEmailByToken(ctx context.Context, token string) (domain.Session, domain.User, error)
+	ResendEmailConfirmation(ctx context.Context, email string) (code, token string, err error)
 	Login(ctx context.Context, email, password string) (domain.Session, error)
 	LoginOAuth(ctx context.Context, email string) (domain.Session, error)
 	Logout(ctx context.Context, token string) error

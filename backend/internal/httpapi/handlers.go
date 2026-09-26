@@ -10,18 +10,21 @@ import (
 	"github.com/go-chi/chi/v5"
 	"postcode/backend/internal/application"
 	"postcode/backend/internal/domain"
+	"postcode/backend/internal/mailer"
 	"postcode/backend/internal/sms"
 )
 
 type API struct {
 	usecases  application.UseCases
 	smsClient *sms.Client
+	mailer    *mailer.Mailer
 }
 
 func NewAPI(usecases application.UseCases) *API {
 	return &API{
 		usecases:  usecases,
 		smsClient: sms.NewClient(slog.Default()),
+		mailer:    mailer.New(mailer.ConfigFromEnv()),
 	}
 }
 
@@ -33,6 +36,8 @@ func (a *API) RegisterRoutes(r chi.Router) {
 		r.Route("/auth", func(r chi.Router) {
 			r.Post("/register", a.Register)
 			r.Get("/confirm", a.ConfirmEmail)
+			r.Post("/confirm-code", a.ConfirmEmailCode)
+			r.Post("/resend-code", a.ResendEmailCode)
 			r.Post("/login", a.Login)
 			r.Post("/logout", a.Logout)
 			r.Get("/me", a.GetMe) // возвращает 401 если нет сессии

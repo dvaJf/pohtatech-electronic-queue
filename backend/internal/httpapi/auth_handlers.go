@@ -1,10 +1,12 @@
 package httpapi
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math/big"
 	"net"
 	"net/http"
@@ -26,6 +28,15 @@ import (
 type registerRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
+}
+
+type confirmCodeRequest struct {
+	Email string `json:"email"`
+	Code  string `json:"code"`
+}
+
+type resendCodeRequest struct {
+	Email string `json:"email"`
 }
 
 type loginRequest struct {
@@ -87,7 +98,69 @@ func (a *API) Register(w http.ResponseWriter, r *http.Request) {
 		a.respondError(w, r, err)
 		return
 	}
-	writeJSONResponse(w, http.StatusCreated, toUserDTO(u))
+
+	if !u.Confirmed && u.ConfirmCode != nil && u.ConfirmToken != nil {
+		if a.mailer != nil {
+			go func(email, code, token string) {
+				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				defer cancel()
+				if err := a.mailer.SendConfirmationEmail(ctx, email, code, token); err != nil {
+					slog.Error("Failed to send confirmation email", "to", email, "error", err)
+				}
+			}(u.Email, *u.ConfirmCode, *u.ConfirmToken)
+		}
+	}
+
+	writeJSONResponse(w, http.StatusCreated, map[string]any{
+		"id":                   u.ID,
+		"email":                u.Email,
+		"role":                 string(u.Role),
+		"isTerminal":           u.IsTerminal,
+		"confirmed":            u.Confirmed,
+		"requiresConfirmation": !u.Confirmed,
+		"message":              "Код подтверждения отправлен на вашу почту",
+		"user":                 toUserDTO(u),
+	})
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/v1/auth/confirm-code
+// ─────────────────────────────────────────────────────────────────────────────
+
+func (a *API) ConfirmEmailCode(w http.ResponseWriter, r *http.Request) {
+	var req confirmCodeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, r, http.StatusBadRequest, "BAD_REQUEST", "invalid request body")
+		return
+	}
+	req.Email = strings.TrimSpace(strings.ToLower(req.Email))
+	req.Code = strings.TrimSpace(req.Code)
+	if req.Email == "" || req.Code == "" {
+		writeJSONError(w, r, http.StatusBadRequest, "VALIDATION", "email and code are required")
+		return
+	}
+
+	sess, u, err := a.usecases.ConfirmEmailByCode(r.Context(), req.Email, req.Code)
+	if err != nil {
+		a.respondError(w, r, err)
+		return
+	}
+
+	isSecure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
+	http.SetCookie(w, &http.Cookie{
+		Name:     sessionCookie,
+		Value:    sess.Token,
+		Path:     "/",
+		Expires:  sess.ExpiresAt,
+		HttpOnly: true,
+		Secure:   isSecure,
+		SameSite: http.SameSiteLaxMode,
+	})
+
+	writeJSONResponse(w, http.StatusOK, map[string]any{
+		"status": "confirmed",
+		"user":   toUserDTO(u),
+	})
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -97,14 +170,73 @@ func (a *API) Register(w http.ResponseWriter, r *http.Request) {
 func (a *API) ConfirmEmail(w http.ResponseWriter, r *http.Request) {
 	token := r.URL.Query().Get("token")
 	if token == "" {
-		writeJSONError(w, r, http.StatusBadRequest, "BAD_REQUEST", "token required")
+		http.Redirect(w, r, "/?auth_error=no_token", http.StatusTemporaryRedirect)
 		return
 	}
-	if err := a.usecases.ConfirmEmail(r.Context(), token); err != nil {
+	sess, _, err := a.usecases.ConfirmEmailByToken(r.Context(), token)
+	if err != nil {
+		if errLegacy := a.usecases.ConfirmEmail(r.Context(), token); errLegacy == nil {
+			http.Redirect(w, r, "/?auth=success&confirmed=email", http.StatusTemporaryRedirect)
+			return
+		}
+		http.Redirect(w, r, "/?auth_error=invalid_token", http.StatusTemporaryRedirect)
+		return
+	}
+
+	isSecure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
+	http.SetCookie(w, &http.Cookie{
+		Name:     sessionCookie,
+		Value:    sess.Token,
+		Path:     "/",
+		Expires:  sess.ExpiresAt,
+		HttpOnly: true,
+		Secure:   isSecure,
+		SameSite: http.SameSiteLaxMode,
+	})
+
+	returnURL := "/?auth=success&confirmed=email"
+	if strings.Contains(r.Host, "localhost") || strings.Contains(r.Host, "127.0.0.1") {
+		returnURL = "http://localhost:5173/?auth=success&confirmed=email"
+	}
+	http.Redirect(w, r, returnURL, http.StatusTemporaryRedirect)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/v1/auth/resend-code
+// ─────────────────────────────────────────────────────────────────────────────
+
+func (a *API) ResendEmailCode(w http.ResponseWriter, r *http.Request) {
+	var req resendCodeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, r, http.StatusBadRequest, "BAD_REQUEST", "invalid request body")
+		return
+	}
+	req.Email = strings.TrimSpace(strings.ToLower(req.Email))
+	if req.Email == "" {
+		writeJSONError(w, r, http.StatusBadRequest, "VALIDATION", "email required")
+		return
+	}
+
+	code, token, err := a.usecases.ResendEmailConfirmation(r.Context(), req.Email)
+	if err != nil {
 		a.respondError(w, r, err)
 		return
 	}
-	writeJSONResponse(w, http.StatusOK, map[string]string{"status": "confirmed"})
+
+	if a.mailer != nil {
+		go func(email, code, token string) {
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			if err := a.mailer.SendConfirmationEmail(ctx, email, code, token); err != nil {
+				slog.Error("Failed to resend confirmation email", "to", email, "error", err)
+			}
+		}(req.Email, code, token)
+	}
+
+	writeJSONResponse(w, http.StatusOK, map[string]string{
+		"status":  "sent",
+		"message": "Новый код подтверждения отправлен на вашу почту",
+	})
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

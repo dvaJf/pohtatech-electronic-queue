@@ -50,6 +50,9 @@ type FakeUseCases struct {
 
 	RegisterFunc       func(ctx context.Context, email, password string) (domain.User, error)
 	ConfirmEmailFunc   func(ctx context.Context, token string) error
+	ConfirmEmailByCodeFunc func(ctx context.Context, email, code string) (domain.Session, domain.User, error)
+	ConfirmEmailByTokenFunc func(ctx context.Context, token string) (domain.Session, domain.User, error)
+	ResendEmailConfirmationFunc func(ctx context.Context, email string) (string, string, error)
 	LoginFunc          func(ctx context.Context, email, password string) (domain.Session, error)
 	LoginOAuthFunc     func(ctx context.Context, email string) (domain.Session, error)
 	LogoutFunc         func(ctx context.Context, token string) error
@@ -261,6 +264,27 @@ func (f *FakeUseCases) ConfirmEmail(ctx context.Context, token string) error {
 		return f.ConfirmEmailFunc(ctx, token)
 	}
 	return nil
+}
+
+func (f *FakeUseCases) ConfirmEmailByCode(ctx context.Context, email, code string) (domain.Session, domain.User, error) {
+	if f.ConfirmEmailByCodeFunc != nil {
+		return f.ConfirmEmailByCodeFunc(ctx, email, code)
+	}
+	return domain.Session{}, domain.User{}, nil
+}
+
+func (f *FakeUseCases) ConfirmEmailByToken(ctx context.Context, token string) (domain.Session, domain.User, error) {
+	if f.ConfirmEmailByTokenFunc != nil {
+		return f.ConfirmEmailByTokenFunc(ctx, token)
+	}
+	return domain.Session{}, domain.User{}, nil
+}
+
+func (f *FakeUseCases) ResendEmailConfirmation(ctx context.Context, email string) (string, string, error) {
+	if f.ResendEmailConfirmationFunc != nil {
+		return f.ResendEmailConfirmationFunc(ctx, email)
+	}
+	return "123456", "token", nil
 }
 
 func (f *FakeUseCases) Login(ctx context.Context, email, password string) (domain.Session, error) {

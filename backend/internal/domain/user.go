@@ -21,6 +21,8 @@ type User struct {
 	IsTerminal   bool
 	Confirmed    bool
 	ConfirmToken *string
+	ConfirmCode  *string
+	ConfirmCodeExpiresAt *time.Time
 	Phone        *string
 	PhoneVerified bool
 	CreatedAt    time.Time

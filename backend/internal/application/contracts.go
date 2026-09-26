@@ -48,6 +48,7 @@ type CreateAppointmentCommand struct {
 	ServiceID      string
 	ScheduledAt    time.Time
 	IdempotencyKey string
+	ClientID       *string
 }
 
 // UpdateWindowServicesCommand replaces the set of services a postal window is
@@ -113,6 +114,10 @@ type UseCases interface {
 	ListUsers(ctx context.Context, limit, offset int, search, role string) (domain.UserPage, error)
 	ListAnomalies(ctx context.Context, branchID string, limit, offset int) (domain.AnomalyPage, error)
 	ChangeUserRole(ctx context.Context, userID string, role domain.UserRole) (domain.User, error)
+	SetUserPhoneCode(ctx context.Context, userID, phone, code string, expiresAt time.Time) error
+	VerifyUserPhoneCode(ctx context.Context, userID, code string) (domain.User, error)
+	FindPendingSMSAppointments(ctx context.Context, windowMinutes int) ([]domain.AppointmentSMSNotification, error)
+	MarkSMSAppointmentReminderSent(ctx context.Context, ticketID string) error
 
 	// Notifications
 	ListNotificationOutbox(ctx context.Context, limit, offset int, status string) ([]domain.NotificationOutboxItem, int, error)

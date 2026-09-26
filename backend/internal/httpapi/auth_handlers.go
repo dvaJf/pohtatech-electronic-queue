@@ -1,8 +1,11 @@
 package httpapi
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"math/big"
 	"net"
 	"net/http"
 	"strconv"
@@ -13,6 +16,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"postcode/backend/internal/application"
 	"postcode/backend/internal/domain"
+	"postcode/backend/internal/sms"
 )
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -29,12 +33,22 @@ type loginRequest struct {
 	Password string `json:"password"`
 }
 
+type sendPhoneCodeRequest struct {
+	Phone string `json:"phone"`
+}
+
+type verifyPhoneCodeRequest struct {
+	Code string `json:"code"`
+}
+
 type userDTO struct {
-	ID         string `json:"id"`
-	Email      string `json:"email"`
-	Role       string `json:"role"`
-	IsTerminal bool   `json:"isTerminal"`
-	Confirmed  bool   `json:"confirmed"`
+	ID            string  `json:"id"`
+	Email         string  `json:"email"`
+	Role          string  `json:"role"`
+	IsTerminal    bool    `json:"isTerminal"`
+	Confirmed     bool    `json:"confirmed"`
+	Phone         *string `json:"phone,omitempty"`
+	PhoneVerified bool    `json:"phoneVerified"`
 }
 
 type changeRoleRequest struct {
@@ -43,11 +57,13 @@ type changeRoleRequest struct {
 
 func toUserDTO(u domain.User) userDTO {
 	return userDTO{
-		ID:         u.ID,
-		Email:      u.Email,
-		Role:       string(u.Role),
-		IsTerminal: u.IsTerminal,
-		Confirmed:  u.Confirmed,
+		ID:            u.ID,
+		Email:         u.Email,
+		Role:          string(u.Role),
+		IsTerminal:    u.IsTerminal,
+		Confirmed:     u.Confirmed,
+		Phone:         u.Phone,
+		PhoneVerified: u.PhoneVerified,
 	}
 }
 
@@ -297,4 +313,86 @@ func (a *API) ChangeUserRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSONResponse(w, http.StatusOK, toUserDTO(u))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/v1/auth/profile/phone/send-code
+// ─────────────────────────────────────────────────────────────────────────────
+
+func (a *API) SendPhoneCode(w http.ResponseWriter, r *http.Request) {
+	u, ok := userFromContext(r.Context())
+	if !ok {
+		writeJSONError(w, r, http.StatusUnauthorized, "UNAUTHENTICATED", "login required")
+		return
+	}
+	var req sendPhoneCodeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, r, http.StatusBadRequest, "BAD_REQUEST", "invalid request body")
+		return
+	}
+	normalized, err := sms.NormalizePhone(req.Phone)
+	if err != nil {
+		writeJSONError(w, r, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		return
+	}
+
+	codeInt, err := rand.Int(rand.Reader, big.NewInt(9000))
+	var code string
+	if err != nil {
+		code = "1234"
+	} else {
+		code = fmt.Sprintf("%04d", codeInt.Int64()+1000)
+	}
+
+	expiresAt := time.Now().Add(5 * time.Minute)
+	if err := a.usecases.SetUserPhoneCode(r.Context(), u.ID, normalized, code, expiresAt); err != nil {
+		a.respondError(w, r, err)
+		return
+	}
+
+	// Dispatch SMS
+	msg := fmt.Sprintf("Код подтверждения для Почты России: %s", code)
+	if a.smsClient != nil {
+		_ = a.smsClient.Send(r.Context(), normalized, msg)
+	}
+
+	writeJSONResponse(w, http.StatusOK, map[string]interface{}{
+		"status":    "ok",
+		"phone":     normalized,
+		"expiresIn": 300,
+	})
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/v1/auth/profile/phone/verify-code
+// ─────────────────────────────────────────────────────────────────────────────
+
+func (a *API) VerifyPhoneCode(w http.ResponseWriter, r *http.Request) {
+	u, ok := userFromContext(r.Context())
+	if !ok {
+		writeJSONError(w, r, http.StatusUnauthorized, "UNAUTHENTICATED", "login required")
+		return
+	}
+	var req verifyPhoneCodeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, r, http.StatusBadRequest, "BAD_REQUEST", "invalid request body")
+		return
+	}
+	code := strings.TrimSpace(req.Code)
+	if code == "" {
+		writeJSONError(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "code is required")
+		return
+	}
+
+	updatedUser, err := a.usecases.VerifyUserPhoneCode(r.Context(), u.ID, code)
+	if err != nil {
+		if errors.Is(err, application.ErrInvalidState) {
+			writeJSONError(w, r, http.StatusBadRequest, "INVALID_CODE", "Неверный или просроченный код")
+			return
+		}
+		a.respondError(w, r, err)
+		return
+	}
+
+	writeJSONResponse(w, http.StatusOK, toUserDTO(updatedUser))
 }

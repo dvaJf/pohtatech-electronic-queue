@@ -167,11 +167,17 @@ func (a *API) CreateAppointment(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	var clientID *string
+	if u, ok := userFromContext(r.Context()); ok && u.ID != "" {
+		clientID = &u.ID
+	}
+
 	result, err := a.usecases.CreateAppointment(r.Context(), application.CreateAppointmentCommand{
 		BranchID:       branchID,
 		ServiceID:      req.ServiceID,
 		ScheduledAt:    scheduledAt,
 		IdempotencyKey: idempotencyKey,
+		ClientID:       clientID,
 	})
 	if err != nil {
 		if errors.Is(err, application.ErrInvalidState) {

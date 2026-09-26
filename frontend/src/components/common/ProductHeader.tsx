@@ -1,8 +1,9 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { BarChart3, Clock, Eye, MapPin, RotateCcw, UserPlus, UserX, Volume2, VolumeX, X } from 'lucide-react';
+import { BarChart3, CheckCircle2, Clock, Eye, MapPin, RotateCcw, Smartphone, UserPlus, UserX, Volume2, VolumeX, X } from 'lucide-react';
 import { PochtaEmblem, PochtaWordmark } from './PochtaBrand';
 import { getMe, logout, User } from '../../api/authApi';
 import { ClientAuthModal } from '../../features/auth/ClientAuthModal';
+import { UserProfileModal } from '../../features/auth/UserProfileModal';
 import { isSoundEnabled, setSoundEnabled } from '../../utils/postalVoice';
 
 interface ProductHeaderProps {
@@ -12,6 +13,7 @@ interface ProductHeaderProps {
 export function ProductHeader({ currentPath }: ProductHeaderProps) {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [soundEnabled, setSoundEnabledState] = useState(() => isSoundEnabled());
   const [isA11y, setIsA11y] = useState(() => {
     try {
@@ -245,7 +247,7 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
             <button
               ref={a11yButtonRef}
               type="button"
-              onClick={() => setA11yOpen((prev) => !prev)}
+              onClick={() => setA11yOpen((prev: boolean) => !prev)}
               aria-pressed={isA11y}
               aria-expanded={a11yOpen}
               aria-controls="a11y-settings"
@@ -398,12 +400,24 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
             <div className="flex items-center gap-1.5 sm:gap-2 border-l border-white/20 pl-1.5 sm:pl-2 ml-0.5">
               {currentUser ? (
                 <div className="flex items-center gap-1.5 sm:gap-2">
-                  <div className="flex flex-col items-end">
-                    <span className="text-[11px] font-bold text-white max-w-[70px] sm:max-w-[120px] truncate">{currentUser.email.split('@')[0]}</span>
+                  <button
+                    type="button"
+                    onClick={() => setIsProfileOpen(true)}
+                    className="flex flex-col items-end hover:bg-white/10 px-1.5 py-0.5 rounded-lg transition-colors text-left"
+                    title="Открыть профиль и управление СМС-напоминаниями"
+                  >
+                    <div className="flex items-center gap-1">
+                      <span className="text-[11px] font-bold text-white max-w-[70px] sm:max-w-[120px] truncate">{currentUser.email.split('@')[0]}</span>
+                      {currentUser.phoneVerified ? (
+                        <CheckCircle2 className="w-3 h-3 text-emerald-300 shrink-0" />
+                      ) : (
+                        <Smartphone className="w-3 h-3 text-blue-200 shrink-0" />
+                      )}
+                    </div>
                     <span className="text-[9px] text-blue-200 font-mono uppercase hidden xs:inline">
                       {currentUser.role === 'opc_chief' ? 'Начальник' : currentUser.role === 'employee' ? 'Оператор' : 'Клиент'}
                     </span>
-                  </div>
+                  </button>
                   <button
                     type="button"
                     onClick={handleLogout}
@@ -478,6 +492,18 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
           window.dispatchEvent(new CustomEvent('pochta:auth'));
         }}
       />
+
+      {currentUser && (
+        <UserProfileModal
+          isOpen={isProfileOpen}
+          onClose={() => setIsProfileOpen(false)}
+          user={currentUser}
+          onUserUpdate={(updated) => {
+            setCurrentUser(updated);
+            window.dispatchEvent(new CustomEvent('pochta:auth'));
+          }}
+        />
+      )}
     </>
   );
 }

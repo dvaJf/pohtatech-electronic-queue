@@ -4,6 +4,8 @@ export interface User {
   role: string;
   isTerminal: boolean;
   confirmed: boolean;
+  phone?: string;
+  phoneVerified?: boolean;
 }
 
 export interface UserPage {
@@ -128,3 +130,18 @@ export async function changeUserRole(userId: string, role: string): Promise<void
     body: JSON.stringify({ role }),
   });
 }
+
+export async function sendPhoneCode(phone: string): Promise<{ status: string; phone: string; expiresIn: number }> {
+  return await request('/auth/profile/phone/send-code', {
+    method: 'POST',
+    body: JSON.stringify({ phone }),
+  });
+}
+
+export async function verifyPhoneCode(code: string): Promise<User> {
+  return await request<User>('/auth/profile/phone/verify-code', {
+    method: 'POST',
+    body: JSON.stringify({ code }),
+  });
+}
+

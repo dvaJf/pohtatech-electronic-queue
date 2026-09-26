@@ -314,6 +314,22 @@ func (f *FakeUseCases) ChangeUserRole(ctx context.Context, userID string, role d
 	return domain.User{}, nil
 }
 
+func (f *FakeUseCases) SetUserPhoneCode(ctx context.Context, userID, phone, code string, expiresAt time.Time) error {
+	return nil
+}
+
+func (f *FakeUseCases) VerifyUserPhoneCode(ctx context.Context, userID, code string) (domain.User, error) {
+	return domain.User{ID: userID, PhoneVerified: true}, nil
+}
+
+func (f *FakeUseCases) FindPendingSMSAppointments(ctx context.Context, windowMinutes int) ([]domain.AppointmentSMSNotification, error) {
+	return nil, nil
+}
+
+func (f *FakeUseCases) MarkSMSAppointmentReminderSent(ctx context.Context, ticketID string) error {
+	return nil
+}
+
 // testSessionToken is the opaque cookie value the handler tests present to
 // loadSession. The fake resolves it through GetSessionUser.
 const testSessionToken = "test-session"

@@ -33,14 +33,20 @@ export default defineConfig(({ mode }) => ({
       ignored: ['**/node_modules/**', '**/.git/**'],
     },
     proxy: {
-      '/health': { target: 'http://backend:8080', changeOrigin: true },
-      '/ready': { target: 'http://backend:8080', changeOrigin: true },
+      '/health': {
+        target: 'http://backend:8080' ? (process.env.VITE_BACKEND_TARGET || 'http://localhost:8080') : 'http://backend:8080',
+        changeOrigin: true,
+      },
+      '/ready': {
+        target: 'http://backend:8080' ? (process.env.VITE_BACKEND_TARGET || 'http://localhost:8080') : 'http://backend:8080',
+        changeOrigin: true,
+      },
       '/api': {
-        target: 'http://backend:8080',
+        target: 'http://backend:8080' ? (process.env.VITE_BACKEND_TARGET || 'http://localhost:8080') : 'http://backend:8080',
         changeOrigin: true,
       },
       '/grafana': {
-        target: 'http://grafana:3000',
+        target: 'http://grafana:3000' ? (process.env.VITE_GRAFANA_TARGET || 'http://localhost:3001') : 'http://grafana:3000',
         changeOrigin: true,
         ws: true,
       },

@@ -119,6 +119,30 @@ export function ClientAuthModal({ isOpen, onClose, onUserChanged }: ClientAuthMo
           </button>
         </form>
 
+        {/* Разделитель авторизации */}
+        <div className="relative my-4">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t border-slate-200" />
+          </div>
+          <div className="relative flex justify-center text-xs">
+            <span className="bg-white px-2 text-slate-400 font-medium">или войти через</span>
+          </div>
+        </div>
+
+        {/* Кнопка Яндекс ID */}
+        <div>
+          <a
+            href="/api/v1/auth/oauth/yandex/login"
+            className="flex items-center justify-center gap-2.5 w-full py-2.5 px-4 rounded-xl border border-slate-900 bg-black hover:bg-slate-800 text-white text-xs font-bold transition-all shadow-sm active:scale-[0.98] text-center"
+            title="Войти с помощью Яндекс ID"
+          >
+            <div className="w-5 h-5 rounded-full bg-[#FC3F1D] flex items-center justify-center text-[11px] font-black leading-none text-white shrink-0">
+              Я
+            </div>
+            <span>Войти через Яндекс ID</span>
+          </a>
+        </div>
+
         <div className="mt-4 text-center">
           <button
             type="button"

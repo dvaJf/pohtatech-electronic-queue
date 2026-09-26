@@ -107,6 +107,7 @@ type UseCases interface {
 	Register(ctx context.Context, email, password string) (domain.User, error)
 	ConfirmEmail(ctx context.Context, token string) error
 	Login(ctx context.Context, email, password string) (domain.Session, error)
+	LoginOAuth(ctx context.Context, email string) (domain.Session, error)
 	Logout(ctx context.Context, token string) error
 	GetSessionUser(ctx context.Context, token string) (domain.User, error)
 	ListUsers(ctx context.Context, limit, offset int, search, role string) (domain.UserPage, error)

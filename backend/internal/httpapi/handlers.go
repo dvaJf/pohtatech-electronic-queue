@@ -31,6 +31,8 @@ func (a *API) RegisterRoutes(r chi.Router) {
 			r.Post("/login", a.Login)
 			r.Post("/logout", a.Logout)
 			r.Get("/me", a.GetMe) // возвращает 401 если нет сессии
+			r.Get("/oauth/{provider}/login", a.OAuthLogin)
+			r.Get("/oauth/{provider}/callback", a.OAuthCallback)
 		})
 
 		// ── Клиент: публичные ─────────────────────────────────────────────

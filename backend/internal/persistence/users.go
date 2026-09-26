@@ -240,7 +240,7 @@ func (p *Postgres) FindPendingSMSAppointments(ctx context.Context, windowMinutes
 		  AND t.sms_reminder_sent = false
 		  AND u.phone_verified = true
 		  AND u.phone IS NOT NULL
-		  AND t.scheduled_at <= (clock_timestamp() + ($1 || ' minutes')::interval)
+		  AND t.scheduled_at <= (clock_timestamp() + make_interval(mins => $1))
 		  AND t.scheduled_at >= clock_timestamp()
 		ORDER BY t.scheduled_at ASC
 		LIMIT 50

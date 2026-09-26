@@ -64,13 +64,18 @@ func New(cfg Config) *Mailer {
 	return &Mailer{cfg: cfg}
 }
 
-func (m *Mailer) SendConfirmationEmail(ctx context.Context, toEmail, code, token string) error {
+func (m *Mailer) SendConfirmationEmail(ctx context.Context, toEmail, code, token, customBaseURL string) error {
 	toEmail = strings.TrimSpace(strings.ToLower(toEmail))
 	if toEmail == "" {
 		return fmt.Errorf("recipient email is required")
 	}
 
-	confirmURL := fmt.Sprintf("%s/api/v1/auth/confirm?token=%s", m.cfg.AppBaseURL, token)
+	baseURL := m.cfg.AppBaseURL
+	if customBaseURL != "" {
+		baseURL = strings.TrimRight(customBaseURL, "/")
+	}
+
+	confirmURL := fmt.Sprintf("%s/api/v1/auth/confirm?token=%s", baseURL, token)
 
 	// Если SMTP не сконфигурирован — пишем в лог (mock/dev режим)
 	if m.cfg.User == "" || m.cfg.Password == "" {

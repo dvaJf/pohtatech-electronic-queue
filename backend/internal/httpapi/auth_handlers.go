@@ -10,6 +10,7 @@ import (
 	"math/big"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -101,13 +102,14 @@ func (a *API) Register(w http.ResponseWriter, r *http.Request) {
 
 	if !u.Confirmed && u.ConfirmCode != nil && u.ConfirmToken != nil {
 		if a.mailer != nil {
-			go func(email, code, token string) {
+			baseURL := getAppBaseURL(r)
+			go func(email, code, token, appURL string) {
 				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 				defer cancel()
-				if err := a.mailer.SendConfirmationEmail(ctx, email, code, token); err != nil {
+				if err := a.mailer.SendConfirmationEmail(ctx, email, code, token, appURL); err != nil {
 					slog.Error("Failed to send confirmation email", "to", email, "error", err)
 				}
-			}(u.Email, *u.ConfirmCode, *u.ConfirmToken)
+			}(u.Email, *u.ConfirmCode, *u.ConfirmToken, baseURL)
 		}
 	}
 
@@ -224,19 +226,34 @@ func (a *API) ResendEmailCode(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if a.mailer != nil {
-		go func(email, code, token string) {
+		baseURL := getAppBaseURL(r)
+		go func(email, code, token, appURL string) {
 			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 			defer cancel()
-			if err := a.mailer.SendConfirmationEmail(ctx, email, code, token); err != nil {
+			if err := a.mailer.SendConfirmationEmail(ctx, email, code, token, appURL); err != nil {
 				slog.Error("Failed to resend confirmation email", "to", email, "error", err)
 			}
-		}(req.Email, code, token)
+		}(req.Email, code, token, baseURL)
 	}
 
 	writeJSONResponse(w, http.StatusOK, map[string]string{
 		"status":  "sent",
 		"message": "Новый код подтверждения отправлен на вашу почту",
 	})
+}
+
+func getAppBaseURL(r *http.Request) string {
+	if strings.Contains(r.Host, "localhost") || strings.Contains(r.Host, "127.0.0.1") {
+		return "http://localhost:8080"
+	}
+	if custom := strings.TrimSpace(os.Getenv("SMTP_APP_BASE_URL")); custom != "" {
+		return strings.TrimRight(custom, "/")
+	}
+	scheme := "http"
+	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+		scheme = "https"
+	}
+	return fmt.Sprintf("%s://%s", scheme, r.Host)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

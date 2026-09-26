@@ -31,11 +31,14 @@ const (
 )
 
 type Branch struct {
-	ID             string `json:"id"`
-	Name           string `json:"name"`
-	Address        string `json:"address"`
-	WorkHours      string `json:"workHours"`
-	TimezoneOffset int    `json:"timezoneOffset"`
+	Latitude       *float64 `json:"latitude,omitempty"`
+	Longitude      *float64 `json:"longitude,omitempty"`
+	IsDemo         bool     `json:"isDemo"`
+	ID             string   `json:"id"`
+	Name           string   `json:"name"`
+	Address        string   `json:"address"`
+	WorkHours      string   `json:"workHours"`
+	TimezoneOffset int      `json:"timezoneOffset"`
 }
 type Service struct {
 	ID   string `json:"id"`
@@ -96,15 +99,15 @@ type QueuePolicy struct {
 type TicketEventType string
 
 const (
-	TicketEventCreated        TicketEventType = "CREATED"
-	TicketEventArrived        TicketEventType = "ARRIVED"
-	TicketEventNoShow         TicketEventType = "NO_SHOW"
-	TicketEventCalled         TicketEventType = "CALLED"
-	TicketEventServiceStarted TicketEventType = "SERVICE_STARTED"
-	TicketEventCompleted      TicketEventType = "COMPLETED"
-	TicketEventCancelled      TicketEventType = "CANCELLED"
-	TicketEventReturned       TicketEventType = "RETURNED"
-	TicketEventRedirected     TicketEventType = "REDIRECTED"
+	TicketEventCreated           TicketEventType = "CREATED"
+	TicketEventArrived           TicketEventType = "ARRIVED"
+	TicketEventNoShow            TicketEventType = "NO_SHOW"
+	TicketEventCalled            TicketEventType = "CALLED"
+	TicketEventServiceStarted    TicketEventType = "SERVICE_STARTED"
+	TicketEventCompleted         TicketEventType = "COMPLETED"
+	TicketEventCancelled         TicketEventType = "CANCELLED"
+	TicketEventReturned          TicketEventType = "RETURNED"
+	TicketEventRedirected        TicketEventType = "REDIRECTED"
 	TicketEventQueueRecalculated TicketEventType = "QUEUE_RECALCULATED"
 )
 
@@ -153,12 +156,16 @@ type HourlyWorkload struct {
 }
 
 type BranchWorkload struct {
-	BranchID       string           `json:"branchId"`
-	CurrentHour    int              `json:"currentHour"`
-	CurrentWaiting int              `json:"currentWaiting"`
-	SampleCount    int              `json:"sampleCount"`
-	IsHistorical   bool             `json:"isHistorical"`
-	Hourly         []HourlyWorkload `json:"hourly"`
+	ActiveWindows        int              `json:"activeWindows"`
+	EstimatedWaitSeconds *int             `json:"estimatedWaitSeconds"`
+	CalculatedAt         time.Time        `json:"calculatedAt"`
+	UsedFallback         bool             `json:"usedFallback"`
+	BranchID             string           `json:"branchId"`
+	CurrentHour          int              `json:"currentHour"`
+	CurrentWaiting       int              `json:"currentWaiting"`
+	SampleCount          int              `json:"sampleCount"`
+	IsHistorical         bool             `json:"isHistorical"`
+	Hourly               []HourlyWorkload `json:"hourly"`
 }
 
 type ShiftClosureResult struct {

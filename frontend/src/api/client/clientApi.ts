@@ -61,7 +61,7 @@ function parseBranches(value: unknown): BranchListResponse {
   return {
     items: value.items.map((item) => {
       if (!isRecord(item)) throw new ClientApiError('Некорректное отделение');
-      return { id: requireString(item.id, 'id'), name: requireString(item.name, 'name'), address: typeof item.address === 'string' ? item.address : undefined, workHours: typeof item.workHours === 'string' ? item.workHours : undefined };
+      return { latitude: typeof item.latitude === 'number' ? item.latitude : undefined, longitude: typeof item.longitude === 'number' ? item.longitude : undefined, isDemo: item.isDemo === true, id: requireString(item.id, 'id'), name: requireString(item.name, 'name'), address: typeof item.address === 'string' ? item.address : undefined, workHours: typeof item.workHours === 'string' ? item.workHours : undefined };
     }),
   };
 }
@@ -266,6 +266,10 @@ export type HourlyWorkload = {
 };
 
 export type BranchWorkload = {
+  activeWindows?: number;
+  estimatedWaitSeconds?: number | null;
+  calculatedAt?: string;
+  usedFallback?: boolean;
   branchId: string;
   currentHour: number;
   currentWaiting: number;

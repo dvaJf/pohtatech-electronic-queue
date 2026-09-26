@@ -1824,9 +1824,9 @@ export default function PochtaDemo({ currentPath = '/demo', navigate }: { curren
             </button>
 
             {/* Время отделения */}
-            <div className="flex items-center gap-1.5 bg-white/10 px-3 py-1 rounded-lg border border-white/15 text-white font-bold">
-              <Clock className="w-3.5 h-3.5 text-[#86BBFF]" />
-              <span>{currentTime.toTimeString().split(' ')[0]}</span>
+            <div className="flex items-center gap-1.5 bg-white/10 px-3 py-1 rounded-lg border border-white/15 text-white font-bold text-xs select-none">
+              <Clock className="w-3.5 h-3.5 text-[#86BBFF] shrink-0" />
+              <span className="tabular-nums leading-none translate-y-[1px]">{currentTime.toTimeString().split(' ')[0]}</span>
             </div>
 
             {/* Авторизация */}

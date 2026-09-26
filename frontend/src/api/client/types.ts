@@ -1,4 +1,7 @@
 export type Branch = {
+  latitude?: number;
+  longitude?: number;
+  isDemo?: boolean;
   id: string;
   name: string;
   address?: string;

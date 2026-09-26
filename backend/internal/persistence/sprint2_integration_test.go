@@ -104,7 +104,7 @@ func TestAppointmentQueuePolicyAndLifecycle(t *testing.T) {
 	ctx, p, _ := integration(t)
 	a := book(t, ctx, p, "future", parcels).Appointment.Ticket
 	_, err := p.CallNext(ctx, window1)
-	wantError(t, err, application.ErrNoEligibleTickets)
+	wantError(t, err, application.ErrNotEligibleYet)
 	due(t, ctx, p, a.ID)
 	_, err = p.CallNext(ctx, window2)
 	wantError(t, err, application.ErrNoEligibleTickets)

@@ -8,22 +8,23 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <!-- Golos Text — современный российский шрифт, близкий к фирменной гарнитуре Почты России -->
-    <!-- PT Sans — кириллический компромисс (Google Fonts), если Golos недоступен -->
-    <link href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700;800;900&family=PT+Sans:ital,wght@0,400;0,700;1,400;1,700&display=swap" rel="stylesheet">
-    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Golos Text, Manrope, JetBrains Mono — шрифты дизайн-системы Почты России -->
+    <link href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700;800;900&family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&family=PT+Sans:ital,wght@0,400;0,700;1,400;1,700&display=swap" rel="stylesheet">
     <style>
       :root {
-        /* Дизайн-токены: смена палитры — в одном месте */
-        --color-primary:    #003B73;   /* Classic Postal Navy */
+        /* Дизайн-токены: Postal Reflex Blue & Deep Cobalt */
+        --color-primary:    #052F85;   /* Postal Reflex Blue */
+        --color-cobalt:     #031E56;   /* Deep Cobalt */
         --color-accent:     #0EA5E9;   /* sky-500, бирюзовый */
-        --color-accent-2:   #054FA6;   /* Digital Blue */
-        --color-bg:         #F8FAFC;
+        --color-accent-2:   #0055A5;   /* Ultramarine Blue */
+        --color-bg:         #F8FAFC;   /* Canvas */
         --color-surface:    #FFFFFF;
+        --color-border:     #E2E8F0;   /* Borders */
         --color-text:       #0F172A;
         --color-text-muted: #64748B;
-        /* Шрифт: Golos Text (основной), PT Sans (резерв), системный */
-        --font-primary: 'Golos Text', 'PT Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        /* Шрифт: Manrope / Golos Text (основной), JetBrains Mono (моно) */
+        --font-primary: 'Manrope', 'Golos Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        --font-mono: 'JetBrains Mono', monospace;
       }
       body { font-family: var(--font-primary); }
     </style>

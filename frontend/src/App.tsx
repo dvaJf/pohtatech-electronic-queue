@@ -1,9 +1,9 @@
-import { MouseEvent, ReactNode, useEffect, useState } from 'react';
+import { lazy, Suspense, MouseEvent, ReactNode, useEffect, useState } from 'react';
 import { checkHealth } from './api/health';
 import { ClientPage } from './pages/ClientPage';
-import { OperatorPage } from './pages/OperatorPage';
-import { AdminPage } from './pages/AdminPage';
-import PochtaDemo from './PochtaDemo';
+const OperatorPage = lazy(() => import('./pages/OperatorPage').then(module => ({ default: module.OperatorPage })));
+const AdminPage = lazy(() => import('./pages/AdminPage').then(module => ({ default: module.AdminPage })));
+const PochtaDemo = lazy(() => import('./PochtaDemo'));
 import { AuthBoundary } from './features/auth/AuthBoundary';
 import './product.css';
 import { PhysicalQRPage } from './pages/PhysicalQRPage';
@@ -56,7 +56,7 @@ export function App() {
   }
 
   if (currentPath === '/demo' || currentPath.startsWith('/demo/')) {
-    return <><p role="note" style={{ padding: '12px', textAlign: 'center' }}>Демонстрационный режим: часть показателей моделируется. <a href="/">Открыть реальный клиент</a></p><PochtaDemo currentPath={currentPath} navigate={navigate} /></>;
+    return <><p role="note" style={{ padding: '12px', textAlign: 'center' }}>Демонстрационный режим: часть показателей моделируется. <a href="/">Открыть реальный клиент</a></p><Suspense fallback={<p>Загрузка демонстрации…</p>}><PochtaDemo currentPath={currentPath} navigate={navigate} /></Suspense></>;
   }
   const routes: Array<{ path: string; label: string; page: ReactNode }> = [
     { path: '/tv', label: 'TV', page: <TVBoard /> },
@@ -80,7 +80,7 @@ export function App() {
     <div className="product-shell min-h-screen bg-[#F8FAFC] text-slate-900 flex flex-col font-sans">
       <ProductHeader currentPath={currentPath} />
       <main id="main" className="flex-1 w-full max-w-7xl mx-auto px-4 py-4 sm:py-6">
-        {activeRoute.page}
+        <Suspense fallback={<p>Загрузка рабочего места…</p>}>{activeRoute.page}</Suspense>
       </main>
     </div>
   );

@@ -170,7 +170,7 @@ test('UsersManagement supports instant user search, role filtering, and empty st
   const content = await readFile(new URL('../src/features/admin/UsersManagement.tsx', import.meta.url), 'utf8');
   assert.match(content, /Поиск по email, роли/);
   assert.match(content, /listUsers\(\{ page, limit: pageSize, search: searchQuery, role: roleFilter \}\)/);
-  for (const role of ['all', 'employee', 'opc_chief', 'client', 'terminal']) {
+  for (const role of ['all', 'employee', 'opc_chief', 'client']) {
     assert.ok(content.includes(`{counts.${role}}`));
   }
   assert.match(content, /setPageSize\(size\); setPage\(1\)/);

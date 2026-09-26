@@ -1,15 +1,24 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as api from '../../api/client/clientApi';
 import { getMe } from '../../api/authApi';
 import { Appointment, Branch, Service, Ticket, TicketStatus, TicketSource, QueuePosition, TicketETA } from '../../api/client/types';
-import { CalendarClock, Ticket as TicketIcon, ListChecks, ChevronLeft, ChevronRight, MapPin, Clock, Check, Sparkles, Building2, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { CalendarClock, Ticket as TicketIcon, ListChecks, ChevronLeft, ChevronRight, MapPin, Clock, Check, Sparkles, Building2, AlertCircle, CheckCircle2, Navigation, X, Search, Zap, Star } from 'lucide-react';
 import './client.css';
 import './kiosk.css';
 import { formatMoscowDateTime, parseMoscowDatetimeLocal, toMoscowDatetimeLocal } from '../../utils/time';
 import { PochtaEmblem } from '../../components/common/PochtaBrand';
 import { BranchWorkloadCard } from './BranchWorkloadCard';
 import { Appointment24hPicker } from './Appointment24hPicker';
-import { announceTicketCall } from '../../utils/postalVoice';
+import { useGeofencing, ArrivalSheet, GeofenceSimulationMode, calculateHaversineDistanceMeters, DEFAULT_GEOFENCE_THRESHOLD_METERS } from './arrival';
+import { BranchMapModal } from './map/BranchMapModal';
+import { calculateSmartRouting, MOSCOW_BRANCHES, BranchLocation, RankedBranch } from './map/branchLocations';
+
+import { matchBranchLocation, liveWaitMinutes } from './map/liveBranches';
+import { useBranchWorkloads } from './map/useBranchWorkloads';
+import { createArrivalIssuer } from './arrival/arrivalPolicy';
+import { VisitRatingSheet } from './rating/VisitRatingSheet';
+import { shouldOfferVisitRating } from './rating/visitRatingPolicy';
+import { BOOKING_BRANCH_PREVIEW_LIMIT, getBookingBranchOptions } from './branchOptions';
 
 const POLL_INTERVAL_MS = 2000;
 const terminalStatuses = new Set<TicketStatus>(['COMPLETED', 'CANCELLED', 'NO_SHOW']);
@@ -19,10 +28,46 @@ const STORAGE_SERVICE_KEY = 'client_selected_service_id';
 const STORAGE_TICKETS_KEY = 'client_active_ticket_ids';
 const STORAGE_APPOINTMENTS_KEY = 'client.appointments';
 const STORAGE_MGMT_TOKENS_KEY = 'client_management_tokens';
+const STORAGE_VISIT_RATINGS_KEY = 'client_visit_ratings';
 const STORAGE_PENDING_IDEMPOTENCY_KEY = 'client_pending_idempotency';
 const ANON_SCOPE = 'anon';
 
 type ClientScreen = 'home' | 'booking' | 'walkin' | 'my';
+
+interface VisitRatingRecord {
+  ticketId: string;
+  rating: number;
+  comment: string;
+  branchId: string;
+  submittedAt: string;
+}
+
+interface VisitRatingHistory {
+  pending: Ticket[];
+  reviewed: string[];
+  dismissed: string[];
+  ratings: VisitRatingRecord[];
+}
+
+function visitRatingKeyFor(scope: string): string { return `${STORAGE_VISIT_RATINGS_KEY}:${scope}`; }
+
+function getVisitRatingHistory(scope: string): VisitRatingHistory {
+  const empty: VisitRatingHistory = { pending: [], reviewed: [], dismissed: [], ratings: [] };
+  try {
+    const value = JSON.parse(localStorage.getItem(visitRatingKeyFor(scope)) || 'null');
+    if (!value || typeof value !== 'object') return empty;
+    return {
+      pending: Array.isArray(value.pending) ? value.pending.filter((item: Ticket) => item?.status === 'COMPLETED' && typeof item.id === 'string') : [],
+      reviewed: Array.isArray(value.reviewed) ? value.reviewed.filter((id: unknown): id is string => typeof id === 'string') : [],
+      dismissed: Array.isArray(value.dismissed) ? value.dismissed.filter((id: unknown): id is string => typeof id === 'string') : [],
+      ratings: Array.isArray(value.ratings) ? value.ratings : [],
+    };
+  } catch { return empty; }
+}
+
+function saveVisitRatingHistory(scope: string, history: VisitRatingHistory) {
+  try { localStorage.setItem(visitRatingKeyFor(scope), JSON.stringify(history)); } catch { /* local feedback is optional */ }
+}
 
 function makeIdempotencyKey(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
@@ -123,19 +168,122 @@ function StepIndicator({ steps, current }: { steps: string[]; current: number })
   );
 }
 
-function BranchCard({ branch, selected, onSelect }: { branch: Branch; selected: boolean; onSelect: () => void }) {
+interface BranchCardProps {
+  branch: Branch;
+  selected: boolean;
+  onSelect: () => void;
+  distanceMeters?: number;
+  travelMinutes?: number;
+  waitMinutes?: number;
+  totalMinutes?: number;
+  isFastest?: boolean;
+  isClosest?: boolean;
+  timeSavedMinutes?: number;
+  metro?: string;
+  rating?: number;
+}
+
+function BranchCard({
+  branch,
+  selected,
+  onSelect,
+  distanceMeters,
+  travelMinutes,
+  waitMinutes,
+  totalMinutes,
+  isFastest,
+  isClosest,
+  timeSavedMinutes,
+  metro,
+  rating,
+}: BranchCardProps) {
+  const distText = typeof distanceMeters === 'number'
+    ? (distanceMeters < 1000 ? `${distanceMeters} м` : `${(distanceMeters / 1000).toFixed(1)} км`)
+    : null;
+
   return (
     <button
       type="button"
-      className={`cx-choice active:scale-[0.99] transition-all${selected ? ' cx-choice-selected' : ''}`}
+      className={`cx-choice active:scale-[0.99] transition-all relative overflow-hidden ${
+        selected ? ' cx-choice-selected' : ''
+      } ${isFastest ? 'ring-2 ring-emerald-500/60 bg-emerald-50/20' : ''}`}
       aria-pressed={selected}
       onClick={onSelect}
     >
-      <div className="flex items-start justify-between gap-2 w-full">
+      {/* Бейджи статуса: Рекомендуем (минимальное общее время) или Ближайшее */}
+      <div className="flex flex-wrap items-center gap-1.5 mb-1.5 w-full">
+        {isFastest && (
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-xs">
+            <Zap size={11} className="fill-emerald-600 text-emerald-600" />
+            <span>Рекомендуем: быстрее всего</span>
+            {typeof totalMinutes === 'number' && <span className="opacity-80">· ~{totalMinutes} мин</span>}
+          </span>
+        )}
+        {isFastest && typeof timeSavedMinutes === 'number' && timeSavedMinutes > 0 && (
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
+            Экономия ~{timeSavedMinutes} мин vs ближайшего
+          </span>
+        )}
+        {isClosest && !isFastest && (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200">
+            <Navigation size={10} />
+            <span>Ближайшее к вам</span>
+          </span>
+        )}
+        {rating && (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700">
+            <Star size={10} className="fill-amber-400 text-amber-400" />
+            <span>{rating.toFixed(1)} · Яндекс Карты</span>
+          </span>
+        )}
+      </div>
+
+      <div className="flex items-start justify-between gap-2 w-full text-left">
         <div className="flex-1 min-w-0">
-          <span className="cx-choice-title text-sm sm:text-base">{branch.name}</span>
-          {branch.address ? <span className="cx-choice-meta text-xs"><MapPin size={13} aria-hidden className="shrink-0" /> <span className="cx-message-text">{branch.address}</span></span> : null}
-          {branch.workHours ? <span className="cx-choice-meta text-xs"><Clock size={13} aria-hidden className="shrink-0" /> {branch.workHours}</span> : null}
+          <span className="cx-choice-title text-sm sm:text-base font-extrabold">{branch.name}</span>
+
+          {/* Расстояние, время в пути и общее расчетное время T = T_travel + T_wait */}
+          {(distText || typeof totalMinutes === 'number') && (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-600 my-1 font-medium">
+              {distText && (
+                <span className="inline-flex items-center gap-1 text-[#052F85] font-bold">
+                  <Navigation size={12} className="shrink-0" />
+                  <span>{distText} ({travelMinutes ?? Math.round((distanceMeters! / 1000) * 12)} мин пешком)</span>
+                </span>
+              )}
+              {typeof waitMinutes === 'number' && (
+                <span className="text-slate-500">
+                  Очередь: ~<strong>{waitMinutes} мин</strong>
+                </span>
+              )}
+              {typeof totalMinutes === 'number' && (
+                <span className="text-slate-700 font-semibold">
+                  Дорога + очередь: <strong>~{totalMinutes} мин</strong>
+                </span>
+              )}
+            </div>
+          )}
+
+          {metro && (
+            <span className="cx-choice-meta text-xs">
+              <span className="inline-block w-2 h-2 rounded-full bg-[#EF161E] shrink-0" />
+              <span>{metro}</span>
+            </span>
+          )}
+
+          {branch.address ? (
+            <span className="cx-choice-meta text-xs">
+              <MapPin size={13} aria-hidden className="shrink-0 text-slate-400" />
+              <span className="cx-message-text">{branch.address}</span>
+            </span>
+          ) : null}
+
+          {branch.workHours ? (
+            <span className="cx-choice-meta text-xs">
+              <Clock size={13} aria-hidden className="shrink-0 text-slate-400" />
+              <span>{branch.workHours}</span>
+            </span>
+          ) : null}
         </div>
         <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 border-2 transition-all mt-0.5 ${selected ? 'bg-[#003B73] border-[#003B73] text-white' : 'border-slate-300 bg-white'}`}>
           {selected && <Check size={12} strokeWidth={3} />}
@@ -175,6 +323,33 @@ function ticketsKeyFor(scope: string): string {
 
 function appointmentsKeyFor(scope: string): string {
   return `${STORAGE_APPOINTMENTS_KEY}:${scope}`;
+}
+
+const STORAGE_TICKETS_CACHE_KEY = 'client_active_tickets_cache';
+
+function ticketsCacheKeyFor(scope: string): string {
+  return `${STORAGE_TICKETS_CACHE_KEY}:${scope}`;
+}
+
+function getCachedTickets(scope: string): Ticket[] {
+  try {
+    const val = sessionStorage.getItem(ticketsCacheKeyFor(scope)) || localStorage.getItem(ticketsCacheKeyFor(scope));
+    if (!val) return [];
+    const parsed = JSON.parse(val);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((t): t is Ticket => t && typeof t.id === 'string' && !terminalStatuses.has(t.status));
+  } catch {
+    return [];
+  }
+}
+
+function saveCachedTickets(scope: string, ticketList: Ticket[]) {
+  try {
+    const active = ticketList.filter(t => !terminalStatuses.has(t.status));
+    const serialized = JSON.stringify(active);
+    sessionStorage.setItem(ticketsCacheKeyFor(scope), serialized);
+    localStorage.setItem(ticketsCacheKeyFor(scope), serialized);
+  } catch {}
 }
 
 // Талоны храним строго по владельцу: ключ `client_active_ticket_ids:<userId|anon>`.
@@ -321,13 +496,13 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
     return () => window.clearTimeout(timer);
   }, [notice]);
 
-  const [tickets, setTickets] = useState<Ticket[]>([]);
-  const [kioskTicket, setKioskTicket] = useState<Ticket | null>(null);
-
   // Владелец талонов. Талоны храним и показываем строго по текущему пользователю,
   // чтобы новый пользователь не видел талоны, созданные другим.
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const ownerScope = currentUserId ?? ANON_SCOPE;
+  const [tickets, setTickets] = useState<Ticket[]>(() => getCachedTickets(ANON_SCOPE));
+  const [kioskTicket, setKioskTicket] = useState<Ticket | null>(null);
+
   // Держим актуальный scope доступным внутри колбэков без пересоздания pollAll.
   const ownerScopeRef = useRef(ownerScope);
   ownerScopeRef.current = ownerScope;
@@ -347,15 +522,196 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
     try { localStorage.setItem(appointmentsKeyFor(ownerScope), JSON.stringify(appointments)); } catch { /* ignore */ }
   }, [appointments, ownerScope]);
 
+  useEffect(() => {
+    const cached = getCachedTickets(ownerScope);
+    if (cached.length > 0) {
+      setTickets(prev => {
+        if (prev.length === 0) return cached;
+        const ids = new Set(prev.map(t => t.id));
+        const added = cached.filter(t => !ids.has(t.id));
+        return added.length > 0 ? [...prev, ...added] : prev;
+      });
+    }
+  }, [ownerScope]);
+
+  useEffect(() => {
+    saveCachedTickets(ownerScope, tickets);
+  }, [tickets, ownerScope]);
+
   const [positions, setPositions] = useState<Record<string, QueuePosition>>({});
   const [etas, setEtas] = useState<Record<string, TicketETA>>({});
   const [pollError, setPollError] = useState<string | null>(null);
   const [ticketsLoading, setTicketsLoading] = useState(true);
   const [arrivalAcknowledgedTicketIds, setArrivalAcknowledgedTicketIds] = useState<Set<string>>(new Set());
+  const [visitRatingQueue, setVisitRatingQueue] = useState<Ticket[]>(() => getVisitRatingHistory(ownerScope).pending);
+
+  useEffect(() => {
+    setVisitRatingQueue(getVisitRatingHistory(ownerScope).pending);
+  }, [ownerScope]);
 
   const [creating, setCreating] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [arriving, setArriving] = useState(false);
+
+  const workloads = useBranchWorkloads(branches.map(b => b.id));
+  const locatedBranches = useMemo(() => {
+    const list = branches.length > 0 ? branches : (MOSCOW_BRANCHES as unknown as Branch[]);
+    return list.flatMap(b => {
+      const loc = matchBranchLocation(b, MOSCOW_BRANCHES);
+      if (!loc) return [];
+      const workload = workloads[b.id];
+      return [{ ...loc, ...b, address: b.address!, id: b.id,
+        currentWaiting: workload?.currentWaiting,
+        currentActiveWindows: workload?.activeWindows,
+        serverWaitMinutes: liveWaitMinutes(workload) }];
+    });
+  }, [branches, workloads]);
+  const routingBranches = useMemo(() => locatedBranches.flatMap(loc => {
+    const workload = workloads[loc.id];
+    const wait = liveWaitMinutes(workload);
+    return wait === undefined ? [] : [{ ...loc, activeQueueCount: workload.currentWaiting,
+      activeWindows: workload.activeWindows!, serverWaitMinutes: wait }];
+  }), [locatedBranches, workloads]);
+  const [arrivalServices, setArrivalServices] = useState<Service[]>([]);
+  const [arrivalServicesError, setArrivalServicesError] = useState<string | null>(null);
+
+  // Geofencing & Arrival Sheet
+  const {
+    currentCoordinates,
+    activeBranchInsideGeofence,
+    simulationMode,
+    setSimulationMode,
+    distanceToNearestMeters,
+    isInsideGeofence,
+    hasRealGpsFix,
+    gpsPermissionStatus,
+    requestGpsPermission,
+    gpsError,
+  } = useGeofencing({
+    branches: locatedBranches,
+    initialMode: 'real_gps',
+    thresholdMeters: DEFAULT_GEOFENCE_THRESHOLD_METERS, // 75m threshold
+  });
+
+  const [routeOfferBranch, setRouteOfferBranch] = useState<RankedBranch | null>(null);
+
+  const [isArrivalSheetOpen, setIsArrivalSheetOpen] = useState(false);
+  const [arrivalSheetDismissedMode, setArrivalSheetDismissedMode] = useState<GeofenceSimulationMode | null>(null);
+
+  // Map Modal State
+  const [isMapModalOpen, setIsMapModalOpen] = useState(false);
+  const [mapInitialFilter, setMapInitialFilter] = useState<'all' | 'parcels' | 'letters' | 'pensions' | 'accessible'>('all');
+
+  // Check if client already took a ticket for this branch (walkin or online appointment)
+  const hasActiveTicketForBranch = useMemo(() => {
+    if (!activeBranchInsideGeofence) return false;
+    const targetBranchId = activeBranchInsideGeofence.id;
+
+    // 1. Проверяем в текущем состоянии tickets
+    if (tickets.some(t => !terminalStatuses.has(t.status) && t.branchId === targetBranchId)) {
+      return true;
+    }
+
+    // 2. Проверяем в синхронном кэше активных талонов (localStorage/sessionStorage)
+    const cached = getCachedTickets(ownerScope);
+    if (cached.some(t => !terminalStatuses.has(t.status) && t.branchId === targetBranchId)) {
+      return true;
+    }
+
+    // 3. Проверяем в предварительных записях (appointments)
+    if (Object.values(appointments).some(a => a.ticket && !terminalStatuses.has(a.ticket.status) && a.ticket.branchId === targetBranchId)) {
+      return true;
+    }
+
+    return false;
+  }, [tickets, activeBranchInsideGeofence, ownerScope, appointments]);
+
+  // Request GPS on mount and notify header
+  useEffect(() => {
+    const handleGeoRequest = () => requestGpsPermission();
+    const handleGeoPreset = (e: Event) => {
+      const custom = e as CustomEvent<{ mode: GeofenceSimulationMode }>;
+      if (custom.detail?.mode) {
+        handleSimulationModeChange(custom.detail.mode);
+      }
+    };
+    window.addEventListener('pochta:request-geo', handleGeoRequest);
+    window.addEventListener('pochta:geo-preset', handleGeoPreset);
+    return () => {
+      window.removeEventListener('pochta:request-geo', handleGeoRequest);
+      window.removeEventListener('pochta:geo-preset', handleGeoPreset);
+    };
+  }, [requestGpsPermission]);
+
+  useEffect(() => {
+    window.dispatchEvent(
+      new CustomEvent('pochta:geo-status', { detail: { granted: gpsPermissionStatus === 'granted' } })
+    );
+  }, [gpsPermissionStatus]);
+
+  // Automatically pop up ArrivalSheet when entering geofence (in non-kiosk mode)
+  // Does NOT pop up if the client already took a ticket for this branch
+  useEffect(() => {
+    if (kiosk) return;
+
+    // 1. Первым делом: строгая проверка на наличие активного талона
+    if (hasActiveTicketForBranch) {
+      setIsArrivalSheetOpen(false);
+      return;
+    }
+
+    // 2. Если у пользователя есть сохраненные ID талонов, и они прямо сейчас загружаются/проверяются с сервера —
+    // НЕ открывать окно до завершения проверки, чтобы полностью исключить мерцание окна на миллисекунду при F5 / обновлении страницы!
+    const savedIds = getSavedTicketIds(ownerScope);
+    if (ticketsLoading && savedIds.length > 0) {
+      return;
+    }
+
+    // 3. И только если проверка на отсутствие активного талона пройдена — открываем окно при входе в геозону:
+    if (isInsideGeofence && activeBranchInsideGeofence) {
+      if (!currentCoordinates.accuracy || currentCoordinates.accuracy < 100) {
+        if (arrivalSheetDismissedMode !== simulationMode) {
+          setIsArrivalSheetOpen(true);
+        }
+      }
+    } else {
+      // Hysteresis: only auto-close if distance is clearly greater than 120m or mode changed
+      if (simulationMode !== 'near_101000' && distanceToNearestMeters !== null && distanceToNearestMeters > 120) {
+        setIsArrivalSheetOpen(false);
+      }
+    }
+  }, [isInsideGeofence, activeBranchInsideGeofence, simulationMode, arrivalSheetDismissedMode, kiosk, hasActiveTicketForBranch, distanceToNearestMeters, ticketsLoading, ownerScope, currentCoordinates.accuracy]);
+
+  const handleSimulationModeChange = (mode: GeofenceSimulationMode) => {
+    setSimulationMode(mode);
+    setArrivalSheetDismissedMode(null);
+  };
+
+  const handleOpenMap = (filter: 'all' | 'parcels' | 'letters' | 'pensions' | 'accessible' = 'all') => {
+    setMapInitialFilter(filter);
+    setIsMapModalOpen(true);
+  };
+
+  const handleSelectBranchFromMap = (b: Branch, action?: 'walkin' | 'booking') => {
+    handleBranchSelect(b.id);
+    setIsMapModalOpen(false);
+    if (action === 'booking') {
+      setScreen('booking');
+      setBookingStep(1);
+    } else if (action === 'walkin') {
+      setScreen('walkin');
+      setWalkinStep(1);
+    }
+  };
+
+  // Smart Routing Calculation based on current coordinates
+  const smartRouting = useMemo(() => {
+    return calculateSmartRouting(
+      currentCoordinates.lat,
+      currentCoordinates.lng,
+      routingBranches
+    );
+  }, [currentCoordinates.lat, currentCoordinates.lng, routingBranches]);
 
   useEffect(() => {
     if (resetToken > 0) {
@@ -416,11 +772,9 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
     try {
       setLoading(true);
       setError(null);
-      const blist = await api.listBranches();
-      setBranches(blist);
-      if (blist.length === 1 && !branchId) {
-        setBranchId(blist[0].id);
-      }
+      const loaded = await api.listBranches();
+      setBranches(loaded);
+      if (!branchId && loaded.length > 0) setBranchId(loaded[0].id);
     } catch (err: any) {
       setError(friendlyError(err, 'Не удалось загрузить данные отделений'));
     } finally {
@@ -431,6 +785,74 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
   useEffect(() => {
     loadBranches();
   }, [loadBranches]);
+
+  // Поиск и сортировка отделений по удаленности / минимальному общему времени T = дорога + очередь
+  const [branchSearchQuery, setBranchSearchQuery] = useState('');
+  const [branchSortMode, setBranchSortMode] = useState<'distance' | 'fastest'>('distance');
+
+  const {
+    enrichedBranches,
+    fastestBranch,
+    closestBranch,
+    timeSavedMinutes,
+  } = useMemo(() => {
+    if (!branches || branches.length === 0) {
+      return { enrichedBranches: [], fastestBranch: null, closestBranch: null, timeSavedMinutes: 0 };
+    }
+
+    const clientLat = currentCoordinates?.lat ?? 55.7602;
+    const clientLng = currentCoordinates?.lng ?? 37.6360;
+
+    const list = branches.map((b) => {
+      const loc = matchBranchLocation(b, MOSCOW_BRANCHES);
+      const hasPosition = simulationMode !== 'real_gps' || hasRealGpsFix;
+      const dMeters = loc && hasPosition ? calculateHaversineDistanceMeters(clientLat, clientLng, loc.lat, loc.lng) : undefined;
+      const travelMin = dMeters === undefined ? undefined : Math.round((dMeters / 1000) * 12);
+      const waitMin = liveWaitMinutes(workloads[b.id]);
+      const totalMin = travelMin === undefined || waitMin === undefined ? undefined : travelMin + waitMin;
+      return { ...b, loc, distanceMeters: dMeters, travelMinutes: travelMin,
+        waitMinutes: waitMin, totalMinutes: totalMin, metro: loc?.metro, rating: loc?.rating };
+    });
+
+    const sortedByDist = list.filter(b => b.distanceMeters !== undefined).sort((a, b) => a.distanceMeters! - b.distanceMeters!);
+    const closest = sortedByDist[0] || null;
+
+    const sortedByTotal = list.filter(b => b.totalMinutes !== undefined).sort((a, b) => a.totalMinutes! - b.totalMinutes!);
+    const fastest = sortedByTotal[0] || null;
+
+    const saved =
+      closest && fastest && closest.totalMinutes !== undefined && fastest.totalMinutes !== undefined && closest.id !== fastest.id
+        ? Math.max(0, closest.totalMinutes - fastest.totalMinutes)
+        : 0;
+
+    return {
+      enrichedBranches: list,
+      fastestBranch: fastest,
+      closestBranch: closest,
+      timeSavedMinutes: saved,
+    };
+  }, [branches, currentCoordinates, workloads, hasRealGpsFix, simulationMode]);
+
+  // Фильтрация по поиску и применение сортировки
+  const displayBranches = useMemo(() => {
+    let result = enrichedBranches;
+    const q = branchSearchQuery.trim().toLowerCase();
+    if (q) {
+      result = result.filter(
+        (b) =>
+          b.name.toLowerCase().includes(q) ||
+          (b.address && b.address.toLowerCase().includes(q)) ||
+          (b.metro && b.metro.toLowerCase().includes(q)) ||
+          (b.loc?.code && b.loc.code.includes(q))
+      );
+    }
+
+    if (branchSortMode === 'fastest') {
+      return [...result].sort((a, b) => (a.totalMinutes ?? Infinity) - (b.totalMinutes ?? Infinity));
+    } else {
+      return [...result].sort((a, b) => (a.distanceMeters ?? Infinity) - (b.distanceMeters ?? Infinity));
+    }
+  }, [enrichedBranches, branchSearchQuery, branchSortMode]);
 
   const fetchServices = useCallback(async (targetBranchId: string) => {
     if (!targetBranchId) {
@@ -456,7 +878,25 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
       }
     } catch (err: any) {
       if (servicesLoadingBranchRef.current === targetBranchId) {
-        setError(friendlyError(err, 'Не удалось загрузить услуги'));
+        // Fallback к стандартным услугам отделения при отсутствии отдельной бэкенд-записи
+        const geoBranch = MOSCOW_BRANCHES.find(b => b.id === targetBranchId);
+        if (geoBranch && geoBranch.services && geoBranch.services.length > 0) {
+          const fallbackServices = geoBranch.services.map((s, idx) => ({
+            id: s.id,
+            branchId: targetBranchId,
+            name: s.name,
+            code: s.category.toUpperCase().slice(0, 3) || `SRV${idx + 1}`,
+            description: s.name,
+            avgServiceTimeMinutes: s.avgServiceMinutes || 5,
+            slaMinutes: 15,
+            windowMin: 1,
+            windowMax: 4,
+          }));
+          setServices(fallbackServices as any);
+          setError(null);
+        } else {
+          setError(friendlyError(err, 'Не удалось загрузить услуги'));
+        }
       }
     } finally {
       if (servicesLoadingBranchRef.current === targetBranchId) {
@@ -557,6 +997,15 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
           } catch {}
           await etaRequest;
         } else {
+          if (nextTicket.status === 'COMPLETED') {
+            const history = getVisitRatingHistory(scope);
+            if (shouldOfferVisitRating(nextTicket.status, nextTicket.id, history.reviewed, history.dismissed)
+                && !history.pending.some(item => item.id === nextTicket.id)) {
+              history.pending = [...history.pending, nextTicket];
+              saveVisitRatingHistory(scope, history);
+              setVisitRatingQueue(history.pending);
+            }
+          }
           removeSavedTicketId(id, scope);
         }
       } catch (err: any) {
@@ -780,6 +1229,51 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
     if (screen === 'booking') setBookingStep(2);
   };
 
+  const arrivalIssuer = useMemo(() => createArrivalIssuer({
+    listServices: api.listServices,
+    createQrTicket: api.createQrTicket,
+    keyFor: getStoredIdempotencyKey,
+    clearKey: clearStoredIdempotencyKey,
+  }), []);
+
+  useEffect(() => {
+    setArrivalServices([]);
+    setArrivalServicesError(null);
+    if (!activeBranchInsideGeofence || !isArrivalSheetOpen) return;
+    const controller = new AbortController();
+    api.listServices(activeBranchInsideGeofence.id, controller.signal).then(items => {
+      if (!controller.signal.aborted) setArrivalServices(items);
+    }).catch(() => {
+      if (!controller.signal.aborted) setArrivalServicesError('Не удалось загрузить услуги. Закройте окно и попробуйте снова.');
+    });
+    return () => controller.abort();
+  }, [activeBranchInsideGeofence?.id, isArrivalSheetOpen]);
+
+  const handleArrivalGetTicket = async (targetServiceId: string) => {
+    if (createLock.current || !activeBranchInsideGeofence) return;
+    const targetBranchId = activeBranchInsideGeofence.id;
+    createLock.current = true;
+    setCreating(true);
+    setArrivalServicesError(null);
+    try {
+      const created = await arrivalIssuer(targetBranchId, targetServiceId, ownerScope);
+      if (!created) return;
+      setBranchId(targetBranchId);
+      sessionStorage.setItem(STORAGE_BRANCH_KEY, targetBranchId);
+      if (created.managementToken) saveMgmtToken(created.id, created.managementToken, ownerScope);
+      addSavedTicketId(created.id, ownerScope);
+      setTickets(prev => [created, ...prev.filter(t => t.id !== created.id)]);
+      setNotice(`Талон ${created.publicNumber} успешно получен без терминала!`);
+      setIsArrivalSheetOpen(false);
+      setScreen('my');
+    } catch (err: unknown) {
+      setArrivalServicesError(friendlyError(err, 'Не удалось получить талон у стойки'));
+    } finally {
+      createLock.current = false;
+      setCreating(false);
+    }
+  };
+
   const resetKioskScreen = () => {
     if (!kiosk) return;
     if (kioskTicket) removeSavedTicketId(kioskTicket.id, ownerScope);
@@ -799,12 +1293,25 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
     return () => window.clearTimeout(timer);
   }, [kiosk, kioskTicket]);
 
+  const finishVisitRating = (kind: 'reviewed' | 'dismissed', rating?: number, comment = '') => {
+    const ticket = visitRatingQueue[0];
+    if (!ticket) return;
+    const history = getVisitRatingHistory(ownerScope);
+    history.pending = history.pending.filter(item => item.id !== ticket.id);
+    if (kind === 'reviewed' && typeof rating === 'number') {
+      if (!history.reviewed.includes(ticket.id)) history.reviewed.push(ticket.id);
+      history.ratings.push({ ticketId: ticket.id, rating, comment, branchId: ticket.branchId, submittedAt: new Date().toISOString() });
+    } else if (!history.dismissed.includes(ticket.id)) history.dismissed.push(ticket.id);
+    saveVisitRatingHistory(ownerScope, history);
+    setVisitRatingQueue(history.pending);
+  };
+
   const savedCount = tickets.length > 0
     ? tickets.filter(t => !terminalStatuses.has(t.status)).length
     : getSavedTicketIds(ownerScope).length;
 
   const renderHome = () => (
-    <div className="max-w-3xl mx-auto space-y-4 sm:space-y-6">
+    <div className="max-w-5xl xl:max-w-6xl mx-auto space-y-4 sm:space-y-6">
       {/* Welcome Hero Banner */}
       <div className="bg-gradient-to-br from-[#003B73] to-[#054FA6] rounded-2xl sm:rounded-3xl p-5 sm:p-8 text-white shadow-md relative overflow-hidden">
         <div className="relative z-10 space-y-1.5 sm:space-y-2">
@@ -828,23 +1335,141 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
       {error && <ErrorBanner message={error} onClose={() => setError(null)} />}
       {notice && <NoticeBanner message={notice} onClose={() => setNotice(null)} />}
 
-      {/* 3 Prominent Action Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+      {/* Умный маршрут: рекомендация оптимального отделения на главном экране */}
+      {smartRouting.recommendation?.advice === 'detour' && (simulationMode !== 'real_gps' || hasRealGpsFix) && (
+        <div className="bg-gradient-to-r from-emerald-50 via-teal-50 to-blue-50 border border-emerald-200/90 rounded-2xl sm:rounded-3xl p-4 sm:p-5 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4 animate-in fade-in duration-300">
+          <div className="flex items-start sm:items-center gap-3.5 min-w-0">
+            <div className="w-10 h-10 rounded-2xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-md">
+              <Sparkles size={20} className="text-amber-300" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[11px] font-black uppercase tracking-wider text-emerald-800 bg-emerald-100/90 px-2.5 py-0.5 rounded-full border border-emerald-200">
+                  Умный маршрут
+                </span>
+                <span className="text-xs font-bold text-emerald-700">
+                  Экономия ~{smartRouting.recommendation.timeSavedMinutes} мин
+                </span>
+              </div>
+              <p className="text-sm font-extrabold text-[#031E56] mt-1">
+                {smartRouting.recommendation.bannerText}
+              </p>
+              <p className="text-xs text-slate-600 mt-0.5">
+                Ближайшее: {smartRouting.recommendation.currentClosestBranch.name} (очередь ~{smartRouting.recommendation.currentClosestBranch.waitMinutes} мин). Рекомендуем: {smartRouting.recommendation.fastestBranch.name}.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 w-full md:w-auto shrink-0">
+            <button
+              type="button"
+              onClick={() => setRouteOfferBranch(smartRouting.recommendation!.fastestBranch)}
+              className="flex-1 md:flex-none px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs shadow-sm transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <Navigation size={14} />
+              <span>Маршрут</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleBranchSelect(smartRouting.recommendation!.fastestBranch.id)}
+              className="flex-1 md:flex-none px-4 py-2.5 rounded-xl bg-[#052F85] hover:bg-[#031E56] active:scale-95 text-white font-bold text-xs shadow-sm transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <TicketIcon size={14} />
+              <span>Выбрать</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Modal / Dialog for route offer when user selects recommended branch */}
+      {routeOfferBranch && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-in fade-in"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl p-5 sm:p-6 w-full max-w-md space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-50 text-[#052F85] text-xs font-bold">
+                <Sparkles size={13} className="text-amber-500" />
+                <span>Отделение выбрано</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRouteOfferBranch(null)}
+                className="p-1 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 cursor-pointer"
+                aria-label="Закрыть"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div>
+              <h3 className="text-base font-extrabold text-[#031E56]">{routeOfferBranch.name}</h3>
+              <p className="text-xs text-slate-500 mt-0.5">{routeOfferBranch.address}</p>
+              <div className="mt-2.5 text-xs font-semibold text-emerald-800 bg-emerald-50 px-3 py-2 rounded-xl border border-emerald-200/80">
+                ⚡ Экономия времени: ~{Math.round(smartRouting.recommendation?.timeSavedMinutes ?? 0)} мин дороги и ожидания
+              </div>
+            </div>
+
+            <div className="space-y-2 pt-2">
+              <a
+                href={`https://yandex.ru/maps/?rtext=~${routeOfferBranch.lat},${routeOfferBranch.lng}&rtt=pd`}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => setRouteOfferBranch(null)}
+                className="w-full py-2.5 px-4 rounded-xl bg-[#052F85] hover:bg-[#031E56] text-white text-xs font-bold flex items-center justify-center gap-2 shadow-sm transition-colors cursor-pointer"
+              >
+                <Navigation size={14} />
+                <span>Проложить пеший маршрут в Яндекс.Картах</span>
+              </a>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setRouteOfferBranch(null);
+                  handleRepeatTicket(routeOfferBranch.id);
+                }}
+                className="w-full py-2.5 px-4 rounded-xl border border-[#052F85] text-[#052F85] hover:bg-blue-50 text-xs font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer"
+              >
+                <TicketIcon size={14} />
+                <span>Взять талон в это отделение</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setRouteOfferBranch(null);
+                  handleOpenMap();
+                }}
+                className="w-full py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer"
+              >
+                <MapPin size={13} />
+                <span>Посмотреть на карте</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 4 Prominent Action Cards - Expanded & Spacious */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
         {/* 1. Записаться онлайн */}
         <button
           type="button"
           onClick={() => { resetBooking(); setScreen('booking'); }}
-          className="p-4 sm:p-6 rounded-2xl sm:rounded-3xl bg-white border border-[#D2D8E2] hover:border-[#054FA6] hover:shadow-md active:scale-[0.98] transition-all text-left group flex flex-row sm:flex-col items-center sm:items-start gap-3.5 sm:gap-0 cursor-pointer"
+          className="p-5 sm:p-6 min-h-[175px] sm:min-h-[195px] rounded-2xl sm:rounded-3xl bg-white border border-[#D2D8E2] hover:border-[#054FA6] hover:shadow-lg active:scale-[0.98] transition-all text-left group flex flex-row sm:flex-col items-center sm:items-start justify-between cursor-pointer"
         >
-          <div className="w-12 h-12 rounded-2xl bg-blue-50 text-[#054FA6] flex items-center justify-center sm:mb-4 group-hover:scale-105 transition-transform shadow-inner shrink-0">
-            <CalendarClock size={24} />
+          <div className="relative w-12 h-12 flex items-center justify-center sm:mb-4 group-hover:scale-105 transition-transform shrink-0">
+            <div className="w-10 h-10 rounded-full bg-[#054FA6]/10 absolute" />
+            <CalendarClock size={24} className="relative z-10 text-[#054FA6]" />
           </div>
           <div className="flex-1 min-w-0">
-            <h3 className="text-sm sm:text-base font-black text-slate-900 group-hover:text-[#054FA6] transition-colors mb-0.5 sm:mb-1">
+            <h3 className="text-base sm:text-lg font-black text-slate-900 group-hover:text-[#054FA6] transition-colors mb-1">
               Записаться онлайн
             </h3>
-            <p className="text-xs text-slate-500 leading-snug">
-              Выберите время визита заранее, чтобы подойти к назначенному слоту
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Выберите время визита заранее к слоту
             </p>
           </div>
           <ChevronRight className="w-5 h-5 text-slate-400 group-hover:text-[#054FA6] shrink-0 sm:hidden transition-transform group-hover:translate-x-0.5" />
@@ -854,34 +1479,57 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
         <button
           type="button"
           onClick={() => { resetWalkin(); setScreen('walkin'); }}
-          className="p-4 sm:p-6 rounded-2xl sm:rounded-3xl bg-white border border-[#D2D8E2] hover:border-[#003B73] hover:shadow-md active:scale-[0.98] transition-all text-left group flex flex-row sm:flex-col items-center sm:items-start gap-3.5 sm:gap-0 cursor-pointer"
+          className="p-5 sm:p-6 min-h-[175px] sm:min-h-[195px] rounded-2xl sm:rounded-3xl bg-white border border-[#D2D8E2] hover:border-[#003B73] hover:shadow-lg active:scale-[0.98] transition-all text-left group flex flex-row sm:flex-col items-center sm:items-start justify-between cursor-pointer"
         >
-          <div className="w-12 h-12 rounded-2xl bg-amber-50 text-[#003B73] flex items-center justify-center sm:mb-4 group-hover:scale-105 transition-transform shadow-inner shrink-0">
-            <TicketIcon size={24} />
+          <div className="relative w-12 h-12 flex items-center justify-center sm:mb-4 group-hover:scale-105 transition-transform shrink-0">
+            <div className="w-10 h-10 rounded-full bg-[#003B73]/10 absolute" />
+            <TicketIcon size={24} className="relative z-10 text-[#003B73]" />
           </div>
           <div className="flex-1 min-w-0">
-            <h3 className="text-sm sm:text-base font-black text-slate-900 group-hover:text-[#003B73] transition-colors mb-0.5 sm:mb-1">
+            <h3 className="text-base sm:text-lg font-black text-slate-900 group-hover:text-[#003B73] transition-colors mb-1">
               Взять талон
             </h3>
-            <p className="text-xs text-slate-500 leading-snug">
-              Получите электронный номерок прямо сейчас, если вы уже в отделении
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Получите электронный номерок прямо сейчас
             </p>
           </div>
           <ChevronRight className="w-5 h-5 text-slate-400 group-hover:text-[#003B73] shrink-0 sm:hidden transition-transform group-hover:translate-x-0.5" />
         </button>
 
-        {/* 3. Мои талоны */}
+        {/* 3. Карта отделений */}
+        <button
+          type="button"
+          onClick={() => handleOpenMap()}
+          className="p-5 sm:p-6 min-h-[175px] sm:min-h-[195px] rounded-2xl sm:rounded-3xl bg-white border border-[#D2D8E2] hover:border-[#052F85] hover:shadow-lg active:scale-[0.98] transition-all text-left group flex flex-row sm:flex-col items-center sm:items-start justify-between cursor-pointer"
+        >
+          <div className="relative w-12 h-12 flex items-center justify-center sm:mb-4 group-hover:scale-105 transition-transform shrink-0">
+            <div className="w-10 h-10 rounded-full bg-[#052F85]/10 absolute" />
+            <MapPin size={24} className="relative z-10 text-[#052F85]" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h3 className="text-base sm:text-lg font-black text-slate-900 group-hover:text-[#052F85] transition-colors mb-1">
+              Карта отделений
+            </h3>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Яндекс.Карты, загрузка и фильтры услуг
+            </p>
+          </div>
+          <ChevronRight className="w-5 h-5 text-slate-400 group-hover:text-[#052F85] shrink-0 sm:hidden transition-transform group-hover:translate-x-0.5" />
+        </button>
+
+        {/* 4. Мои талоны */}
         <button
           type="button"
           onClick={() => setScreen('my')}
-          className="p-4 sm:p-6 rounded-2xl sm:rounded-3xl bg-white border border-[#D2D8E2] hover:border-emerald-600 hover:shadow-md active:scale-[0.98] transition-all text-left group flex flex-row sm:flex-col items-center sm:items-start gap-3.5 sm:gap-0 relative cursor-pointer"
+          className="p-5 sm:p-6 min-h-[175px] sm:min-h-[195px] rounded-2xl sm:rounded-3xl bg-white border border-[#D2D8E2] hover:border-emerald-600 hover:shadow-lg active:scale-[0.98] transition-all text-left group flex flex-row sm:flex-col items-center sm:items-start justify-between relative cursor-pointer"
         >
-          <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-700 flex items-center justify-center sm:mb-4 group-hover:scale-105 transition-transform shadow-inner shrink-0">
-            <ListChecks size={24} />
+          <div className="relative w-12 h-12 flex items-center justify-center sm:mb-4 group-hover:scale-105 transition-transform shrink-0">
+            <div className="w-10 h-10 rounded-full bg-emerald-600/10 absolute" />
+            <ListChecks size={24} className="relative z-10 text-emerald-700" />
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
-              <h3 className="text-sm sm:text-base font-black text-slate-900 group-hover:text-emerald-700 transition-colors mb-0.5 sm:mb-1">
+              <h3 className="text-base sm:text-lg font-black text-slate-900 group-hover:text-emerald-700 transition-colors mb-1">
                 Мои талоны
               </h3>
               {savedCount > 0 && (
@@ -890,8 +1538,8 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                 </span>
               )}
             </div>
-            <p className="text-xs text-slate-500 leading-snug">
-              Текущие очереди, статус вызова к окну и история визита
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Текущие очереди и статус вызова к окну
             </p>
           </div>
           {savedCount > 0 && (
@@ -907,6 +1555,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
 
   const renderBooking = () => {
     const steps = ['Отделение', 'Услуга', 'Время'];
+    const bookingBranches = getBookingBranchOptions(displayBranches, branchSearchQuery);
 
     return (
       <div className="max-w-2xl mx-auto space-y-4">
@@ -929,17 +1578,132 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
 
           {bookingStep === 0 && (
             <div className="space-y-3">
-              <h3 className="text-sm font-bold text-slate-800">Выберите отделение</h3>
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold text-slate-800">Выберите отделение</h3>
+                <button
+                  type="button"
+                  onClick={() => handleOpenMap()}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 border border-blue-200 text-[#052F85] text-xs font-bold hover:bg-blue-100 transition-colors cursor-pointer"
+                >
+                  <MapPin size={14} />
+                  <span>На карте</span>
+                </button>
+              </div>
+
+              {/* Поиск отделения */}
+              <div className="relative">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="text"
+                  value={branchSearchQuery}
+                  onChange={(e) => setBranchSearchQuery(e.target.value)}
+                  placeholder="Поиск по названию, адресу, метро или индексу..."
+                  style={{ paddingLeft: '2.75rem' }}
+                  className="w-full pl-11 pr-9 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#052F85]/20 focus:border-[#052F85]"
+                />
+                {branchSearchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setBranchSearchQuery('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
+                    aria-label="Очистить поиск"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+
+              {/* Переключатель сортировки */}
+              <div className="flex items-center justify-between gap-2 text-xs">
+                <div className="flex items-center gap-1.5 overflow-x-auto py-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setBranchSortMode('distance')}
+                    className={`px-3 py-1.5 rounded-xl font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                      branchSortMode === 'distance'
+                        ? 'bg-[#052F85] text-white shadow-xs'
+                        : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                    }`}
+                  >
+                    <Navigation size={12} />
+                    <span>По удалённости</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setBranchSortMode('fastest')}
+                    className={`px-3 py-1.5 rounded-xl font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                      branchSortMode === 'fastest'
+                        ? 'bg-emerald-600 text-white shadow-xs'
+                        : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                    }`}
+                  >
+                    <Zap size={12} />
+                    <span>Быстрее всего (дорога + очередь)</span>
+                  </button>
+                </div>
+                <span className="text-[11px] text-slate-400 font-medium whitespace-nowrap hidden sm:inline">
+                  {branchSearchQuery.trim()
+                    ? `${displayBranches.length} совпадений`
+                    : `${Math.min(displayBranches.length, BOOKING_BRANCH_PREVIEW_LIMIT)} из ${displayBranches.length} отделений`}
+                </span>
+              </div>
+              {!branchSearchQuery.trim() && displayBranches.length > BOOKING_BRANCH_PREVIEW_LIMIT && (
+                <p className="text-xs text-slate-500">Показаны ближайшие отделения. Введите название, адрес или индекс, чтобы найти любое из {displayBranches.length} отделений.</p>
+              )}
+
+              {/* Совет системы: если самое быстрое отделение быстрее ближайшего */}
+              {fastestBranch && closestBranch && fastestBranch.id !== closestBranch.id && timeSavedMinutes > 0 && (
+                <div className="p-3.5 bg-gradient-to-r from-emerald-50 via-teal-50 to-blue-50 border border-emerald-200 rounded-2xl flex items-center justify-between gap-3 text-xs shadow-xs animate-in fade-in">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-8 h-8 rounded-xl bg-emerald-500 text-white flex items-center justify-center shrink-0 shadow-xs">
+                      <Sparkles size={16} />
+                    </div>
+                    <div className="text-left min-w-0">
+                      <div className="font-extrabold text-emerald-950 flex items-center gap-1.5 flex-wrap">
+                        <span>⚡ Совет системы: выберите {fastestBranch.name}</span>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300">
+                          Быстрее на ~{timeSavedMinutes} мин
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-emerald-800 mt-0.5">
+                        В ближайшем отделении очередь ~{closestBranch.waitMinutes} мин. В {fastestBranch.name} дорога {fastestBranch.travelMinutes} мин + очередь {fastestBranch.waitMinutes} мин!
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleBranchSelect(fastestBranch.id)}
+                    className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shrink-0 shadow-xs transition-colors cursor-pointer"
+                  >
+                    Выбрать
+                  </button>
+                </div>
+              )}
+
               {loading ? (
                 <p className="text-xs text-slate-400 font-mono py-8 text-center animate-pulse">Загрузка отделений...</p>
-              ) : branches.length === 0 ? (
+              ) : bookingBranches.length === 0 ? (
                 <div className="p-6 text-center text-xs text-slate-500 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
-                  <p>Отделения не найдены или временно недоступны</p>
-                  <button type="button" onClick={() => loadBranches()} className="mt-2 text-xs font-semibold text-[#003B73] underline">Повторить попытку</button>
+                  <p>Отделения не найдены по вашему запросу</p>
+                  <button type="button" onClick={() => setBranchSearchQuery('')} className="mt-2 text-xs font-semibold text-[#003B73] underline cursor-pointer">Сбросить поиск</button>
                 </div>
               ) : (
-                branches.map(b => (
-                  <BranchCard key={b.id} branch={b} selected={branchId === b.id} onSelect={() => handleBranchSelect(b.id)} />
+                bookingBranches.map((b) => (
+                  <BranchCard
+                    key={b.id}
+                    branch={b}
+                    selected={branchId === b.id}
+                    onSelect={() => handleBranchSelect(b.id)}
+                    distanceMeters={b.distanceMeters}
+                    travelMinutes={b.travelMinutes}
+                    waitMinutes={b.waitMinutes}
+                    totalMinutes={b.totalMinutes}
+                    isFastest={fastestBranch?.id === b.id}
+                    isClosest={closestBranch?.id === b.id}
+                    timeSavedMinutes={timeSavedMinutes}
+                    metro={b.metro}
+                    rating={b.rating}
+                  />
                 ))
               )}
             </div>
@@ -1053,17 +1817,127 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
 
           {walkinStep === 0 && (
             <div className="space-y-3">
-              <h3 className="text-sm font-bold text-slate-800">Выберите отделение</h3>
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold text-slate-800">Выберите отделение</h3>
+                <button
+                  type="button"
+                  onClick={() => handleOpenMap()}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 border border-blue-200 text-[#052F85] text-xs font-bold hover:bg-blue-100 transition-colors cursor-pointer"
+                >
+                  <MapPin size={14} />
+                  <span>На карте</span>
+                </button>
+              </div>
+
+              {/* Поиск отделения */}
+              <div className="relative">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="text"
+                  value={branchSearchQuery}
+                  onChange={(e) => setBranchSearchQuery(e.target.value)}
+                  placeholder="Поиск по названию, адресу, метро или индексу..."
+                  style={{ paddingLeft: '2.75rem' }}
+                  className="w-full pl-11 pr-9 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#052F85]/20 focus:border-[#052F85]"
+                />
+                {branchSearchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setBranchSearchQuery('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
+                    aria-label="Очистить поиск"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+
+              {/* Переключатель сортировки */}
+              <div className="flex items-center justify-between gap-2 text-xs">
+                <div className="flex items-center gap-1.5 overflow-x-auto py-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setBranchSortMode('distance')}
+                    className={`px-3 py-1.5 rounded-xl font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                      branchSortMode === 'distance'
+                        ? 'bg-[#052F85] text-white shadow-xs'
+                        : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                    }`}
+                  >
+                    <Navigation size={12} />
+                    <span>По удалённости</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setBranchSortMode('fastest')}
+                    className={`px-3 py-1.5 rounded-xl font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                      branchSortMode === 'fastest'
+                        ? 'bg-emerald-600 text-white shadow-xs'
+                        : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                    }`}
+                  >
+                    <Zap size={12} />
+                    <span>Быстрее всего (дорога + очередь)</span>
+                  </button>
+                </div>
+                <span className="text-[11px] text-slate-400 font-medium whitespace-nowrap hidden sm:inline">
+                  {displayBranches.length} {displayBranches.length === 1 ? 'отделение' : 'отделений'}
+                </span>
+              </div>
+
+              {/* Совет системы: если самое быстрое отделение быстрее ближайшего */}
+              {fastestBranch && closestBranch && fastestBranch.id !== closestBranch.id && timeSavedMinutes > 0 && (
+                <div className="p-3.5 bg-gradient-to-r from-emerald-50 via-teal-50 to-blue-50 border border-emerald-200 rounded-2xl flex items-center justify-between gap-3 text-xs shadow-xs animate-in fade-in">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-8 h-8 rounded-xl bg-emerald-500 text-white flex items-center justify-center shrink-0 shadow-xs">
+                      <Sparkles size={16} />
+                    </div>
+                    <div className="text-left min-w-0">
+                      <div className="font-extrabold text-emerald-950 flex items-center gap-1.5 flex-wrap">
+                        <span>⚡ Совет системы: выберите {fastestBranch.name}</span>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300">
+                          Быстрее на ~{timeSavedMinutes} мин
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-emerald-800 mt-0.5">
+                        В ближайшем отделении очередь ~{closestBranch.waitMinutes} мин. В {fastestBranch.name} дорога {fastestBranch.travelMinutes} мин + очередь {fastestBranch.waitMinutes} мин!
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleBranchSelect(fastestBranch.id)}
+                    className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shrink-0 shadow-xs transition-colors cursor-pointer"
+                  >
+                    Выбрать
+                  </button>
+                </div>
+              )}
+
               {loading ? (
                 <p className="text-xs text-slate-400 font-mono py-8 text-center animate-pulse">Загрузка отделений...</p>
-              ) : branches.length === 0 ? (
+              ) : displayBranches.length === 0 ? (
                 <div className="p-6 text-center text-xs text-slate-500 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
-                  <p>Отделения не найдены или временно недоступны</p>
-                  <button type="button" onClick={() => loadBranches()} className="mt-2 text-xs font-semibold text-[#003B73] underline">Повторить попытку</button>
+                  <p>Отделения не найдены по вашему запросу</p>
+                  <button type="button" onClick={() => setBranchSearchQuery('')} className="mt-2 text-xs font-semibold text-[#003B73] underline cursor-pointer">Сбросить поиск</button>
                 </div>
               ) : (
-                branches.map(b => (
-                  <BranchCard key={b.id} branch={b} selected={branchId === b.id} onSelect={() => handleBranchSelect(b.id)} />
+                displayBranches.map((b) => (
+                  <BranchCard
+                    key={b.id}
+                    branch={b}
+                    selected={branchId === b.id}
+                    onSelect={() => handleBranchSelect(b.id)}
+                    distanceMeters={b.distanceMeters}
+                    travelMinutes={b.travelMinutes}
+                    waitMinutes={b.waitMinutes}
+                    totalMinutes={b.totalMinutes}
+                    isFastest={fastestBranch?.id === b.id}
+                    isClosest={closestBranch?.id === b.id}
+                    timeSavedMinutes={timeSavedMinutes}
+                    metro={b.metro}
+                    rating={b.rating}
+                  />
                 ))
               )}
             </div>
@@ -1320,6 +2194,72 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
           {!kiosk && screen === 'my' && renderMy()}
           {!kiosk && screen === 'home' && renderHome()}
         </>
+      )}
+
+      {/* Interactive Yandex Map Modal */}
+      {!kiosk && (
+        <BranchMapModal
+          isOpen={isMapModalOpen}
+          onClose={() => setIsMapModalOpen(false)}
+          branches={branches}
+          workloads={workloads}
+          userCoordinates={hasRealGpsFix ? [currentCoordinates.lat, currentCoordinates.lng] : null}
+          selectedBranchId={null}
+          initialFilter={mapInitialFilter}
+          onSelectBranch={handleSelectBranchFromMap}
+          onTakeTicket={(b) => handleSelectBranchFromMap(b, 'walkin')}
+          onBookAppointment={(b) => handleSelectBranchFromMap(b, 'booking')}
+        />
+      )}
+
+      {/* Geofence Arrival Sheet (Yandex Refuel style) */}
+      {!kiosk && (
+        <ArrivalSheet
+          isOpen={isArrivalSheetOpen}
+          onClose={() => {
+            setIsArrivalSheetOpen(false);
+            setArrivalSheetDismissedMode(simulationMode);
+          }}
+          onSnooze={() => {
+            setIsArrivalSheetOpen(false);
+            setArrivalSheetDismissedMode(simulationMode);
+          }}
+          activeBranch={activeBranchInsideGeofence}
+          distanceToNearestMeters={distanceToNearestMeters}
+          simulationMode={simulationMode}
+          onSimulationModeChange={handleSimulationModeChange}
+          onGetTicket={handleArrivalGetTicket}
+          availableServices={arrivalServices}
+          error={arrivalServicesError}
+          isLoadingTicket={creating}
+        />
+      )}
+
+      {!kiosk && visitRatingQueue[0] && (
+        <VisitRatingSheet
+          ticket={visitRatingQueue[0]}
+          branchName={branches.find(branch => branch.id === visitRatingQueue[0].branchId)?.name || 'Почта России'}
+          onClose={() => finishVisitRating('dismissed')}
+          onSubmit={(rating, comment) => finishVisitRating('reviewed', rating, comment)}
+        />
+      )}
+
+      {/* Floating Geofence Radar Pill when inside branch but sheet closed and client does not yet have an active ticket */}
+      {!kiosk && isInsideGeofence && !isArrivalSheetOpen && !hasActiveTicketForBranch && (
+        <button
+          type="button"
+          onClick={() => setIsArrivalSheetOpen(true)}
+          className="fixed bottom-6 right-6 z-40 flex items-center gap-2.5 px-4 py-3 rounded-full bg-[#052F85] text-white shadow-2xl hover:bg-[#031E56] border-2 border-white cursor-pointer transition-all transform hover:scale-105 active:scale-95"
+          title="Открыть окно быстрого талона"
+        >
+          <span className="relative flex h-3 w-3">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+          </span>
+          <span className="text-xs font-bold whitespace-nowrap">
+            Вы в отделении {activeBranchInsideGeofence?.code || '101000'} · Взять талон
+          </span>
+        </button>
       )}
     </div>
   );

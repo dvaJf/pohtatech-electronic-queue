@@ -1,0 +1,1356 @@
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import {
+  X,
+  Search,
+  MapPin,
+  Clock,
+  Star,
+  Navigation,
+  ChevronUp,
+  ChevronDown,
+  Users,
+  Accessibility,
+  Package,
+  Mail,
+  Coins,
+  CreditCard,
+  Building2,
+  Sparkles,
+  ArrowRight,
+  ExternalLink,
+  Layers,
+  CheckCircle2
+} from 'lucide-react';
+import { matchBranchLocation, liveWaitMinutes } from './liveBranches';
+import { getPositionWithFallback } from './geolocation';
+import type { BranchWorkload } from '../../../api/client/clientApi';
+import { Branch } from '../../../api/client/types';
+import { PochtaEmblem } from '../../../components/common/PochtaBrand';
+import {
+  MOSCOW_BRANCHES,
+  BranchLocation,
+  calculateWaitTime,
+  getBranchWorkload,
+} from './branchLocations';
+
+/**
+ * Расширенная модель отделения для отображения на карте
+ */
+export interface MapBranch extends Branch {
+  code?: string;
+  coordinates: [number, number]; // [широта (lat), долгота (lon)]
+  metro?: string;
+  rating: number | null;
+  reviewsCount?: number;
+  liveWaitMinutes: number | null;
+  waitingCount: number | null;
+  photoUrl: string;
+  amenities: ('parcels' | 'letters' | 'pensions' | 'accessible' | 'atm')[];
+  phone?: string;
+  address: string;
+  workHours: string;
+  rawLocation?: BranchLocation;
+}
+
+export type FilterCategory = 'all' | 'parcels' | 'letters' | 'pensions' | 'accessible';
+
+export interface BranchMapModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  branches?: Branch[];
+  workloads?: Record<string, BranchWorkload>;
+  selectedBranchId?: string | null;
+  onSelectBranch?: (branch: Branch, action?: 'walkin' | 'booking') => void;
+  onTakeTicket?: (branch: Branch) => void;
+  onBookAppointment?: (branch: Branch) => void;
+  initialFilter?: FilterCategory;
+  userCoordinates?: [number, number] | null;
+}
+
+// Yandex Maps JavaScript API 2.1
+export const YANDEX_MAPS_API_KEY = '97fb22de-5d60-4106-aab0-6cf5d831324c';
+export const YANDEX_MAPS_SCRIPT_URL = 'https://api-maps.yandex.ru/2.1/?apikey=97fb22de-5d60-4106-aab0-6cf5d831324c&lang=ru_RU';
+
+export function yandexBranchSearchUrl(name: string, address: string): string {
+  return `https://yandex.ru/maps/?text=${encodeURIComponent(`${name}, ${address}`)}`;
+}
+
+export function getBranchPhoto(code?: string, name?: string): string {
+  if (code === '101000' || name?.includes('Мясницкая')) return '/images/branch_myasnitskaya.jpg';
+  if (code === '115280' || name?.includes('Автозаводская')) return '/images/branch_avtozavodskaya.jpg';
+  if (code === '125009' || name?.includes('Тверская')) return '/images/branch_tverskaya.jpg';
+  if (code === '119019' || name?.includes('Арбат')) return '/images/branch_arbat.jpg';
+  if (code === '101000-2' || name?.includes('Покровка')) return '/images/branch_pokrovka.jpg';
+  if (code === '107031' || name?.includes('Рождественка')) return '/images/branch_kuznetsky.jpg';
+  if (code === '109012' || name?.includes('Никольская')) return '/images/branch_lubyanka.jpg';
+  if (code === '107140' || name?.includes('Комсомольская')) return '/images/branch_komsomolskaya.jpg';
+  if (code === '127055' || name?.includes('Новослободская')) return '/images/branch_novoslobodskaya.jpg';
+  if (code === '390000' || name?.includes('Рязань')) return '/images/branch_ryazan.jpg';
+  return '/images/branch_city.jpg';
+}
+
+/**
+ * Конвертация BranchLocation из branchLocations.ts в MapBranch
+ */
+export function convertLocationToMapBranch(loc: BranchLocation): MapBranch {
+  const waitMin = Math.round(calculateWaitTime(loc));
+  const amenitiesList: ('parcels' | 'letters' | 'pensions' | 'accessible' | 'atm')[] = [];
+
+  if (loc.services?.some((s) => s.category === 'parcels' || s.category === 'all')) {
+    amenitiesList.push('parcels');
+  }
+  if (loc.services?.some((s) => s.category === 'letters' || s.category === 'all')) {
+    amenitiesList.push('letters');
+  }
+  if (loc.services?.some((s) => s.category === 'pensions' || s.category === 'all')) {
+    amenitiesList.push('pensions');
+  }
+  if (
+    loc.amenities?.some((a) =>
+      /колясок|доступ|пандус|инвалид/i.test(a)
+    )
+  ) {
+    amenitiesList.push('accessible');
+  }
+  if (loc.amenities?.some((a) => /карт|банкомат/i.test(a))) {
+    amenitiesList.push('atm');
+  }
+
+  let photo = loc.photos?.[0] || '';
+  if (!photo || photo.startsWith('data:image/svg')) {
+    photo = getBranchPhoto(loc.code, loc.name);
+  }
+
+  return {
+    id: loc.id,
+    code: loc.code,
+    name: loc.name,
+    address: loc.address,
+    workHours: loc.workHours,
+    coordinates: [loc.lat, loc.lng],
+    metro: loc.metro,
+    rating: loc.rating > 0 ? loc.rating : null,
+    reviewsCount: loc.reviewCount,
+    liveWaitMinutes: waitMin,
+    waitingCount: loc.activeQueueCount,
+    photoUrl: photo,
+    amenities: amenitiesList,
+    rawLocation: loc,
+  };
+}
+
+/**
+ * Эталонный список отделений из базы локаций
+ */
+export const DEFAULT_MAP_BRANCHES: MapBranch[] = MOSCOW_BRANCHES.map(convertLocationToMapBranch);
+
+declare global {
+  interface Window {
+    ymaps?: any;
+    __ymapsPromise?: Promise<any>;
+  }
+}
+
+/**
+ * Динамический загрузчик Yandex Maps JavaScript API 2.1
+ */
+function loadYandexMaps(): Promise<any> {
+  if (typeof window === 'undefined') {
+    return Promise.reject(new Error('Window is undefined'));
+  }
+  if (window.ymaps && window.ymaps.Map) {
+    return new Promise((resolve) => window.ymaps.ready(() => resolve(window.ymaps)));
+  }
+  if (window.__ymapsPromise) {
+    return window.__ymapsPromise;
+  }
+
+  window.__ymapsPromise = new Promise((resolve, reject) => {
+    let script = document.querySelector(`script[src*="api-maps.yandex.ru/2.1"]`) as HTMLScriptElement | null;
+    if (!script) {
+      script = document.createElement('script');
+      script.src = YANDEX_MAPS_SCRIPT_URL;
+      script.type = 'text/javascript';
+      script.async = true;
+      script.id = 'yandex-maps-api-script';
+      document.head.appendChild(script);
+    }
+
+    const timeout = setTimeout(() => {
+      reject(new Error('Yandex Maps API load timeout (falling back to Carto/OSM)'));
+    }, 4000);
+
+    script.addEventListener('load', () => {
+      clearTimeout(timeout);
+      if (window.ymaps && window.ymaps.ready) {
+        window.ymaps.ready(() => resolve(window.ymaps));
+      } else {
+        reject(new Error('ymaps API ready object not found'));
+      }
+    });
+
+    script.addEventListener('error', (err) => {
+      clearTimeout(timeout);
+      reject(err);
+    });
+  });
+
+  return window.__ymapsPromise;
+}
+
+/**
+ * Получение параметров бейджа ожидания (ПВЗ стиль):
+ * - Green badge: wait <= 5 min (bg-emerald-500)
+ * - Amber badge: wait 5-15 min (bg-amber-500)
+ * - Red badge: wait > 15 min (bg-red-500)
+ * - Star rating badge (★ 4.92)
+ */
+export function getWaitBadgeInfo(waitMinutes: number | null) {
+  if (waitMinutes === null || !Number.isFinite(waitMinutes)) return {
+    colorClass: 'bg-slate-500', textClass: 'text-slate-600', bgLightClass: 'bg-slate-100',
+    hex: '#64748b', label: 'Нет оценки', statusText: 'Ожидание пока неизвестно',
+  };
+  if (waitMinutes <= 5) {
+    return {
+      colorClass: 'bg-emerald-500',
+      textClass: 'text-emerald-700',
+      bgLightClass: 'bg-emerald-50',
+      hex: '#10B981',
+      label: `~${waitMinutes} мин`,
+      statusText: 'Быстрое обслуживание (до 5 мин)'
+    };
+  } else if (waitMinutes <= 15) {
+    return {
+      colorClass: 'bg-amber-500',
+      textClass: 'text-amber-700',
+      bgLightClass: 'bg-amber-50',
+      hex: '#F59E0B',
+      label: `~${waitMinutes} мин`,
+      statusText: 'Умеренная очередь (5-15 мин)'
+    };
+  } else {
+    return {
+      colorClass: 'bg-red-500',
+      textClass: 'text-red-700',
+      bgLightClass: 'bg-red-50',
+      hex: '#EF4444',
+      label: `~${waitMinutes} мин`,
+      statusText: 'Высокая нагрузка (> 15 мин)'
+    };
+  }
+}
+
+/**
+ * Главный компонент модального окна карты отделений
+ */
+export function BranchMapModal({
+  isOpen,
+  onClose,
+  branches: incomingBranches = [],
+  workloads = {},
+  onSelectBranch,
+  onTakeTicket,
+  onBookAppointment,
+  initialFilter = 'all',
+  userCoordinates = null,
+}: BranchMapModalProps) {
+  // Быстрые фильтр-чипы: «Все», «Посылки», «Письма», «Пенсии», «Доступная среда»
+  const [selectedFilter, setSelectedFilter] = useState<FilterCategory>(initialFilter);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedBranchId, setSelectedBranchId] = useState<string | null>(null);
+
+  // Режим карты и Leaflet/Carto/OSM fallback
+  const [useFallbackMap, setUseFallbackMap] = useState<boolean>(false);
+  const [isYmapsLoading, setIsYmapsLoading] = useState<boolean>(true);
+  const [ymapsError, setYmapsError] = useState<string | null>(null);
+
+  // Мобильный bottom sheet: 'collapsed' | 'half' | 'expanded'
+  const [bottomSheetState, setBottomSheetState] = useState<'collapsed' | 'half' | 'expanded'>('half');
+  const touchStartYRef = useRef<number | null>(null);
+
+  const mapContainerRef = useRef<HTMLDivElement | null>(null);
+  const ymapsInstanceRef = useRef<any>(null);
+  const clustererRef = useRef<any>(null);
+
+  // Only server branches with an address-matched location are eligible for map pins.
+  const allBranches = useMemo<MapBranch[]>(() => incomingBranches.flatMap(b => {
+    const loc = matchBranchLocation(b, MOSCOW_BRANCHES);
+    if (!loc) return [];
+    const workload = workloads[b.id];
+    return [{ ...convertLocationToMapBranch(loc), ...b, id: b.id,
+      address: b.address || loc.address, workHours: b.workHours || loc.workHours,
+      rating: loc.rating > 0 ? loc.rating : null, reviewsCount: loc.reviewCount,
+      liveWaitMinutes: liveWaitMinutes(workload) ?? null,
+      waitingCount: workload?.currentWaiting ?? null }];
+  }), [incomingBranches, workloads]);
+
+  // Фильтрация списка отделений
+  const filteredBranches = useMemo(() => {
+    return allBranches.filter((b) => {
+      // Фильтр-чипы: «Все», «Посылки», «Письма», «Пенсии», «Доступная среда»
+      if (selectedFilter !== 'all') {
+        if (!b.amenities.includes(selectedFilter)) {
+          return false;
+        }
+      }
+      // Поисковый запрос
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase().trim();
+        const matchesCode = b.code ? b.code.toLowerCase().includes(q) : false;
+        const matchesName = b.name.toLowerCase().includes(q);
+        const matchesAddress = b.address.toLowerCase().includes(q);
+        const matchesMetro = b.metro ? b.metro.toLowerCase().includes(q) : false;
+        if (!matchesCode && !matchesName && !matchesAddress && !matchesMetro) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [allBranches, selectedFilter, searchQuery]);
+
+  // Выбранное активное отделение (null если ничего не выбрано или свернуто)
+  const selectedBranch = useMemo(() => {
+    if (!selectedBranchId) return null;
+    return (
+      filteredBranches.find((b) => b.id === selectedBranchId) ||
+      allBranches.find((b) => b.id === selectedBranchId) ||
+      null
+    );
+  }, [filteredBranches, allBranches, selectedBranchId]);
+
+  // Состояние и логика кнопки геолокации
+  const [locationError, setLocationError] = useState<string | null>(null);
+  const [isLocatingUser, setIsLocatingUser] = useState(false);
+  const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
+  const userPlacemarkRef = useRef<any>(null);
+  const userLocationRef = useRef<[number, number] | null>(null);
+
+  const renderUserLocation = useCallback((coords: [number, number]) => {
+    userLocationRef.current = coords;
+    setUserLocation(coords);
+    const ymaps = (window as any).ymaps;
+    const map = ymapsInstanceRef.current;
+    if (!map || !ymaps?.Placemark) return;
+
+    if (!userPlacemarkRef.current) {
+      const userPulseLayout = ymaps.templateLayoutFactory.createClass(
+        `<div style="display:flex;align-items:center;justify-content:center;transform:translate(-50%,-50%);width:34px;height:34px;position:relative;">
+          <div style="position:absolute;width:34px;height:34px;border-radius:50%;background:rgba(5,47,133,0.28);animation:ping 1.5s cubic-bezier(0,0,0.2,1) infinite;"></div>
+          <div style="width:18px;height:18px;border-radius:50%;background:#052F85;border:3px solid white;box-shadow:0 2px 10px rgba(5,47,133,0.5);"></div>
+        </div>`
+      );
+      userPlacemarkRef.current = new ymaps.Placemark(coords, {
+        hintContent: 'Вы находитесь здесь',
+        iconCaption: 'Вы здесь',
+      }, { iconLayout: userPulseLayout, zIndex: 9999 });
+      map.geoObjects.add(userPlacemarkRef.current);
+    } else {
+      userPlacemarkRef.current.geometry.setCoordinates(coords);
+    }
+    map.panTo(coords, { flying: true, duration: 800 }).then(() => {
+      ymapsInstanceRef.current?.setZoom(15, { duration: 400 });
+    });
+  }, []);
+
+  useEffect(() => {
+    if (isOpen && userCoordinates
+        && Number.isFinite(userCoordinates[0]) && Number.isFinite(userCoordinates[1])) {
+      renderUserLocation(userCoordinates);
+    }
+  }, [isOpen, userCoordinates?.[0], userCoordinates?.[1], renderUserLocation]);
+
+  const handleLocateUser = useCallback(() => {
+    setLocationError(null);
+    setIsLocatingUser(true);
+
+    if (typeof navigator !== 'undefined' && navigator.geolocation) {
+      getPositionWithFallback(navigator.geolocation).then(pos => {
+        renderUserLocation([pos.coords.latitude, pos.coords.longitude]);
+        setIsLocatingUser(false);
+      }).catch((err: GeolocationPositionError) => {
+        setIsLocatingUser(false);
+        setLocationError(err.code === 1
+          ? 'Разрешите доступ к геолокации в настройках браузера и попробуйте снова.'
+          : 'Не удалось получить координаты. Проверьте GPS или сеть и попробуйте ещё раз.');
+      });
+    } else {
+      setIsLocatingUser(false);
+      setLocationError('Геолокация недоступна в этом браузере.');
+    }
+  }, [renderUserLocation]);
+
+  // Интеграция Yandex Maps JavaScript API 2.1 и ymaps.Clusterer
+  useEffect(() => {
+    if (!isOpen || useFallbackMap) return;
+
+    let isMounted = true;
+    setIsYmapsLoading(true);
+    setYmapsError(null);
+
+    loadYandexMaps()
+      .then((ymaps) => {
+        if (!isMounted || !mapContainerRef.current) return;
+
+        // Удаление предыдущей карты перед инициализацией
+        if (ymapsInstanceRef.current) {
+          ymapsInstanceRef.current.destroy();
+          ymapsInstanceRef.current = null;
+        }
+
+        const centerCoords = userLocationRef.current || [55.7618, 37.6385];
+
+        const map = new ymaps.Map(
+          mapContainerRef.current,
+          {
+            center: centerCoords,
+            zoom: 13,
+            controls: ['zoomControl'],
+          },
+          {
+            searchControlProvider: 'yandex#search',
+            suppressMapOpenBlock: true,
+          }
+        );
+        ymapsInstanceRef.current = map;
+        if (userLocationRef.current) renderUserLocation(userLocationRef.current);
+
+        // Кастомный макет балуна для кластеров ymaps.Clusterer
+        const customClusterBalloonLayout = ymaps.templateLayoutFactory.createClass(
+          `<div class="p-3 font-['Manrope']" style="font-family: 'Manrope', sans-serif; min-width: 240px;">
+            <div style="font-size: 13px; font-weight: 800; color: #052F85;">$[properties.name]</div>
+            <div style="font-size: 11px; color: #64748B; margin-top: 3px;">$[properties.address]</div>
+            <div style="margin-top: 8px; display: inline-flex; align-items: center; gap: 6px;">
+              <span style="font-size: 11px; font-weight: 700; color: #031E56;">★ $[properties.rating]</span>
+              <span style="padding: 2px 8px; border-radius: 9999px; font-size: 11px; font-weight: 700; color: white; background-color: $[properties.badgeHex];">
+                $[properties.waitLabel]
+              </span>
+            </div>
+          </div>`
+        );
+
+        // Инициализация ymaps.Clusterer с кастомным оформлением
+        const clusterer = new ymaps.Clusterer({
+          preset: 'islands#invertedDarkBlueClusterIcons',
+          groupByCoordinates: false,
+          clusterDisableClickZoom: false,
+          clusterHideIconOnBalloonOpen: false,
+          geoObjectHideIconOnBalloonOpen: false,
+          clusterBalloonContentLayout: 'cluster#balloonCarousel',
+          clusterBalloonItemContentLayout: customClusterBalloonLayout,
+          clusterBalloonPanelMaxMapArea: 0,
+          clusterOpenBalloonOnClick: true,
+          gridSize: 64,
+        });
+        clustererRef.current = clusterer;
+
+        // Добавление меток отделений с ПВЗ-стилизацией
+        filteredBranches.forEach((b) => {
+          const waitInfo = getWaitBadgeInfo(b.liveWaitMinutes);
+          const ratingText = (b.rating === null ? '—' : b.rating.toFixed(2));
+
+          // Custom HTML layout для ПВЗ-пина:
+          // Green badge: wait <= 5 min (bg-emerald-500)
+          // Amber badge: wait 5-15 min (bg-amber-500)
+          // Red badge: wait > 15 min (bg-red-500)
+          // Star rating badge (★ 4.92)
+          const pinLayout = ymaps.templateLayoutFactory.createClass(
+            `<div class="pvz-pin-marker cursor-pointer select-none group" style="display: flex; flex-direction: column; align-items: center; transform: translate(-50%, -100%);">
+              <div class="${waitInfo.colorClass} shadow-lg" style="display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 9999px; background-color: ${waitInfo.hex}; border: 2px solid #FFFFFF; color: #FFFFFF; font-family: 'Manrope', sans-serif; font-size: 11px; font-weight: 800; white-space: nowrap; box-shadow: 0 4px 14px rgba(5,47,133,0.35);">
+                <span style="color: #FEF08A;">★</span>
+                <span>${ratingText}</span>
+                <span style="opacity: 0.6;">•</span>
+                <span>${waitInfo.label}</span>
+              </div>
+              <div style="width: 8px; height: 8px; transform: rotate(45deg); margin-top: -4px; background-color: ${waitInfo.hex}; border-right: 2px solid #FFFFFF; border-bottom: 2px solid #FFFFFF;"></div>
+            </div>`
+          );
+
+          const placemark = new ymaps.Placemark(
+            b.coordinates,
+            {
+              name: b.name,
+              address: b.address,
+              rating: ratingText,
+              waitLabel: waitInfo.label,
+              badgeHex: waitInfo.hex,
+              hintContent: `${b.name} (★ ${ratingText})`,
+            },
+            {
+              iconLayout: pinLayout,
+              iconShape: {
+                type: 'Rectangle',
+                coordinates: [[-50, -36], [50, 0]],
+              },
+            }
+          );
+
+          placemark.events.add('click', () => {
+            setSelectedBranchId(b.id);
+            setBottomSheetState('half');
+            map.panTo(b.coordinates, { flying: true, duration: 600 }).then(() => {
+              map.setZoom(16, { duration: 300 });
+            });
+          });
+
+          clusterer.add(placemark);
+        });
+
+        map.geoObjects.add(clusterer);
+        setIsYmapsLoading(false);
+      })
+      .catch((err) => {
+        if (!isMounted) return;
+        console.warn('Yandex Maps API load fallback to Leaflet / Carto / OSM:', err);
+        setYmapsError(err.message || 'Ошибка загрузки Яндекс.Карт');
+        setUseFallbackMap(true);
+        setIsYmapsLoading(false);
+      });
+
+    return () => {
+      isMounted = false;
+      if (ymapsInstanceRef.current) {
+        ymapsInstanceRef.current.destroy();
+        ymapsInstanceRef.current = null;
+      }
+      userPlacemarkRef.current = null;
+    };
+  }, [isOpen, useFallbackMap, filteredBranches, renderUserLocation]);
+
+  // Плавный переход при выборе карточки
+  const handleSelectBranch = useCallback((branch: MapBranch) => {
+    setSelectedBranchId(branch.id);
+    if (ymapsInstanceRef.current) {
+      ymapsInstanceRef.current
+        .panTo(branch.coordinates, { flying: true, duration: 600 })
+        .then(() => {
+          ymapsInstanceRef.current.setZoom(16, { duration: 300 });
+        });
+    }
+  }, []);
+
+  // Кнопка «Взять талон»
+  const handleTakeTicket = (branch: MapBranch) => {
+    if (onTakeTicket) {
+      onTakeTicket(branch);
+    } else if (onSelectBranch) {
+      onSelectBranch(branch, 'walkin');
+    }
+    onClose();
+  };
+
+  // Кнопка «Записаться»
+  const handleBookAppointment = (branch: MapBranch) => {
+    if (onBookAppointment) {
+      onBookAppointment(branch);
+    } else if (onSelectBranch) {
+      onSelectBranch(branch, 'booking');
+    }
+    onClose();
+  };
+
+  // Жесты для мобильного Bottom Sheet
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartYRef.current = e.touches[0].clientY;
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartYRef.current === null) return;
+    const deltaY = e.changedTouches[0].clientY - touchStartYRef.current;
+    if (deltaY < -40) {
+      setBottomSheetState((prev) => (prev === 'collapsed' ? 'half' : 'expanded'));
+    } else if (deltaY > 40) {
+      setBottomSheetState((prev) => (prev === 'expanded' ? 'half' : 'collapsed'));
+    }
+    touchStartYRef.current = null;
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 backdrop-blur-sm p-0 md:p-4 lg:p-6 font-['Manrope',sans-serif]"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Карта отделений Почты России"
+    >
+
+      <div className="relative w-full h-full md:max-w-6xl md:h-[90vh] bg-[#F8FAFC] md:rounded-3xl border border-[#E2E8F0] shadow-2xl flex flex-col overflow-hidden">
+        {/* === ШАПКА МОДАЛЬНОГО ОКНА === */}
+        <header className="flex items-center justify-between px-4 md:px-6 py-3.5 bg-white border-b border-[#E2E8F0] shrink-0 z-30">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-[#052F85] flex items-center justify-center text-white shadow-md shadow-[#052F85]/20">
+              <MapPin size={22} className="text-white" />
+            </div>
+            <div>
+              <h2 className="text-base md:text-lg font-extrabold text-[#031E56] leading-tight">
+                Отделения Почты России
+              </h2>
+              <div className="flex items-center gap-2 text-xs text-slate-500 font-medium">
+                <span>{filteredBranches.length} отделений на карте</span>
+                <span>•</span>
+                <span className="text-emerald-600 font-semibold flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  Мониторинг очередей онлайн
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {/* Режим: только Яндекс.Карты */}
+            <div className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-blue-50 border border-blue-200/80 text-[#052F85]">
+              <MapPin size={13} className="text-[#052F85]" />
+              <span>Яндекс.Карты</span>
+            </div>
+
+            {/* Кнопка закрытия */}
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-10 h-10 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center transition-colors"
+              aria-label="Закрыть карту"
+            >
+              <X size={20} />
+            </button>
+          </div>
+        </header>
+      <div role="status" className="shrink-0 bg-white text-xs text-slate-600 px-4 py-2 border-b border-slate-200">
+        {locationError || (incomingBranches.length > allBranches.length ? 'Часть отделений доступна только в списке: координаты ещё не подтверждены.' : 'Ожидание — приблизительная оценка по текущей очереди. Дорога рассчитана по расстоянию, без учёта препятствий.')}
+      </div>
+
+        {/* === СПЛИТ-ЛЕЙАУТ ===
+            Desktop (md:flex): 35% левый сайдбар со скроллируемым списком и фильтрами; 65% контейнер карты.
+            Mobile (flex-col): Полноэкранная карта с collapsible Bottom Sheet.
+        */}
+        <div className="flex-1 flex flex-col md:flex-row relative overflow-hidden">
+          {/* ======================================================== */}
+          {/* ЛЕВЫЙ САЙДБАР (DESKTOP 35%): Список и фильтры            */}
+          {/* ======================================================== */}
+          <aside className="hidden md:flex md:w-[35%] flex-col h-full bg-[#F8FAFC] border-r border-[#E2E8F0] z-20 overflow-hidden">
+            {/* Поиск и быстрые фильтры */}
+            <div className="p-4 bg-white border-b border-[#E2E8F0] space-y-3">
+              {/* Поле поиска */}
+              <div className="relative">
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={17} />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Поиск по адресу, метро, индексу..."
+                  style={{ paddingLeft: '2.75rem' }}
+                  className="w-full pl-11 pr-4 py-2.5 rounded-2xl bg-[#F8FAFC] border border-[#E2E8F0] text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#052F85] focus:bg-white transition-all placeholder:text-slate-400"
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+
+              {/* Быстрые фильтр-чипы: «Все», «Посылки», «Письма», «Пенсии», «Доступная среда» */}
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                <FilterChip
+                  active={selectedFilter === 'all'}
+                  onClick={() => setSelectedFilter('all')}
+                  label="Все"
+                />
+                <FilterChip
+                  active={selectedFilter === 'parcels'}
+                  onClick={() => setSelectedFilter('parcels')}
+                  icon={<Package size={13} />}
+                  label="Посылки"
+                />
+                <FilterChip
+                  active={selectedFilter === 'letters'}
+                  onClick={() => setSelectedFilter('letters')}
+                  icon={<Mail size={13} />}
+                  label="Письма"
+                />
+                <FilterChip
+                  active={selectedFilter === 'pensions'}
+                  onClick={() => setSelectedFilter('pensions')}
+                  icon={<Coins size={13} />}
+                  label="Пенсии"
+                />
+                <FilterChip
+                  active={selectedFilter === 'accessible'}
+                  onClick={() => setSelectedFilter('accessible')}
+                  icon={<Accessibility size={13} />}
+                  label="Доступная среда"
+                />
+              </div>
+            </div>
+
+            {/* Прокручиваемый список отделений */}
+            <div className="flex-1 overflow-y-auto p-3 space-y-2.5">
+              {filteredBranches.length === 0 ? (
+                <div className="p-8 text-center text-slate-400 space-y-2">
+                  <MapPin size={32} className="mx-auto text-slate-300" />
+                  <p className="text-xs font-semibold">По вашему запросу отделений не найдено</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedFilter('all');
+                      setSearchQuery('');
+                    }}
+                    className="text-xs text-[#052F85] font-bold underline"
+                  >
+                    Сбросить фильтры
+                  </button>
+                </div>
+              ) : (
+                filteredBranches.map((branch) => {
+                  const isSelected = branch.id === selectedBranch?.id;
+                  const wait = getWaitBadgeInfo(branch.liveWaitMinutes);
+
+                  return (
+                    <div
+                      key={branch.id}
+                      onClick={() => {
+                        if (selectedBranchId === branch.id) {
+                          setSelectedBranchId(null);
+                        } else {
+                          handleSelectBranch(branch);
+                        }
+                      }}
+                      className={`p-3.5 rounded-2xl border transition-all cursor-pointer text-left ${
+                        isSelected
+                          ? 'bg-blue-50/70 border-[#052F85] ring-2 ring-[#052F85]/15 shadow-sm'
+                          : 'bg-white border-[#E2E8F0] hover:border-slate-300 hover:shadow-sm'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="text-xs font-extrabold text-[#031E56] leading-snug">
+                            {branch.name}
+                          </div>
+                          <div className="text-[11px] text-slate-500 mt-0.5 line-clamp-1">
+                            {branch.address}
+                          </div>
+                        </div>
+
+                        {/* Бейдж ожидания (ПВЗ стиль) */}
+                        <div
+                          className={`shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold text-white shadow-xs ${wait.colorClass}`}
+                        >
+                          {wait.label}
+                        </div>
+                      </div>
+
+                      {/* Метро и рейтинг (★ 4.92) */}
+                      <div className="mt-2.5 flex items-center justify-between text-[11px] text-slate-500 pt-2 border-t border-slate-100">
+                        <div className="flex items-center gap-1.5 truncate">
+                          <Navigation size={12} className="text-[#052F85] shrink-0" />
+                          <span className="truncate">{branch.metro || 'Рядом с остановкой'}</span>
+                        </div>
+                        <div className="flex items-center gap-1 font-bold text-amber-500 shrink-0">
+                          <Star size={12} className="fill-amber-400 text-amber-400" />
+                          <span>{(branch.rating === null ? '—' : branch.rating.toFixed(2))}</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Карточка выбранного отделения внизу сайдбара с кнопками действий */}
+            {selectedBranch && (
+              <div className="p-3 bg-white border-t border-[#E2E8F0] shadow-lg animate-in slide-in-from-bottom-2 duration-200">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[11px] uppercase tracking-wider font-extrabold text-slate-400">
+                    Выбранное отделение
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-bold text-[#052F85]">
+                      {selectedBranch.workHours}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedBranchId(null)}
+                      className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+                      title="Снять выбор отделения"
+                      aria-label="Снять выбор отделения"
+                    >
+                      <X size={15} />
+                    </button>
+                  </div>
+                </div>
+                <div className="text-xs font-bold text-[#031E56] mb-2 truncate">
+                  {selectedBranch.name} • {selectedBranch.address}
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleTakeTicket(selectedBranch)}
+                    className="w-full py-2.5 px-3 rounded-xl bg-[#052F85] hover:bg-[#031E56] text-white text-xs font-bold transition-all shadow-md shadow-[#052F85]/20 flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer"
+                  >
+                    <span>Взять талон</span>
+                    <ArrowRight size={13} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleBookAppointment(selectedBranch)}
+                    className="w-full py-2.5 px-3 rounded-xl border-2 border-[#052F85] text-[#052F85] hover:bg-blue-50 text-xs font-bold transition-all flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer"
+                  >
+                    <Clock size={13} />
+                    <span>Записаться</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </aside>
+
+          {/* ======================================================== */}
+          {/* ПРАВАЯ ОБЛАСТЬ КАРТЫ (DESKTOP 65% / MOBILE 100%)         */}
+          {/* ======================================================== */}
+          <main className="flex-1 md:w-[65%] h-full relative overflow-hidden bg-slate-100 flex flex-col">
+            {/* Плавающая кнопка «Моё местоположение» (геолокация) */}
+            <button
+              type="button"
+              onClick={handleLocateUser}
+              disabled={isLocatingUser}
+              className="absolute top-4 left-4 z-20 w-10 h-10 bg-white hover:bg-slate-50 text-slate-700 rounded-xl shadow-lg border border-slate-200/90 flex items-center justify-center transition-all active:scale-95 cursor-pointer group"
+              title="Моё местоположение"
+              aria-label="Определить моё местоположение"
+            >
+              {isLocatingUser ? (
+                <div className="w-5 h-5 border-2 border-[#052F85] border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <Navigation
+                  size={18}
+                  className="text-slate-700 group-hover:text-[#052F85] transition-colors fill-slate-700/80"
+                />
+              )}
+            </button>
+
+            {/* Отображение карты */}
+            {useFallbackMap ? (
+              // Резервный режим карты (Leaflet / Carto / OSM)
+              <LeafletCartoOsmFallbackMap
+                branches={filteredBranches}
+                selectedBranch={selectedBranch}
+                userLocation={userLocation}
+                onSelectBranch={handleSelectBranch}
+              />
+            ) : (
+              // Яндекс.Карты 2.1
+              <div className="relative w-full h-full">
+                <div ref={mapContainerRef} className="w-full h-full" />
+                {isYmapsLoading && (
+                  <div className="absolute inset-0 bg-slate-100/80 backdrop-blur-xs flex items-center justify-center z-10">
+                    <div className="flex flex-col items-center gap-2 p-4 bg-white rounded-2xl shadow-xl border border-slate-200">
+                      <div className="w-6 h-6 border-3 border-[#052F85] border-t-transparent rounded-full animate-spin" />
+                      <span className="text-xs font-bold text-[#031E56]">
+                        Загрузка Яндекс.Карт...
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Всплывающая подробная карточка отделения над картой на десктопе */}
+            {selectedBranch && (
+              <div className="hidden lg:block absolute bottom-6 right-6 w-96 z-20 animate-in fade-in slide-in-from-bottom-2 duration-200">
+                <DetailedBranchCard
+                  branch={selectedBranch}
+                  onClose={() => setSelectedBranchId(null)}
+                  onTakeTicket={() => handleTakeTicket(selectedBranch)}
+                  onBookAppointment={() => handleBookAppointment(selectedBranch)}
+                />
+              </div>
+            )}
+
+            {/* ======================================================== */}
+            {/* МОБИЛЬНЫЙ DRAGGABLE / COLLAPSIBLE BOTTOM SHEET           */}
+            {/* ======================================================== */}
+            <div
+              className={`md:hidden absolute bottom-0 inset-x-0 bg-white rounded-t-3xl shadow-2xl border-t border-[#E2E8F0] transition-all duration-300 z-30 flex flex-col ${
+                bottomSheetState === 'collapsed'
+                  ? 'h-24'
+                  : bottomSheetState === 'half'
+                  ? 'h-[52vh]'
+                  : 'h-[85vh]'
+              }`}
+            >
+              {/* Полоса свайпа (Drag Handle) */}
+              <div
+                onTouchStart={handleTouchStart}
+                onTouchEnd={handleTouchEnd}
+                onClick={() =>
+                  setBottomSheetState((prev) =>
+                    prev === 'collapsed' ? 'half' : prev === 'half' ? 'expanded' : 'collapsed'
+                  )
+                }
+                className="w-full pt-3 pb-2 flex flex-col items-center justify-center cursor-grab active:cursor-grabbing border-b border-slate-100"
+              >
+                <div className="w-12 h-1.5 rounded-full bg-slate-300 mb-1" />
+                <div className="flex items-center gap-2 text-[11px] font-bold text-slate-500">
+                  <span>{filteredBranches.length} отделений на карте</span>
+                  {bottomSheetState === 'collapsed' ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                </div>
+              </div>
+
+              {/* Мобильные фильтр-чипы */}
+              <div className="px-3 py-2 bg-slate-50 border-b border-[#E2E8F0] flex items-center gap-1.5 overflow-x-auto scrollbar-none">
+                <FilterChip
+                  active={selectedFilter === 'all'}
+                  onClick={() => setSelectedFilter('all')}
+                  label="Все"
+                />
+                <FilterChip
+                  active={selectedFilter === 'parcels'}
+                  onClick={() => setSelectedFilter('parcels')}
+                  label="Посылки"
+                />
+                <FilterChip
+                  active={selectedFilter === 'letters'}
+                  onClick={() => setSelectedFilter('letters')}
+                  label="Письма"
+                />
+                <FilterChip
+                  active={selectedFilter === 'pensions'}
+                  onClick={() => setSelectedFilter('pensions')}
+                  label="Пенсии"
+                />
+                <FilterChip
+                  active={selectedFilter === 'accessible'}
+                  onClick={() => setSelectedFilter('accessible')}
+                  label="Доступная среда"
+                />
+              </div>
+
+              {/* Мобильное поле поиска */}
+              <div className="px-3 pt-2 pb-1 bg-white">
+                <div className="relative">
+                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={15} />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Поиск по адресу, метро, индексу..."
+                    style={{ paddingLeft: '2.75rem' }}
+                    className="w-full pl-11 pr-8 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#052F85] focus:bg-white transition-all placeholder:text-slate-400"
+                  />
+                  {searchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchQuery('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5"
+                    >
+                      <X size={13} />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Содержимое Bottom Sheet: детальная карточка выбранного отделения или список */}
+              <div className="flex-1 overflow-y-auto p-3 space-y-3">
+                {selectedBranch ? (
+                  <DetailedBranchCard
+                    branch={selectedBranch}
+                    onClose={() => setSelectedBranchId(null)}
+                    onTakeTicket={() => handleTakeTicket(selectedBranch)}
+                    onBookAppointment={() => handleBookAppointment(selectedBranch)}
+                  />
+                ) : (
+                  <div className="space-y-2">
+                    {filteredBranches.map((b) => (
+                      <div
+                        key={b.id}
+                        onClick={() => handleSelectBranch(b)}
+                        className="p-3 rounded-2xl bg-slate-50 hover:bg-blue-50/50 border border-slate-200 hover:border-blue-200 transition-colors flex items-center justify-between cursor-pointer"
+                      >
+                        <div>
+                          <div className="text-xs font-bold text-[#031E56]">{b.name}</div>
+                          <div className="text-[11px] text-slate-500 mt-0.5">{b.address}</div>
+                          <div className="flex items-center gap-2 mt-1 text-[10px] text-slate-400">
+                            <span>★ {(b.rating === null ? '—' : b.rating.toFixed(2))}</span>
+                            <span>•</span>
+                            <span>{b.metro || 'Рядом со станцией'}</span>
+                          </div>
+                        </div>
+                        <div
+                          className={`shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold text-white shadow-xs ${
+                            getWaitBadgeInfo(b.liveWaitMinutes).colorClass
+                          }`}
+                        >
+                          {getWaitBadgeInfo(b.liveWaitMinutes).label}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </main>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Быстрый фильтр-чип
+ */
+function FilterChip({
+  active,
+  onClick,
+  icon,
+  label,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon?: React.ReactNode;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-1.5 ${
+        active
+          ? 'bg-[#052F85] text-white shadow-sm shadow-[#052F85]/20'
+          : 'bg-white text-slate-600 border border-[#E2E8F0] hover:bg-slate-50 hover:text-slate-900'
+      }`}
+    >
+      {icon}
+      <span>{label}</span>
+    </button>
+  );
+}
+
+/**
+ * Детальная карточка отделения (Photo of entrance, address, metro, working hours, live queue wait, amenities badges, buttons)
+ */
+export function DetailedBranchCard({
+  branch,
+  onTakeTicket,
+  onBookAppointment,
+  onClose,
+}: {
+  branch: MapBranch;
+  onTakeTicket: () => void;
+  onBookAppointment: () => void;
+  onClose?: () => void;
+}) {
+  const [imgError, setImgError] = useState(false);
+  const wait = getWaitBadgeInfo(branch.liveWaitMinutes);
+
+  const displayPhoto = useMemo(() => {
+    if (branch.photoUrl && !branch.photoUrl.startsWith('data:image/svg')) {
+      return branch.photoUrl;
+    }
+    return getBranchPhoto(branch.code, branch.name);
+  }, [branch.photoUrl, branch.code, branch.name]);
+
+  return (
+    <div className="bg-white rounded-3xl border border-[#E2E8F0] shadow-xl overflow-hidden font-['Manrope']">
+      {/* Фото входа отделения / фирменный фасад Почты России */}
+      <div className="relative h-36 sm:h-44 w-full bg-gradient-to-br from-[#052F85] via-[#004B93] to-[#031E56] overflow-hidden flex items-center justify-center">
+        {!imgError && displayPhoto ? (
+          <img
+            src={displayPhoto}
+            alt={`Вход в отделение ${branch.name}`}
+            onError={() => setImgError(true)}
+            className="w-full h-full object-cover"
+          />
+        ) : (
+          <img
+            src="/images/branch_city.jpg"
+            alt={`Вход в отделение ${branch.name}`}
+            className="w-full h-full object-cover"
+          />
+        )}
+
+        {/* Затемняющий градиент для контрастности бейджей */}
+        <div className="absolute inset-0 bg-gradient-to-b from-black/55 via-transparent to-black/30 pointer-events-none" />
+
+        {/* Бейджи поверх шапки: рейтинг и время ожидания */}
+        <div className="absolute top-3 left-3 flex items-center gap-1.5 z-20">
+          <a href={yandexBranchSearchUrl(branch.name, branch.address)} target="_blank" rel="noreferrer" title="Открыть актуальную карточку отделения в Яндекс Картах" className="px-2.5 py-1 rounded-full bg-slate-900/75 backdrop-blur-md text-white text-[11px] font-bold flex items-center gap-1 border border-white/15 hover:bg-slate-900">
+            <Star size={12} className="fill-amber-400 text-amber-400" />
+            <span>{(branch.rating === null ? '—' : branch.rating.toFixed(2))}</span>
+            <span className="text-white/75">Яндекс Карты ↗</span>
+          </a>
+        </div>
+
+        {/* Бейдж ожидания */}
+        <div className={`absolute top-3 ${onClose ? 'right-12' : 'right-3'} z-20 transition-all`}>
+          <div
+            className={`px-2.5 py-1 rounded-full text-white text-[11px] font-bold shadow-md ${wait.colorClass}`}
+          >
+            {wait.label} в очереди
+          </div>
+        </div>
+
+        {/* Кнопка закрытия / сворачивания отделения (X) */}
+        {onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            className="absolute top-3 right-3 z-30 w-8 h-8 rounded-full bg-slate-900/65 hover:bg-slate-900/85 text-white flex items-center justify-center backdrop-blur-md border border-white/20 transition-all active:scale-95 shadow-md cursor-pointer"
+            aria-label="Свернуть карточку отделения"
+            title="Свернуть"
+          >
+            <X size={16} />
+          </button>
+        )}
+      </div>
+
+      {/* Информация об отделении */}
+      <div className="p-4 space-y-3">
+        <div>
+          <h3 className="text-sm font-extrabold text-[#031E56] leading-snug">
+            {branch.name}
+          </h3>
+          <p className="text-xs text-slate-500 mt-0.5">{branch.address}</p>
+        </div>
+
+        {/* Метро, часы работы и текущая очередь */}
+        <div className="space-y-1.5 text-xs text-slate-600 bg-slate-50 p-2.5 rounded-2xl border border-slate-100">
+          <div className="flex items-center gap-2">
+            <Navigation size={14} className="text-[#052F85] shrink-0" />
+            <span className="font-semibold text-slate-800">{branch.metro || 'Ближайшая остановка транспорта'}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Clock size={14} className="text-slate-400 shrink-0" />
+            <span>Часы работы: <strong>{branch.workHours}</strong></span>
+          </div>
+          {(() => {
+            const workload = branch.liveWaitMinutes === null
+              ? { colorClass: 'border-slate-200 text-slate-500', label: 'Нет оценки' }
+              : { colorClass: wait.textClass, label: wait.label };
+            return (
+              <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-200/60">
+                <div className="flex items-center gap-2">
+                  <Users size={14} className="text-slate-400 shrink-0" />
+                  <span>В зале: <strong>{branch.waitingCount ?? '—'} чел.</strong></span>
+                </div>
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${workload.colorClass}`}>
+                  {workload.label}
+                </span>
+              </div>
+            );
+          })()}
+        </div>
+
+        {/* Удобства и доступная среда (Amenities badges) */}
+        <div>
+          <div className="text-[10px] uppercase font-extrabold tracking-wider text-slate-400 mb-1.5">
+            Услуги и доступность
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {branch.amenities.includes('accessible') && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-blue-50 text-[#052F85] text-[11px] font-bold border border-blue-200">
+                <Accessibility size={12} />
+                <span>Доступная среда</span>
+              </span>
+            )}
+            {branch.amenities.includes('parcels') && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-slate-100 text-slate-700 text-[11px] font-semibold">
+                <Package size={12} />
+                <span>Посылки</span>
+              </span>
+            )}
+            {branch.amenities.includes('letters') && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-slate-100 text-slate-700 text-[11px] font-semibold">
+                <Mail size={12} />
+                <span>Письма</span>
+              </span>
+            )}
+            {branch.amenities.includes('pensions') && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-slate-100 text-slate-700 text-[11px] font-semibold">
+                <Coins size={12} />
+                <span>Пенсии</span>
+              </span>
+            )}
+            {branch.amenities.includes('atm') && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-slate-100 text-slate-700 text-[11px] font-semibold">
+                <CreditCard size={12} />
+                <span>Почта Банк</span>
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Кнопка прокладки пешего маршрута в Яндекс.Картах */}
+        <a
+          href={`https://yandex.ru/maps/?rtext=~${branch.coordinates[0]},${branch.coordinates[1]}&rtt=pd`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="w-full py-2 px-3 rounded-2xl bg-blue-50/70 hover:bg-blue-100/70 border border-blue-200/70 text-[#052F85] text-xs font-bold transition-all flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer"
+        >
+          <Navigation size={13} />
+          <span>Проложить маршрут в Яндекс.Картах</span>
+        </a>
+
+        {/* Кнопки действий: «Взять талон» / «Записаться» */}
+        <div className="grid grid-cols-2 gap-2 pt-1">
+          <button
+            type="button"
+            onClick={onTakeTicket}
+            className="w-full py-2.5 px-4 rounded-2xl bg-[#052F85] hover:bg-[#031E56] text-white text-xs font-extrabold transition-all shadow-md shadow-[#052F85]/20 flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer"
+          >
+            <span>Взять талон</span>
+            <ArrowRight size={14} />
+          </button>
+          <button
+            type="button"
+            onClick={onBookAppointment}
+            className="w-full py-2.5 px-4 rounded-2xl border-2 border-[#052F85] text-[#052F85] hover:bg-blue-50 text-xs font-extrabold transition-all flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer"
+          >
+            <Clock size={14} />
+            <span>Записаться</span>
+          </button>
+        </div>
+
+        {/* Ссылка на сворачивание карточки */}
+        {onClose && (
+          <div className="pt-1 text-center">
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-xs font-bold text-slate-500 hover:text-slate-800 transition-colors cursor-pointer py-1"
+            >
+              ← Свернуть отделение и показать все
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Резервный легковесный компонент карты (Leaflet / Carto / OSM fallback)
+ * для оффлайн-режима, тестирования и среды без доступа к API Яндекс.Карт.
+ * Показывает схему по координатам без картографических тайлов.
+ */
+export function LeafletCartoOsmFallbackMap({
+  branches,
+  selectedBranch,
+  userLocation,
+  onSelectBranch,
+}: {
+  branches: MapBranch[];
+  selectedBranch: MapBranch | null;
+  userLocation: [number, number] | null;
+  onSelectBranch: (branch: MapBranch) => void;
+}) {
+  const [zoomLevel, setZoomLevel] = useState(13);
+
+  // Вычисление относительных координат на резервной карте (Carto / OSM)
+  const centerLat = userLocation?.[0] ?? selectedBranch?.coordinates[0] ?? 55.7618;
+  const centerLon = userLocation?.[1] ?? selectedBranch?.coordinates[1] ?? 37.6385;
+
+  return (
+    <div
+      data-testid="leaflet-carto-osm-fallback"
+      className="relative w-full h-full bg-[#f2f4f8] overflow-hidden flex flex-col select-none"
+    >
+      {/* Картографическая сетка Carto Voyager / OpenStreetMap (OSM) */}
+      <div className="absolute inset-0 opacity-80 pointer-events-none">
+        <svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <pattern id="carto-osm-grid" width="40" height="40" patternUnits="userSpaceOnUse">
+              <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#E2E8F0" strokeWidth="1" />
+            </pattern>
+          </defs>
+          <rect width="100%" height="100%" fill="url(#carto-osm-grid)" />
+        </svg>
+      </div>
+
+      {/* Верхний бейдж Leaflet / Carto / OSM */}
+      <div className="absolute top-4 left-4 z-10 flex items-center gap-2">
+        <div className="px-3 py-1.5 rounded-2xl bg-white/95 backdrop-blur-md border border-[#E2E8F0] shadow-sm text-xs font-semibold text-[#031E56] flex items-center gap-2">
+          <Layers size={14} className="text-[#052F85]" />
+          <span>Схема отделений · карта недоступна</span>
+        </div>
+      </div>
+
+      {/* Кнопки управления масштабом карты (Leaflet zoom controls) */}
+      <div className="absolute top-4 right-4 z-10 flex flex-col gap-1">
+        <button
+          type="button"
+          onClick={() => setZoomLevel((z) => Math.min(18, z + 1))}
+          className="w-9 h-9 rounded-xl bg-white shadow-md border border-[#E2E8F0] text-slate-700 font-bold flex items-center justify-center hover:bg-slate-50 transition-colors"
+          aria-label="Приблизить карту"
+        >
+          +
+        </button>
+        <button
+          type="button"
+          onClick={() => setZoomLevel((z) => Math.max(10, z - 1))}
+          className="w-9 h-9 rounded-xl bg-white shadow-md border border-[#E2E8F0] text-slate-700 font-bold flex items-center justify-center hover:bg-slate-50 transition-colors"
+          aria-label="Отдалить карту"
+        >
+          −
+        </button>
+      </div>
+
+      {/* Отрисовка интерактивных ПВЗ-меток */}
+      <div className="relative flex-1 w-full h-full flex items-center justify-center">
+        {userLocation && (
+          <div
+            data-testid="client-location-marker"
+            role="img"
+            aria-label="Вы находитесь здесь"
+            className="absolute left-1/2 top-1/2 z-30 flex h-9 w-9 -translate-x-1/2 -translate-y-1/2 items-center justify-center"
+          >
+            <span className="absolute h-9 w-9 animate-ping rounded-full bg-blue-500/30" />
+            <span className="relative h-5 w-5 rounded-full border-[3px] border-white bg-[#052F85] shadow-lg shadow-blue-950/40" />
+          </div>
+        )}
+        {branches.map((b) => {
+          const isSelected = b.id === selectedBranch?.id;
+          const wait = getWaitBadgeInfo(b.liveWaitMinutes);
+
+          // Проекция координат относительно центра карты
+          const scale = 2600 * (zoomLevel / 13);
+          const xOffset = (b.coordinates[1] - centerLon) * scale;
+          const yOffset = -(b.coordinates[0] - centerLat) * scale;
+
+          return (
+            <div
+              key={b.id}
+              onClick={() => onSelectBranch(b)}
+              style={{
+                position: 'absolute',
+                left: `calc(50% + ${xOffset}px)`,
+                top: `calc(50% + ${yOffset}px)`,
+                transform: 'translate(-50%, -100%)',
+              }}
+              className={`cursor-pointer transition-transform duration-200 z-10 ${
+                isSelected ? 'scale-110 z-20' : 'hover:scale-105'
+              }`}
+            >
+              {/* ПВЗ-бейдж: Star rating badge (★ 4.92) и время ожидания */}
+              <div
+                className={`shadow-lg border-2 border-white px-2.5 py-1 rounded-full text-white text-[11px] font-extrabold flex items-center gap-1 whitespace-nowrap ${wait.colorClass}`}
+              >
+                <span className="text-yellow-200">★</span>
+                <span>{(b.rating === null ? '—' : b.rating.toFixed(2))}</span>
+                <span className="opacity-60">|</span>
+                <span>{wait.label}</span>
+              </div>
+              <div
+                className={`w-2.5 h-2.5 rotate-45 mx-auto -mt-1 border-r-2 border-b-2 border-white ${wait.colorClass}`}
+              />
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Атрибуция Carto / OpenStreetMap (OSM) / Leaflet */}
+      <div className="absolute bottom-2 right-4 text-[10px] text-slate-400 bg-white/80 px-2 py-0.5 rounded backdrop-blur-xs border border-slate-200 z-10">
+        Схема расположения отделений. Дорожная карта недоступна.
+      </div>
+    </div>
+  );
+}

@@ -112,11 +112,14 @@ type ListBranchesResponse struct {
 }
 
 type BranchDTO struct {
-	ID             string `json:"id"`
-	Name           string `json:"name"`
-	Address        string `json:"address"`
-	WorkHours      string `json:"workHours"`
-	TimezoneOffset int    `json:"timezoneOffset"`
+	Latitude       *float64 `json:"latitude,omitempty"`
+	Longitude      *float64 `json:"longitude,omitempty"`
+	IsDemo         bool     `json:"isDemo"`
+	ID             string   `json:"id"`
+	Name           string   `json:"name"`
+	Address        string   `json:"address"`
+	WorkHours      string   `json:"workHours"`
+	TimezoneOffset int      `json:"timezoneOffset"`
 }
 
 type ListServicesResponse struct {

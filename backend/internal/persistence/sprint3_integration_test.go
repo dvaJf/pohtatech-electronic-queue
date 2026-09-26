@@ -200,7 +200,8 @@ func TestSprint3ArrivalAndNoShow(t *testing.T) {
 		t.Fatal(e)
 	}
 	pos, err := p.GetQueuePosition(ctx, a.ID)
-	if err != nil || pos.Reason != domain.QueuePositionNotEligibleYet || pos.Position != nil || pos.ReferenceWindow != nil || pos.EffectivePriority != nil || pos.EffectiveQueueTime != nil {
+	// Current schedule policy: early check-in joins the live queue immediately.
+	if err != nil || pos.Reason != domain.QueuePositionAvailable || pos.Position == nil || *pos.Position != 1 || pos.ReferenceWindow == nil || first.Ticket.SourceRank != 2 {
 		t.Fatal(pos, err)
 	}
 	_, err = p.MarkNoShow(ctx, a.ID)

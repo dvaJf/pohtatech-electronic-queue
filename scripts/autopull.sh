@@ -53,11 +53,17 @@ git pull origin "$BRANCH"
 
 echo "🐳 Пересобираем и перезапускаем обновленные контейнеры..."
 if docker compose version >/dev/null 2>&1; then
-  docker compose up -d --build
+  docker compose up -d --build -V
   docker compose exec -T backend /app/api migrate up || true
+  if [ -f "scripts/seed_demo_branches.sql" ]; then
+    docker compose exec -T postgres psql -U postcode -d postcode -v ON_ERROR_STOP=1 < scripts/seed_demo_branches.sql || true
+  fi
 else
-  docker-compose up -d --build
+  docker-compose up -d --build -V
   docker-compose exec -T backend /app/api migrate up || true
+  if [ -f "scripts/seed_demo_branches.sql" ]; then
+    docker-compose exec -T postgres psql -U postcode -d postcode -v ON_ERROR_STOP=1 < scripts/seed_demo_branches.sql || true
+  fi
 fi
 
 echo "🧹 Удаление устаревших промежуточных docker-образов..."

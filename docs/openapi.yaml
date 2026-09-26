@@ -383,6 +383,13 @@ paths:
                   branchId: { type: string }
                   currentHour: { type: integer }
                   currentWaiting: { type: integer }
+                  activeWindows: { type: integer, minimum: 0 }
+                  estimatedWaitSeconds:
+                    type: integer
+                    nullable: true
+                    description: Approximate branch-wide wait; null when no windows are open. Not a service-specific ticket ETA.
+                  calculatedAt: { type: string, format: date-time }
+                  usedFallback: { type: boolean }
                   sampleCount: { type: integer }
                   isHistorical: { type: boolean }
                   hourly:
@@ -1817,6 +1824,9 @@ components:
         - id
         - name
       properties:
+        latitude: { type: number, minimum: -90, maximum: 90 }
+        longitude: { type: number, minimum: -180, maximum: 180 }
+        isDemo: { type: boolean }
         id:
           type: string
         name:

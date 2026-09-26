@@ -90,7 +90,7 @@ html, body {
   color: var(--text);
 }
 
-.product-shell input:not([style*="padding-left"]),
+.product-shell input:not([style*="padding-left"]):not([class*="pl-"]):not([class*="field-with-icon"]),
 .product-shell select {
   padding: 0.5rem 0.75rem;
   border: 1px solid var(--border-medium);

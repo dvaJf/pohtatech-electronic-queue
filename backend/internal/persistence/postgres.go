@@ -110,7 +110,7 @@ func scanTicket(row pgx.Row) (domain.Ticket, error) {
 	return t, nil
 }
 func (p *Postgres) ListBranches(ctx context.Context) ([]domain.Branch, error) {
-	rows, err := p.pool.Query(ctx, `SELECT id::text, name, address, work_hours, timezone_offset FROM branches ORDER BY name, id`)
+	rows, err := p.pool.Query(ctx, `SELECT id::text, name, address, work_hours, timezone_offset, latitude, longitude, is_demo FROM branches ORDER BY name, id`)
 	if err != nil {
 		return nil, dbError(err)
 	}
@@ -118,7 +118,7 @@ func (p *Postgres) ListBranches(ctx context.Context) ([]domain.Branch, error) {
 	out := []domain.Branch{}
 	for rows.Next() {
 		var b domain.Branch
-		if err = rows.Scan(&b.ID, &b.Name, &b.Address, &b.WorkHours, &b.TimezoneOffset); err != nil {
+		if err = rows.Scan(&b.ID, &b.Name, &b.Address, &b.WorkHours, &b.TimezoneOffset, &b.Latitude, &b.Longitude, &b.IsDemo); err != nil {
 			return nil, dbError(err)
 		}
 		out = append(out, b)
@@ -443,7 +443,7 @@ func (p *Postgres) CallNextAt(ctx context.Context, windowID string, decisionTime
 				WHERE t.branch_id = $1::uuid
 				  AND (t.window_id IS NULL OR t.window_id = $2::uuid)
 				  AND EXISTS (SELECT 1 FROM window_services ws WHERE ws.window_id = $2::uuid AND ws.service_id = t.service_id)
-				  AND (t.status = 'WAITING' OR (t.source = 'APPOINTMENT' AND t.status = 'SCHEDULED' AND t.arrived_at IS NOT NULL))
+				  AND (t.status = 'WAITING' OR (t.source = 'APPOINTMENT' AND t.status = 'SCHEDULED'))
 				  AND t.ready_at > $3::timestamptz + interval '1 second'
 			)
 		`, branch, windowID, decisionTime).Scan(&futureExists)
@@ -894,7 +894,9 @@ func (p *Postgres) ReturnTicket(ctx context.Context, ticketID string) (domain.Ti
 	}
 	defer tx.Rollback(context.Background())
 	before, err := scanTicket(tx.QueryRow(ctx, ticketSelect+`WHERE t.id=$1 FOR UPDATE OF t`, id))
-	if errors.Is(err, application.ErrNotFound) { return domain.Ticket{}, application.ErrInvalidState }
+	if errors.Is(err, application.ErrNotFound) {
+		return domain.Ticket{}, application.ErrInvalidState
+	}
 	if err != nil {
 		return domain.Ticket{}, err
 	}
@@ -959,7 +961,9 @@ func (p *Postgres) RedirectTicket(ctx context.Context, cmd application.RedirectT
 	}
 	defer tx.Rollback(context.Background())
 	before, err := scanTicket(tx.QueryRow(ctx, ticketSelect+`WHERE t.id=$1 FOR UPDATE OF t`, id))
-	if errors.Is(err, application.ErrNotFound) { return domain.Ticket{}, application.ErrInvalidState }
+	if errors.Is(err, application.ErrNotFound) {
+		return domain.Ticket{}, application.ErrInvalidState
+	}
 	if err != nil {
 		return domain.Ticket{}, err
 	}
@@ -1078,4 +1082,3 @@ func calculateLegacyPriority(t domain.Ticket, decisionTime time.Time, p domain.Q
 	}
 	return effBase + boost
 }
-

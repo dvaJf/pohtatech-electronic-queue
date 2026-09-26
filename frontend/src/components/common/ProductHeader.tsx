@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { BarChart3, Clock, Eye, RotateCcw, UserPlus, UserX, Volume2, VolumeX, X } from 'lucide-react';
+import { BarChart3, Clock, Eye, MapPin, RotateCcw, UserPlus, UserX, Volume2, VolumeX, X } from 'lucide-react';
 import { PochtaEmblem, PochtaWordmark } from './PochtaBrand';
 import { getMe, logout, User } from '../../api/authApi';
 import { ClientAuthModal } from '../../features/auth/ClientAuthModal';
@@ -24,9 +24,38 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
   const [scale, setScale] = useState(() => Number(localStorage.getItem('pochta_a11y_scale') || (isA11y ? '125' : '100')));
   const [contrast, setContrast] = useState(() => localStorage.getItem('pochta_a11y_contrast') === 'true');
   const [timeStr, setTimeStr] = useState('');
+  const [geoGranted, setGeoGranted] = useState(false);
 
   const a11yRef = useRef<HTMLDivElement>(null);
   const a11yButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (typeof navigator !== 'undefined' && navigator.permissions && navigator.permissions.query) {
+      navigator.permissions.query({ name: 'geolocation' as PermissionName }).then((res) => {
+        setGeoGranted(res.state === 'granted');
+        res.onchange = () => setGeoGranted(res.state === 'granted');
+      }).catch(() => {});
+    }
+    const handleGeoStatus = (e: Event) => {
+      const custom = e as CustomEvent<{ granted: boolean }>;
+      if (custom.detail && typeof custom.detail.granted === 'boolean') {
+        setGeoGranted(custom.detail.granted);
+      }
+    };
+    window.addEventListener('pochta:geo-status', handleGeoStatus);
+    return () => window.removeEventListener('pochta:geo-status', handleGeoStatus);
+  }, []);
+
+  const handleRequestGeo = () => {
+    window.dispatchEvent(new CustomEvent('pochta:request-geo'));
+    if (typeof navigator !== 'undefined' && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        () => setGeoGranted(true),
+        () => setGeoGranted(false),
+        { enableHighAccuracy: true, timeout: 8000 }
+      );
+    }
+  };
 
   useEffect(() => {
     const handleSound = (e: Event) => {
@@ -141,7 +170,6 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
           timeZone: 'Europe/Moscow',
           hour: '2-digit',
           minute: '2-digit',
-          second: '2-digit',
         })
       );
     };
@@ -185,7 +213,7 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
 
           {/* Quick Tools Panel */}
           <div className="flex items-center gap-1 sm:gap-2 text-xs font-mono shrink-0">
-            {/* Audio Toggle */}
+            {/* 1. Звук (Audio Toggle) */}
             <button
               type="button"
               onClick={() => toggleSound()}
@@ -198,7 +226,22 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
               <span className="font-bold text-white hidden sm:inline whitespace-nowrap">{soundEnabled ? 'Звук: ВКЛ' : 'Звук: ВЫКЛ'}</span>
             </button>
 
-            {/* Accessibility Button */}
+            {/* 2. Гео (Geo Location Permission Button in Header) */}
+            <button
+              type="button"
+              onClick={handleRequestGeo}
+              className={`cx-header-btn h-8 px-2 sm:px-2.5 gap-1.5 ${
+                geoGranted ? '!bg-white/20 !border-white/40 text-emerald-300' : ''
+              }`}
+              title={geoGranted ? 'Геолокация активна (определение отделений)' : 'Разрешить геолокацию для точного поиска отделений'}
+            >
+              <MapPin className={`w-3.5 h-3.5 ${geoGranted ? 'text-emerald-400' : 'text-[#86BBFF]'}`} />
+              <span className="font-bold text-white hidden sm:inline whitespace-nowrap">
+                {geoGranted ? 'Гео: ВКЛ' : 'Геолокация'}
+              </span>
+            </button>
+
+            {/* 3. Доступность (Accessibility Button & Popup) */}
             <button
               ref={a11yButtonRef}
               type="button"
@@ -345,11 +388,10 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
               </div>
             )}
 
-            {/* Moscow Clock */}
-            <div className="flex items-center justify-center gap-1 h-8 px-1.5 sm:px-2.5 sm:min-w-[104px] rounded-lg border transition-all bg-white/15 border-white/30 text-white hover:bg-white/25">
+            {/* 4. Время (Moscow Clock: HH:mm without seconds) */}
+            <div className="flex items-center justify-center gap-1.5 h-8 px-2 sm:px-2.5 sm:min-w-[72px] rounded-lg border transition-all bg-white/15 border-white/30 text-white hover:bg-white/25 select-none" title="Московское время (Europe/Moscow)">
               <Clock className="w-3.5 h-3.5 text-[#86BBFF] shrink-0" />
-              <span className="font-bold text-white tabular-nums text-[11px] sm:text-xs whitespace-nowrap sm:hidden">{timeStr ? timeStr.slice(0, 5) : 'МСК'}</span>
-              <span className="font-bold text-white tabular-nums whitespace-nowrap hidden sm:inline">{timeStr || 'МСК'}</span>
+              <span className="font-bold text-white tabular-nums text-xs leading-none whitespace-nowrap">{timeStr || 'МСК'}</span>
             </div>
 
             {/* Auth / Account Area */}

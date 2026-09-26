@@ -154,7 +154,8 @@ func TestSprint3HTTPRealCore(t *testing.T) {
 	}
 	w = request3(t, h, "GET", "/api/v1/tickets/"+appt.Ticket.ID+"/position", "", "", 200)
 	json.Unmarshal(w.Body.Bytes(), &pos)
-	if pos.Reason != "NOT_ELIGIBLE_YET" || pos.Position != nil {
+	// Early arrival is eligible immediately with live-queue rank (current due_at policy).
+	if pos.Reason != "AVAILABLE" || pos.Position == nil || *pos.Position != 1 {
 		t.Fatal(pos)
 	}
 	w = request3(t, h, "GET", "/api/v1/admin/tickets/"+appt.Ticket.ID+"/events", "", "", 200)

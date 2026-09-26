@@ -3,6 +3,7 @@ package persistence
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -105,9 +106,28 @@ func (p *Postgres) GetBranchWorkload(ctx context.Context, branchID string) (doma
 		}
 	}
 
-	// 3. Current waiting count
-	var currentWaiting int
-	_ = p.pool.QueryRow(ctx, `SELECT COUNT(*) FROM tickets WHERE branch_id = $1 AND status = 'WAITING'`, id).Scan(&currentWaiting)
+	// Current counters come from one database snapshot, independently of hourly baselines.
+	if err := rows.Err(); err != nil {
+		return domain.BranchWorkload{}, dbError(err)
+	}
+	rows.Close()
+	var currentWaiting, activeWindows, serving, samples int
+	var averageSeconds float64
+	err = p.pool.QueryRow(ctx, `SELECT
+ (SELECT count(*) FROM tickets WHERE branch_id=$1 AND (status='WAITING' OR (status='SCHEDULED' AND ready_at <= now()))),
+ (SELECT count(*) FROM windows WHERE branch_id=$1 AND status='OPEN'),
+ (SELECT count(*) FROM tickets t JOIN windows w ON w.id=t.window_id WHERE t.branch_id=$1 AND w.status='OPEN' AND t.status IN ('CALLED','SERVING')),
+ count(*), coalesce(avg(seconds),300)
+ FROM (SELECT extract(epoch FROM completed_at-service_started_at) AS seconds
+ FROM tickets WHERE branch_id=$1 AND status='COMPLETED' AND completed_at > service_started_at
+ AND completed_at-service_started_at <= interval '2 hours'
+ ORDER BY completed_at DESC LIMIT 100) history`, id).Scan(&currentWaiting, &activeWindows, &serving, &samples, &averageSeconds)
+	if err != nil {
+		return domain.BranchWorkload{}, dbError(err)
+	}
+	if samples < 3 {
+		averageSeconds = 300
+	}
 
 	// 4. Construct hourly distribution 8..21 (14 hours)
 	hourly := make([]domain.HourlyWorkload, 0, 14)
@@ -156,12 +176,16 @@ func (p *Postgres) GetBranchWorkload(ctx context.Context, branchID string) (doma
 	}
 
 	return domain.BranchWorkload{
-		BranchID:       branchID,
-		CurrentHour:    currentHour,
-		CurrentWaiting: currentWaiting,
-		SampleCount:    totalHistory,
-		IsHistorical:   totalHistory >= 10,
-		Hourly:         hourly,
+		BranchID:             branchID,
+		ActiveWindows:        activeWindows,
+		EstimatedWaitSeconds: estimateBranchWait(currentWaiting+serving, activeWindows, averageSeconds),
+		CalculatedAt:         time.Now().UTC(),
+		UsedFallback:         samples < 3,
+		CurrentHour:          currentHour,
+		CurrentWaiting:       currentWaiting,
+		SampleCount:          totalHistory,
+		IsHistorical:         totalHistory >= 10,
+		Hourly:               hourly,
 	}, nil
 }
 
@@ -295,4 +319,13 @@ func (p *Postgres) UpdateBranchSchedule(ctx context.Context, branchID string, wo
 		return domain.Branch{}, dbError(err)
 	}
 	return b, nil
+}
+
+// Branch-wide indicative estimate, not a service-specific promise or ticket ETA.
+func estimateBranchWait(queued, windows int, averageSeconds float64) *int {
+	if windows <= 0 {
+		return nil
+	}
+	seconds := int(math.Ceil(float64(queued) * averageSeconds / float64(windows)))
+	return &seconds
 }

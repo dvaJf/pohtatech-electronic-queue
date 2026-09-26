@@ -21,7 +21,7 @@ func (a *API) ListBranches(w http.ResponseWriter, r *http.Request) {
 	}
 	res := ListBranchesResponse{Items: make([]BranchDTO, len(branches))}
 	for i, b := range branches {
-		res.Items[i] = BranchDTO{ID: b.ID, Name: b.Name, Address: b.Address, WorkHours: b.WorkHours, TimezoneOffset: b.TimezoneOffset}
+		res.Items[i] = BranchDTO{ID: b.ID, Name: b.Name, Address: b.Address, WorkHours: b.WorkHours, TimezoneOffset: b.TimezoneOffset, Latitude: b.Latitude, Longitude: b.Longitude, IsDemo: b.IsDemo}
 	}
 	writeJSONResponse(w, http.StatusOK, res)
 }
@@ -263,4 +263,3 @@ func (a *API) GetBranchWorkload(w http.ResponseWriter, r *http.Request) {
 
 	writeJSONResponse(w, http.StatusOK, workload)
 }
-

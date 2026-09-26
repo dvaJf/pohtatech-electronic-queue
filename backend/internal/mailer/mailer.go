@@ -82,31 +82,53 @@ func (m *Mailer) SendConfirmationEmail(ctx context.Context, toEmail, code, token
 	subject := fmt.Sprintf("Код подтверждения: %s — Почта России", code)
 	encodedSubject := fmt.Sprintf("=?UTF-8?B?%s?=", base64.StdEncoding.EncodeToString([]byte(subject)))
 
-	fromHeader := m.cfg.From
-	if !strings.Contains(fromHeader, "<") {
-		fromHeader = fmt.Sprintf("=?UTF-8?B?%s?= <%s>", base64.StdEncoding.EncodeToString([]byte(fromHeader)), m.cfg.User)
+	fromName := "Почта России"
+	fromEmail := m.cfg.User
+	if m.cfg.From != "" {
+		if idx := strings.Index(m.cfg.From, "<"); idx != -1 {
+			namePart := strings.Trim(m.cfg.From[:idx], " \t\"'")
+			if namePart != "" {
+				fromName = namePart
+			}
+			endIdx := strings.Index(m.cfg.From, ">")
+			if endIdx > idx {
+				fromEmail = strings.TrimSpace(m.cfg.From[idx+1 : endIdx])
+			}
+		} else if strings.Contains(m.cfg.From, "@") {
+			fromEmail = strings.TrimSpace(m.cfg.From)
+		} else {
+			fromName = strings.TrimSpace(m.cfg.From)
+		}
 	}
+	fromHeader := fmt.Sprintf("=?UTF-8?B?%s?= <%s>", base64.StdEncoding.EncodeToString([]byte(fromName)), fromEmail)
 
-	boundary := "===POCHTA_RUSSIA_MIME_BOUNDARY==="
-	header := make(map[string]string)
-	header["From"] = fromHeader
-	header["To"] = toEmail
-	header["Subject"] = encodedSubject
-	header["MIME-Version"] = "1.0"
-	header["Content-Type"] = fmt.Sprintf("multipart/alternative; boundary=\"%s\"", boundary)
+	msgHost := m.cfg.Host
+	if strings.Contains(fromEmail, "@") {
+		msgHost = strings.Split(fromEmail, "@")[1]
+	}
+	msgID := fmt.Sprintf("<%d.%s@%s>", time.Now().UnixNano(), code, msgHost)
+	dateHeader := time.Now().Format(time.RFC1123Z)
+
+	boundary := fmt.Sprintf("===POCHTA_RUSSIA_%d===", time.Now().Unix())
 
 	var msgBuilder strings.Builder
-	for k, v := range header {
-		msgBuilder.WriteString(fmt.Sprintf("%s: %s\r\n", k, v))
-	}
-	msgBuilder.WriteString("\r\n")
+	msgBuilder.WriteString(fmt.Sprintf("From: %s\r\n", fromHeader))
+	msgBuilder.WriteString(fmt.Sprintf("To: %s\r\n", toEmail))
+	msgBuilder.WriteString(fmt.Sprintf("Subject: %s\r\n", encodedSubject))
+	msgBuilder.WriteString(fmt.Sprintf("Date: %s\r\n", dateHeader))
+	msgBuilder.WriteString(fmt.Sprintf("Message-ID: %s\r\n", msgID))
+	msgBuilder.WriteString("MIME-Version: 1.0\r\n")
+	msgBuilder.WriteString(fmt.Sprintf("Content-Type: multipart/alternative; boundary=\"%s\"\r\n\r\n", boundary))
 
-	// Plain text часть
+	// Plain text часть (Base64)
+	plainText := fmt.Sprintf("Здравствуйте!\r\n\r\nВаш код подтверждения для входа в Цифровую очередь Почты России: %s\r\n\r\nИли перейдите по ссылке для подтверждения:\r\n%s\r\n\r\nКод действителен 15 минут.\r\nАО «Почта России»\r\n\r\n", code, confirmURL)
 	msgBuilder.WriteString(fmt.Sprintf("--%s\r\n", boundary))
-	msgBuilder.WriteString("Content-Type: text/plain; charset=UTF-8\r\n\r\n")
-	msgBuilder.WriteString(fmt.Sprintf("Здравствуйте!\r\n\r\nВаш код подтверждения для входа в Цифровую очередь Почты России: %s\r\n\r\nИли перейдите по ссылке для подтверждения:\r\n%s\r\n\r\nКод действителен 15 минут.\r\nАО «Почта России»\r\n\r\n", code, confirmURL))
+	msgBuilder.WriteString("Content-Type: text/plain; charset=UTF-8\r\n")
+	msgBuilder.WriteString("Content-Transfer-Encoding: base64\r\n\r\n")
+	msgBuilder.WriteString(base64.StdEncoding.EncodeToString([]byte(plainText)))
+	msgBuilder.WriteString("\r\n\r\n")
 
-	// HTML часть с фирменной стилизацией Почты России
+	// HTML часть с фирменной стилизацией Почты России (Base64)
 	htmlBody := fmt.Sprintf(`<!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -169,9 +191,10 @@ func (m *Mailer) SendConfirmationEmail(ctx context.Context, toEmail, code, token
 </html>`, code, confirmURL)
 
 	msgBuilder.WriteString(fmt.Sprintf("--%s\r\n", boundary))
-	msgBuilder.WriteString("Content-Type: text/html; charset=UTF-8\r\n\r\n")
-	msgBuilder.WriteString(htmlBody)
-	msgBuilder.WriteString(fmt.Sprintf("\r\n--%s--\r\n", boundary))
+	msgBuilder.WriteString("Content-Type: text/html; charset=UTF-8\r\n")
+	msgBuilder.WriteString("Content-Transfer-Encoding: base64\r\n\r\n")
+	msgBuilder.WriteString(base64.StdEncoding.EncodeToString([]byte(htmlBody)))
+	msgBuilder.WriteString(fmt.Sprintf("\r\n\r\n--%s--\r\n", boundary))
 
 	rawMessage := []byte(msgBuilder.String())
 

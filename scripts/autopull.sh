@@ -26,7 +26,7 @@ cd "$REPO_DIR"
 # Определяем текущую активную ветку
 BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")"
 if [ "$BRANCH" = "HEAD" ] || [ -z "$BRANCH" ]; then
-  BRANCH="feature/monitoring-prometheus-grafana"
+  BRANCH="main"
 fi
 
 # Получаем свежие метаданные из удаленного репозитория

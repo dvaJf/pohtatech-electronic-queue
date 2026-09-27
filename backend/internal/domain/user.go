@@ -21,6 +21,10 @@ type User struct {
 	IsTerminal   bool
 	Confirmed    bool
 	ConfirmToken *string
+	ConfirmCode  *string
+	ConfirmCodeExpiresAt *time.Time
+	Phone        *string
+	PhoneVerified bool
 	CreatedAt    time.Time
 }
 
@@ -45,4 +49,13 @@ type Session struct {
 	UserID    string
 	ExpiresAt time.Time
 	CreatedAt time.Time
+}
+
+// AppointmentSMSNotification represents an upcoming appointment needing an SMS reminder.
+type AppointmentSMSNotification struct {
+	TicketID     string    `json:"ticketId"`
+	PublicNumber string    `json:"publicNumber"`
+	BranchName   string    `json:"branchName"`
+	ScheduledAt  time.Time `json:"scheduledAt"`
+	Phone        string    `json:"phone"`
 }

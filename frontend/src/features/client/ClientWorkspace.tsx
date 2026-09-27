@@ -1757,6 +1757,15 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                 disabled={creating}
                 workHours={branches.find(b => b.id === branchId)?.workHours}
               />
+              <div className="p-3.5 rounded-2xl bg-blue-50/80 border border-blue-200/80 text-xs text-[#003B73] flex items-start gap-2.5">
+                <span className="text-base leading-none shrink-0 mt-0.5">🔔</span>
+                <div className="space-y-0.5">
+                  <strong className="block text-[#003B73] font-bold">СМС-напоминание за 30 минут</strong>
+                  <p className="text-slate-600 text-[11px] leading-relaxed">
+                    Клиентам с подтвержденным номером в личном кабинете автоматически поступает бесплатное СМС о записи.
+                  </p>
+                </div>
+              </div>
               <button
                 type="button"
                 className="w-full min-h-[48px] py-3 bg-[#003B73] hover:bg-[#054FA6] active:bg-[#00274D] text-white rounded-xl font-bold text-xs uppercase tracking-wider transition-all shadow-md active:scale-[0.99] disabled:opacity-50 flex items-center justify-center gap-2"
@@ -2113,6 +2122,15 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                         </div>
                       )}
                     </div>
+
+                    {ticket.status === 'SCHEDULED' && ticket.source === 'APPOINTMENT' && (
+                      <div className="p-3 my-2 rounded-2xl bg-blue-50/80 border border-blue-200/70 text-xs text-[#003B73] flex items-center gap-2">
+                        <span className="text-base shrink-0">🔔</span>
+                        <span className="font-medium text-[11px] leading-tight">
+                          За 30 минут до визита поступит СМС-напоминание на привязанный телефон.
+                        </span>
+                      </div>
+                    )}
 
                     {/* Actions Footer */}
                     <div className="cx-ticket-actions">

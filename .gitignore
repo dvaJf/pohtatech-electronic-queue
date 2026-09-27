@@ -32,3 +32,5 @@ TZ*.txt
 T3*.docx
 backups/
 *.sql.gz
+*.exe
+scratch/

@@ -92,9 +92,9 @@ func (p *Postgres) CreateAppointment(ctx context.Context, cmd application.Create
 
 	var tid string
 	rawToken, tokenHash := DeterministicManagementToken(cmd.IdempotencyKey)
-	err = tx.QueryRow(ctx, `INSERT INTO tickets(branch_id,service_id,source,status,idempotency_key,scheduled_at,queue_entered_at,public_number,appointment_requested_at,ready_at,due_at,source_rank,policy_version,management_token_hash)
- VALUES($1,$2,'APPOINTMENT','SCHEDULED',$3,$4,$4,next_appointment_public_number(),$5,$6,$7,$8,$9,$10)
- ON CONFLICT(idempotency_key) DO NOTHING RETURNING id::text`, b, s, cmd.IdempotencyKey, scheduled, requestedInstant, readyAt, dueAt, sourceRank, policy.PolicyVersion, tokenHash).Scan(&tid)
+	err = tx.QueryRow(ctx, `INSERT INTO tickets(branch_id,service_id,source,status,idempotency_key,scheduled_at,queue_entered_at,public_number,appointment_requested_at,ready_at,due_at,source_rank,policy_version,management_token_hash,client_id)
+ VALUES($1,$2,'APPOINTMENT','SCHEDULED',$3,$4,$4,next_appointment_public_number(),$5,$6,$7,$8,$9,$10,$11)
+ ON CONFLICT(idempotency_key) DO NOTHING RETURNING id::text`, b, s, cmd.IdempotencyKey, scheduled, requestedInstant, readyAt, dueAt, sourceRank, policy.PolicyVersion, tokenHash, cmd.ClientID).Scan(&tid)
 	if errors.Is(err, pgx.ErrNoRows) {
 		existing, err = scanTicket(tx.QueryRow(ctx, ticketSelect+`WHERE t.idempotency_key=$1`, cmd.IdempotencyKey))
 		if err != nil {

@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { X, Lock, Mail, Eye, EyeOff, CheckCircle2, RefreshCw, ArrowLeft } from 'lucide-react';
+import { X, Lock, Mail, Eye, EyeOff, CheckCircle2, RefreshCw, ArrowLeft, ShieldCheck } from 'lucide-react';
 import { login, register, confirmEmailCode, resendEmailCode, getMe, User } from '../../api/authApi';
+import { LegalModal } from '../legal/LegalModal';
+import { LegalDocument } from '../legal/legalTexts';
 
 interface ClientAuthModalProps {
   isOpen: boolean;
@@ -18,6 +20,9 @@ export function ClientAuthModal({ isOpen, onClose, onUserChanged }: ClientAuthMo
   const [error, setError] = useState('');
   const [infoMsg, setInfoMsg] = useState('');
   const [cooldown, setCooldown] = useState(0);
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
+  const [legalModalOpen, setLegalModalOpen] = useState(false);
+  const [legalDoc, setLegalDoc] = useState<LegalDocument['id']>('privacy');
 
   // Таймер повторной отправки кода
   useEffect(() => {
@@ -241,10 +246,64 @@ export function ClientAuthModal({ isOpen, onClose, onUserChanged }: ClientAuthMo
               </div>
             </div>
 
+            {mode === 'register' && (
+              <div className="pt-0.5">
+                <label className="flex items-start gap-2.5 text-[11px] text-slate-600 select-none cursor-pointer leading-relaxed">
+                  <input
+                    type="checkbox"
+                    required
+                    checked={agreedToTerms}
+                    onChange={(e) => setAgreedToTerms(e.target.checked)}
+                    className="mt-0.5 w-4 h-4 rounded border-slate-300 text-[#003B73] focus:ring-[#054FA6] shrink-0 cursor-pointer"
+                  />
+                  <span>
+                    Я принимаю{' '}
+                    <button
+                      type="button"
+                      onClick={() => { setLegalDoc('terms'); setLegalModalOpen(true); }}
+                      className="text-[#054FA6] font-semibold hover:underline"
+                    >
+                      Пользовательское соглашение
+                    </button>
+                    , даю{' '}
+                    <button
+                      type="button"
+                      onClick={() => { setLegalDoc('consent'); setLegalModalOpen(true); }}
+                      className="text-[#054FA6] font-semibold hover:underline"
+                    >
+                      Согласие на обработку данных
+                    </button>{' '}
+                    в соответствии с{' '}
+                    <button
+                      type="button"
+                      onClick={() => { setLegalDoc('privacy'); setLegalModalOpen(true); }}
+                      className="text-[#054FA6] font-semibold hover:underline"
+                    >
+                      Политикой конфиденциальности (152-ФЗ)
+                    </button>
+                    .
+                  </span>
+                </label>
+              </div>
+            )}
+
+            {mode === 'login' && (
+              <p className="text-[10px] text-slate-400 text-center leading-tight">
+                Авторизуясь, вы подтверждаете согласие с{' '}
+                <button
+                  type="button"
+                  onClick={() => { setLegalDoc('privacy'); setLegalModalOpen(true); }}
+                  className="text-slate-600 font-medium hover:underline"
+                >
+                  Политикой конфиденциальности
+                </button>
+              </p>
+            )}
+
             <button
               type="submit"
-              disabled={pending}
-              className="w-full min-h-[44px] py-2.5 bg-[#003B73] hover:bg-[#054FA6] text-white rounded-xl font-bold text-xs uppercase tracking-wider transition-colors shadow-md disabled:opacity-50"
+              disabled={pending || (mode === 'register' && !agreedToTerms)}
+              className="w-full min-h-[44px] py-2.5 bg-[#003B73] hover:bg-[#054FA6] text-white rounded-xl font-bold text-xs uppercase tracking-wider transition-colors shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {pending ? 'Проверка…' : mode === 'login' ? 'Войти' : 'Создать аккаунт'}
             </button>
@@ -292,6 +351,12 @@ export function ClientAuthModal({ isOpen, onClose, onUserChanged }: ClientAuthMo
             </div>
           </>
         )}
+        {/* Модальное окно официальных документов (152-ФЗ) */}
+        <LegalModal
+          isOpen={legalModalOpen}
+          onClose={() => setLegalModalOpen(false)}
+          initialDoc={legalDoc}
+        />
       </div>
     </div>
   );

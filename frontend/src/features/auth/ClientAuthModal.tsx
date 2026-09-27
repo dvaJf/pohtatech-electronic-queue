@@ -285,7 +285,7 @@ export function ClientAuthModal({ isOpen, onClose, onUserChanged }: ClientAuthMo
                   setError('');
                   setInfoMsg('');
                 }}
-                className="text-xs text-[#054FA6] font-semibold hover:underline"
+                className="cx-link-button text-xs text-[#054FA6] font-semibold hover:underline"
               >
                 {mode === 'login' ? 'Нет учётной записи? Зарегистрироваться' : 'Уже есть аккаунт? Войти'}
               </button>

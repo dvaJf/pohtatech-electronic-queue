@@ -22,10 +22,12 @@ import {
   CheckCircle2
 } from 'lucide-react';
 import { matchBranchLocation, liveWaitMinutes } from './liveBranches';
-import { getPositionWithFallback } from './geolocation';
+import { getCurrentPositionFast } from './geolocation';
+import { decideUserLocationUpdate, UserLocationUpdateSource } from './mapViewportPolicy';
 import type { BranchWorkload } from '../../../api/client/clientApi';
 import { Branch } from '../../../api/client/types';
 import { PochtaEmblem } from '../../../components/common/PochtaBrand';
+import { getLandmarkPresentation } from '../branchOptions';
 import {
   MOSCOW_BRANCHES,
   BranchLocation,
@@ -40,6 +42,8 @@ export interface MapBranch extends Branch {
   code?: string;
   coordinates: [number, number]; // [широта (lat), долгота (lon)]
   metro?: string;
+  metroColor?: string;
+  landmarkType?: 'metro' | 'landmark';
   rating: number | null;
   reviewsCount?: number;
   liveWaitMinutes: number | null;
@@ -129,6 +133,8 @@ export function convertLocationToMapBranch(loc: BranchLocation): MapBranch {
     workHours: loc.workHours,
     coordinates: [loc.lat, loc.lng],
     metro: loc.metro,
+    metroColor: loc.metroColor,
+    landmarkType: loc.landmarkType,
     rating: loc.rating > 0 ? loc.rating : null,
     reviewsCount: loc.reviewCount,
     liveWaitMinutes: waitMin,
@@ -324,10 +330,11 @@ export function BranchMapModal({
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
   const userPlacemarkRef = useRef<any>(null);
   const userLocationRef = useRef<[number, number] | null>(null);
+  const hasAutoCenteredRef = useRef(false);
+  const filteredBranchesRef = useRef(filteredBranches);
+  filteredBranchesRef.current = filteredBranches;
 
-  const renderUserLocation = useCallback((coords: [number, number]) => {
-    userLocationRef.current = coords;
-    setUserLocation(coords);
+  const updateUserPlacemark = useCallback((coords: [number, number]) => {
     const ymaps = (window as any).ymaps;
     const map = ymapsInstanceRef.current;
     if (!map || !ymaps?.Placemark) return;
@@ -347,10 +354,24 @@ export function BranchMapModal({
     } else {
       userPlacemarkRef.current.geometry.setCoordinates(coords);
     }
+  }, []);
+
+  const centerMapOnUser = useCallback((coords: [number, number]) => {
+    const map = ymapsInstanceRef.current;
+    if (!map) return;
     map.panTo(coords, { flying: true, duration: 800 }).then(() => {
       ymapsInstanceRef.current?.setZoom(15, { duration: 400 });
     });
   }, []);
+
+  const renderUserLocation = useCallback((coords: [number, number], source: UserLocationUpdateSource = 'automatic') => {
+    userLocationRef.current = coords;
+    setUserLocation(coords);
+    updateUserPlacemark(coords);
+    const decision = decideUserLocationUpdate(hasAutoCenteredRef.current, source);
+    hasAutoCenteredRef.current = decision.hasAutoCentered;
+    if (decision.shouldCenter) centerMapOnUser(coords);
+  }, [centerMapOnUser, updateUserPlacemark]);
 
   useEffect(() => {
     if (isOpen && userCoordinates
@@ -364,8 +385,8 @@ export function BranchMapModal({
     setIsLocatingUser(true);
 
     if (typeof navigator !== 'undefined' && navigator.geolocation) {
-      getPositionWithFallback(navigator.geolocation).then(pos => {
-        renderUserLocation([pos.coords.latitude, pos.coords.longitude]);
+      getCurrentPositionFast(navigator.geolocation).then(pos => {
+        renderUserLocation([pos.coords.latitude, pos.coords.longitude], 'explicit');
         setIsLocatingUser(false);
       }).catch((err: GeolocationPositionError) => {
         setIsLocatingUser(false);
@@ -378,6 +399,44 @@ export function BranchMapModal({
       setLocationError('Геолокация недоступна в этом браузере.');
     }
   }, [renderUserLocation]);
+
+  const syncBranchPlacemarks = useCallback((branchesToRender: MapBranch[]) => {
+    const ymaps = (window as any).ymaps;
+    const map = ymapsInstanceRef.current;
+    const clusterer = clustererRef.current;
+    if (!ymaps?.Placemark || !map || !clusterer) return;
+
+    clusterer.removeAll();
+    branchesToRender.forEach((b) => {
+      const waitInfo = getWaitBadgeInfo(b.liveWaitMinutes);
+      const ratingText = b.rating === null ? '—' : b.rating.toFixed(2);
+      const pinLayout = ymaps.templateLayoutFactory.createClass(
+        `<div class="pvz-pin-marker cursor-pointer select-none group" style="display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-100%);">
+          <div style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:9999px;background-color:${waitInfo.hex};border:2px solid #FFFFFF;color:#FFFFFF;font-family:'Manrope',sans-serif;font-size:11px;font-weight:800;white-space:nowrap;box-shadow:0 4px 14px rgba(5,47,133,0.35);">
+            <span style="color:#FEF08A;">★</span><span>${ratingText}</span><span style="opacity:.6;">•</span><span>${waitInfo.label}</span>
+          </div>
+          <div style="width:8px;height:8px;transform:rotate(45deg);margin-top:-4px;background-color:${waitInfo.hex};border-right:2px solid #FFFFFF;border-bottom:2px solid #FFFFFF;"></div>
+        </div>`
+      );
+      const placemark = new ymaps.Placemark(b.coordinates, {
+        name: b.name,
+        address: b.address,
+        rating: ratingText,
+        waitLabel: waitInfo.label,
+        badgeHex: waitInfo.hex,
+        hintContent: `${b.name} (★ ${ratingText})`,
+      }, {
+        iconLayout: pinLayout,
+        iconShape: { type: 'Rectangle', coordinates: [[-50, -36], [50, 0]] },
+      });
+      placemark.events.add('click', () => {
+        setSelectedBranchId(b.id);
+        setBottomSheetState('half');
+        map.panTo(b.coordinates, { flying: true, duration: 600 }).then(() => map.setZoom(16, { duration: 300 }));
+      });
+      clusterer.add(placemark);
+    });
+  }, []);
 
   // Интеграция Yandex Maps JavaScript API 2.1 и ymaps.Clusterer
   useEffect(() => {
@@ -397,13 +456,14 @@ export function BranchMapModal({
           ymapsInstanceRef.current = null;
         }
 
-        const centerCoords = userLocationRef.current || [55.7618, 37.6385];
+        const initialUserLocation = userLocationRef.current;
+        const centerCoords = initialUserLocation || [55.7618, 37.6385];
 
         const map = new ymaps.Map(
           mapContainerRef.current,
           {
             center: centerCoords,
-            zoom: 13,
+            zoom: initialUserLocation ? 15 : 13,
             controls: ['zoomControl'],
           },
           {
@@ -412,7 +472,7 @@ export function BranchMapModal({
           }
         );
         ymapsInstanceRef.current = map;
-        if (userLocationRef.current) renderUserLocation(userLocationRef.current);
+        if (initialUserLocation) updateUserPlacemark(initialUserLocation);
 
         // Кастомный макет балуна для кластеров ymaps.Clusterer
         const customClusterBalloonLayout = ymaps.templateLayoutFactory.createClass(
@@ -443,59 +503,11 @@ export function BranchMapModal({
         });
         clustererRef.current = clusterer;
 
-        // Добавление меток отделений с ПВЗ-стилизацией
-        filteredBranches.forEach((b) => {
-          const waitInfo = getWaitBadgeInfo(b.liveWaitMinutes);
-          const ratingText = (b.rating === null ? '—' : b.rating.toFixed(2));
-
-          // Custom HTML layout для ПВЗ-пина:
-          // Green badge: wait <= 5 min (bg-emerald-500)
-          // Amber badge: wait 5-15 min (bg-amber-500)
-          // Red badge: wait > 15 min (bg-red-500)
-          // Star rating badge (★ 4.92)
-          const pinLayout = ymaps.templateLayoutFactory.createClass(
-            `<div class="pvz-pin-marker cursor-pointer select-none group" style="display: flex; flex-direction: column; align-items: center; transform: translate(-50%, -100%);">
-              <div class="${waitInfo.colorClass} shadow-lg" style="display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 9999px; background-color: ${waitInfo.hex}; border: 2px solid #FFFFFF; color: #FFFFFF; font-family: 'Manrope', sans-serif; font-size: 11px; font-weight: 800; white-space: nowrap; box-shadow: 0 4px 14px rgba(5,47,133,0.35);">
-                <span style="color: #FEF08A;">★</span>
-                <span>${ratingText}</span>
-                <span style="opacity: 0.6;">•</span>
-                <span>${waitInfo.label}</span>
-              </div>
-              <div style="width: 8px; height: 8px; transform: rotate(45deg); margin-top: -4px; background-color: ${waitInfo.hex}; border-right: 2px solid #FFFFFF; border-bottom: 2px solid #FFFFFF;"></div>
-            </div>`
-          );
-
-          const placemark = new ymaps.Placemark(
-            b.coordinates,
-            {
-              name: b.name,
-              address: b.address,
-              rating: ratingText,
-              waitLabel: waitInfo.label,
-              badgeHex: waitInfo.hex,
-              hintContent: `${b.name} (★ ${ratingText})`,
-            },
-            {
-              iconLayout: pinLayout,
-              iconShape: {
-                type: 'Rectangle',
-                coordinates: [[-50, -36], [50, 0]],
-              },
-            }
-          );
-
-          placemark.events.add('click', () => {
-            setSelectedBranchId(b.id);
-            setBottomSheetState('half');
-            map.panTo(b.coordinates, { flying: true, duration: 600 }).then(() => {
-              map.setZoom(16, { duration: 300 });
-            });
-          });
-
-          clusterer.add(placemark);
-        });
-
         map.geoObjects.add(clusterer);
+        syncBranchPlacemarks(filteredBranchesRef.current);
+        const handleResize = () => map.container.fitToViewport();
+        window.addEventListener('resize', handleResize);
+        (map as any).__queueResizeHandler = handleResize;
         setIsYmapsLoading(false);
       })
       .catch((err) => {
@@ -509,12 +521,20 @@ export function BranchMapModal({
     return () => {
       isMounted = false;
       if (ymapsInstanceRef.current) {
+        const resizeHandler = (ymapsInstanceRef.current as any).__queueResizeHandler;
+        if (resizeHandler) window.removeEventListener('resize', resizeHandler);
         ymapsInstanceRef.current.destroy();
         ymapsInstanceRef.current = null;
       }
+      clustererRef.current = null;
       userPlacemarkRef.current = null;
+      hasAutoCenteredRef.current = false;
     };
-  }, [isOpen, useFallbackMap, filteredBranches, renderUserLocation]);
+  }, [isOpen, useFallbackMap, syncBranchPlacemarks, updateUserPlacemark]);
+
+  useEffect(() => {
+    syncBranchPlacemarks(filteredBranches);
+  }, [filteredBranches, syncBranchPlacemarks]);
 
   // Плавный переход при выборе карточки
   const handleSelectBranch = useCallback((branch: MapBranch) => {
@@ -706,6 +726,7 @@ export function BranchMapModal({
                 filteredBranches.map((branch) => {
                   const isSelected = branch.id === selectedBranch?.id;
                   const wait = getWaitBadgeInfo(branch.liveWaitMinutes);
+                  const landmark = getLandmarkPresentation(branch.rawLocation);
 
                   return (
                     <div
@@ -723,8 +744,14 @@ export function BranchMapModal({
                           : 'bg-white border-[#E2E8F0] hover:border-slate-300 hover:shadow-sm'
                       }`}
                     >
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
+                      <div className="flex items-start gap-2.5 min-w-0">
+                        {branch.photoUrl && (
+                          <img src={branch.photoUrl} alt="" onError={(event) => { event.currentTarget.style.display = 'none'; }}
+                            className="h-14 w-16 rounded-xl object-cover shrink-0 bg-slate-100" />
+                        )}
+                        <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
                           <div className="text-xs font-extrabold text-[#031E56] leading-snug">
                             {branch.name}
                           </div>
@@ -743,13 +770,19 @@ export function BranchMapModal({
 
                       {/* Метро и рейтинг (★ 4.92) */}
                       <div className="mt-2.5 flex items-center justify-between text-[11px] text-slate-500 pt-2 border-t border-slate-100">
-                        <div className="flex items-center gap-1.5 truncate">
-                          <Navigation size={12} className="text-[#052F85] shrink-0" />
-                          <span className="truncate">{branch.metro || 'Рядом с остановкой'}</span>
+                        <div className="flex items-center gap-1.5 truncate" data-landmark-type={landmark?.isMetro ? 'metro' : 'landmark'}>
+                          {landmark?.isMetro ? (
+                            <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: landmark.color }} aria-hidden />
+                          ) : (
+                            <Navigation size={12} className="text-[#052F85] shrink-0" />
+                          )}
+                          <span className="truncate">{landmark?.label || 'Рядом с остановкой'}</span>
                         </div>
                         <div className="flex items-center gap-1 font-bold text-amber-500 shrink-0">
                           <Star size={12} className="fill-amber-400 text-amber-400" />
                           <span>{(branch.rating === null ? '—' : branch.rating.toFixed(2))}</span>
+                        </div>
+                      </div>
                         </div>
                       </div>
                     </div>
@@ -960,19 +993,32 @@ export function BranchMapModal({
                   />
                 ) : (
                   <div className="space-y-2">
-                    {filteredBranches.map((b) => (
+                    {filteredBranches.map((b) => {
+                      const landmark = getLandmarkPresentation(b.rawLocation);
+                      return (
                       <div
                         key={b.id}
                         onClick={() => handleSelectBranch(b)}
-                        className="p-3 rounded-2xl bg-slate-50 hover:bg-blue-50/50 border border-slate-200 hover:border-blue-200 transition-colors flex items-center justify-between cursor-pointer"
+                        className="p-3 rounded-2xl bg-slate-50 hover:bg-blue-50/50 border border-slate-200 hover:border-blue-200 transition-colors flex items-start gap-2.5 cursor-pointer min-w-0"
                       >
-                        <div>
-                          <div className="text-xs font-bold text-[#031E56]">{b.name}</div>
-                          <div className="text-[11px] text-slate-500 mt-0.5">{b.address}</div>
+                        {b.photoUrl && (
+                          <img src={b.photoUrl} alt="" onError={(event) => { event.currentTarget.style.display = 'none'; }}
+                            className="h-14 w-16 rounded-xl object-cover shrink-0 bg-slate-100" />
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <div className="text-xs font-bold text-[#031E56] break-words">{b.name}</div>
+                          <div className="text-[11px] text-slate-500 mt-0.5 break-words">{b.address}</div>
                           <div className="flex items-center gap-2 mt-1 text-[10px] text-slate-400">
                             <span>★ {(b.rating === null ? '—' : b.rating.toFixed(2))}</span>
                             <span>•</span>
-                            <span>{b.metro || 'Рядом со станцией'}</span>
+                            <span className="inline-flex min-w-0 items-center gap-1" data-landmark-type={landmark?.isMetro ? 'metro' : 'landmark'}>
+                              {landmark?.isMetro ? (
+                                <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: landmark.color }} aria-hidden />
+                              ) : (
+                                <Navigation size={10} className="shrink-0" aria-hidden />
+                              )}
+                              <span className="truncate">{landmark?.label || 'Рядом с остановкой'}</span>
+                            </span>
                           </div>
                         </div>
                         <div
@@ -983,7 +1029,7 @@ export function BranchMapModal({
                           {getWaitBadgeInfo(b.liveWaitMinutes).label}
                         </div>
                       </div>
-                    ))}
+                    );})}
                   </div>
                 )}
               </div>
@@ -1041,6 +1087,7 @@ export function DetailedBranchCard({
 }) {
   const [imgError, setImgError] = useState(false);
   const wait = getWaitBadgeInfo(branch.liveWaitMinutes);
+  const landmark = getLandmarkPresentation(branch.rawLocation);
 
   const displayPhoto = useMemo(() => {
     if (branch.photoUrl && !branch.photoUrl.startsWith('data:image/svg')) {
@@ -1114,9 +1161,13 @@ export function DetailedBranchCard({
 
         {/* Метро, часы работы и текущая очередь */}
         <div className="space-y-1.5 text-xs text-slate-600 bg-slate-50 p-2.5 rounded-2xl border border-slate-100">
-          <div className="flex items-center gap-2">
-            <Navigation size={14} className="text-[#052F85] shrink-0" />
-            <span className="font-semibold text-slate-800">{branch.metro || 'Ближайшая остановка транспорта'}</span>
+          <div className="flex items-center gap-2" data-landmark-type={landmark?.isMetro ? 'metro' : 'landmark'}>
+            {landmark?.isMetro ? (
+              <span className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: landmark.color }} aria-hidden />
+            ) : (
+              <Navigation size={14} className="text-[#052F85] shrink-0" />
+            )}
+            <span className="font-semibold text-slate-800">{landmark?.label || 'Ближайшая остановка транспорта'}</span>
           </div>
           <div className="flex items-center gap-2">
             <Clock size={14} className="text-slate-400 shrink-0" />

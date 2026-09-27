@@ -9,10 +9,30 @@ async function load(path) {
   return import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
 }
 
-test('online booking previews five branches and exposes every search match', async () => {
-  const { getBookingBranchOptions } = await load('../src/features/client/branchOptions.ts');
+test('branch pagination supports every allowed page size and clamps invalid pages', async () => {
+  const { BRANCH_PAGE_SIZES, paginateBranches } = await load('../src/features/client/branchOptions.ts');
   const branches = Array.from({ length: 11 }, (_, index) => ({ id: `b${index}`, name: `Отделение ${index}` }));
-  assert.deepEqual(getBookingBranchOptions(branches, '').map(branch => branch.id), ['b0', 'b1', 'b2', 'b3', 'b4']);
-  assert.equal(getBookingBranchOptions(branches, ' отделение ').length, 11);
-  assert.equal(getBookingBranchOptions([], 'запрос').length, 0);
+  assert.deepEqual(BRANCH_PAGE_SIZES, [5, 10, 20, 50]);
+  assert.deepEqual(paginateBranches(branches, 1, 5), {
+    items: branches.slice(0, 5), page: 1, pageSize: 5, totalItems: 11, totalPages: 3, from: 1, to: 5,
+  });
+  assert.deepEqual(paginateBranches(branches, 3, 5), {
+    items: branches.slice(10), page: 3, pageSize: 5, totalItems: 11, totalPages: 3, from: 11, to: 11,
+  });
+  assert.equal(paginateBranches(branches, 99, 10).page, 2);
+  assert.equal(paginateBranches(branches, 1, 50).items.length, 11);
+  assert.deepEqual(paginateBranches([], 2, 5), {
+    items: [], page: 1, pageSize: 5, totalItems: 0, totalPages: 1, from: 0, to: 0,
+  });
+});
+
+test('landmark presentation uses structured type and metro line color', async () => {
+  const { getLandmarkPresentation } = await load('../src/features/client/branchOptions.ts');
+  assert.deepEqual(getLandmarkPresentation({ metro: 'Чистые пруды', metroColor: '#EF161E', landmarkType: 'metro' }), {
+    label: 'Чистые пруды', isMetro: true, color: '#EF161E',
+  });
+  assert.deepEqual(getLandmarkPresentation({ metro: 'пл. Ленина', metroColor: '#0055A5', landmarkType: 'landmark' }), {
+    label: 'пл. Ленина', isMetro: false, color: undefined,
+  });
+  assert.equal(getLandmarkPresentation(undefined), null);
 });

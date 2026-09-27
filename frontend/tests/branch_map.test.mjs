@@ -85,7 +85,7 @@ test('Detailed branch card displays photo, address, metro, hours, live wait, ame
   assert.match(fileContent, /DetailedBranchCard/);
   assert.match(fileContent, /Фото входа отделения/);
   assert.match(fileContent, /branch\.photoUrl/);
-  assert.match(fileContent, /branch\.metro/);
+  assert.match(fileContent, /getLandmarkPresentation\(branch\.rawLocation\)/);
   assert.match(fileContent, /branch\.workHours/);
   assert.match(fileContent, /liveWaitMinutes/);
   assert.match(fileContent, /Доступная среда/);
@@ -131,14 +131,15 @@ test('map shows the client position on Yandex and fallback maps', async () => {
   assert.match(workspace, /userCoordinates=\{hasRealGpsFix \? \[currentCoordinates\.lat, currentCoordinates\.lng\] : null\}/);
   assert.match(modal, /userLocation=\{userLocation\}/);
   assert.match(modal, /data-testid="client-location-marker"/);
-  assert.match(modal, /renderUserLocation\(userLocationRef\.current\)/);
+  assert.match(modal, /updateUserPlacemark\(initialUserLocation\)/);
   assert.doesNotMatch(workspace, /Проверить всплывающее окно · тестовое отделение/);
 });
 
-test('client requests GPS on entry and opens the arrival sheet from a live nearby fix', async () => {
+test('client reuses granted GPS on entry without a parallel watch and opens the arrival sheet', async () => {
   const workspace = await readFile(new URL('../src/features/client/ClientWorkspace.tsx', import.meta.url), 'utf8');
   const geofence = await readFile(new URL('../src/features/client/arrival/useGeofencing.ts', import.meta.url), 'utf8');
   assert.match(workspace, /initialMode:\s*'real_gps'/);
   assert.match(workspace, /if \(isInsideGeofence && activeBranchInsideGeofence\)[\s\S]*?setIsArrivalSheetOpen\(true\)/);
-  assert.match(geofence, /if \(simulationMode === 'real_gps'\)[\s\S]*?requestGpsPermission\(\)[\s\S]*?watchPosition/);
+  assert.match(geofence, /permission\.state === 'granted'\) requestGpsPermission\(\)/);
+  assert.doesNotMatch(geofence, /watchPosition/);
 });

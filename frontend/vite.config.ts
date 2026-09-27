@@ -14,7 +14,9 @@ import { defineConfig, loadEnv } from 'vite';
  * браузер блокирует cookie, из-за чего после логина сессия не подхватывалась.
  */
 
-export default defineConfig(({ mode }) => ({
+export default defineConfig(({ mode }) => {
+  const backendTarget = process.env.VITE_BACKEND_TARGET || 'http://localhost:8080';
+  return ({
   define: {
     'import.meta.env.PUBLIC_APP_BASE_URL': JSON.stringify(
       loadEnv(mode, process.cwd(), '').PUBLIC_APP_BASE_URL ||
@@ -34,15 +36,15 @@ export default defineConfig(({ mode }) => ({
     },
     proxy: {
       '/health': {
-        target: 'http://backend:8080' ? (process.env.VITE_BACKEND_TARGET || 'http://localhost:8080') : 'http://backend:8080',
+        target: backendTarget,
         changeOrigin: true,
       },
       '/ready': {
-        target: 'http://backend:8080' ? (process.env.VITE_BACKEND_TARGET || 'http://localhost:8080') : 'http://backend:8080',
+        target: backendTarget,
         changeOrigin: true,
       },
       '/api': {
-        target: 'http://backend:8080' ? (process.env.VITE_BACKEND_TARGET || 'http://localhost:8080') : 'http://backend:8080',
+        target: backendTarget,
         changeOrigin: true,
       },
       '/grafana': {
@@ -52,4 +54,5 @@ export default defineConfig(({ mode }) => ({
       },
     },
   },
-}));
+  });
+});

@@ -18,7 +18,7 @@ import { useBranchWorkloads } from './map/useBranchWorkloads';
 import { createArrivalIssuer } from './arrival/arrivalPolicy';
 import { VisitRatingSheet } from './rating/VisitRatingSheet';
 import { shouldOfferVisitRating } from './rating/visitRatingPolicy';
-import { BOOKING_BRANCH_PREVIEW_LIMIT, getBookingBranchOptions } from './branchOptions';
+import { BRANCH_PAGE_SIZES, BranchPage, BranchPageSize, getLandmarkPresentation, paginateBranches } from './branchOptions';
 
 const POLL_INTERVAL_MS = 2000;
 const terminalStatuses = new Set<TicketStatus>(['COMPLETED', 'CANCELLED', 'NO_SHOW']);
@@ -179,7 +179,7 @@ interface BranchCardProps {
   isFastest?: boolean;
   isClosest?: boolean;
   timeSavedMinutes?: number;
-  metro?: string;
+  location?: BranchLocation;
   rating?: number;
 }
 
@@ -194,9 +194,12 @@ function BranchCard({
   isFastest,
   isClosest,
   timeSavedMinutes,
-  metro,
+  location,
   rating,
 }: BranchCardProps) {
+  const [photoFailed, setPhotoFailed] = useState(false);
+  const photoUrl = location?.photos?.[0];
+  const landmark = getLandmarkPresentation(location);
   const distText = typeof distanceMeters === 'number'
     ? (distanceMeters < 1000 ? `${distanceMeters} м` : `${(distanceMeters / 1000).toFixed(1)} км`)
     : null;
@@ -210,6 +213,16 @@ function BranchCard({
       aria-pressed={selected}
       onClick={onSelect}
     >
+      <div className="flex items-start gap-3 w-full min-w-0 text-left">
+        {photoUrl && !photoFailed && (
+          <img
+            src={photoUrl}
+            alt={`Отделение ${branch.name}`}
+            onError={() => setPhotoFailed(true)}
+            className="w-20 h-16 sm:w-24 sm:h-20 rounded-xl object-cover shrink-0 bg-slate-100"
+          />
+        )}
+        <div className="min-w-0 flex-1">
       {/* Бейджи статуса: Рекомендуем (минимальное общее время) или Ближайшее */}
       <div className="flex flex-wrap items-center gap-1.5 mb-1.5 w-full">
         {isFastest && (
@@ -238,7 +251,7 @@ function BranchCard({
         )}
       </div>
 
-      <div className="flex items-start justify-between gap-2 w-full text-left">
+      <div className="flex items-start justify-between gap-2 w-full">
         <div className="flex-1 min-w-0">
           <span className="cx-choice-title text-sm sm:text-base font-extrabold">{branch.name}</span>
 
@@ -264,10 +277,14 @@ function BranchCard({
             </div>
           )}
 
-          {metro && (
-            <span className="cx-choice-meta text-xs">
-              <span className="inline-block w-2 h-2 rounded-full bg-[#EF161E] shrink-0" />
-              <span>{metro}</span>
+          {landmark && (
+            <span className="cx-choice-meta text-xs" data-landmark-type={landmark.isMetro ? 'metro' : 'landmark'} aria-label={landmark.isMetro ? `Метро ${landmark.label}` : landmark.label}>
+              {landmark.isMetro ? (
+                <span className="inline-block w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: landmark.color }} aria-hidden />
+              ) : (
+                <Navigation size={13} aria-hidden className="shrink-0 text-slate-400" />
+              )}
+              <span>{landmark.label}</span>
             </span>
           )}
 
@@ -289,10 +306,54 @@ function BranchCard({
           {selected && <Check size={12} strokeWidth={3} />}
         </div>
       </div>
+        </div>
+      </div>
       <div className="pt-1 w-full">
         <BranchWorkloadCard branch={branch} compact />
       </div>
     </button>
+  );
+}
+
+function BranchListPageControls<T>({
+  pageData,
+  pageSize,
+  onPageSizeChange,
+  onPageChange,
+}: {
+  pageData: BranchPage<T>;
+  pageSize: BranchPageSize;
+  onPageSizeChange: (size: BranchPageSize) => void;
+  onPageChange: (page: number) => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
+      <label className="inline-flex items-center gap-2 font-semibold text-slate-600">
+        <span>Показывать:</span>
+        <select
+          value={pageSize}
+          onChange={(event) => onPageSizeChange(Number(event.target.value) as BranchPageSize)}
+          className="rounded-lg border border-slate-300 bg-white px-2 py-1 font-bold text-slate-800 focus:border-[#052F85] focus:outline-none focus:ring-2 focus:ring-[#052F85]/20"
+          aria-label="Количество отделений на странице"
+        >
+          {BRANCH_PAGE_SIZES.map(size => <option key={size} value={size}>{size}</option>)}
+        </select>
+      </label>
+      <span className="font-medium text-slate-500">{pageData.items.length} из {pageData.totalItems} отделений</span>
+      {pageData.totalPages > 1 && (
+        <div className="flex items-center gap-1.5">
+          <button type="button" onClick={() => onPageChange(pageData.page - 1)} disabled={pageData.page === 1}
+            className="rounded-lg border border-slate-200 bg-white p-1.5 text-slate-600 disabled:opacity-40" aria-label="Предыдущая страница">
+            <ChevronLeft size={14} />
+          </button>
+          <span className="min-w-14 text-center font-semibold text-slate-600">{pageData.page} / {pageData.totalPages}</span>
+          <button type="button" onClick={() => onPageChange(pageData.page + 1)} disabled={pageData.page === pageData.totalPages}
+            className="rounded-lg border border-slate-200 bg-white p-1.5 text-slate-600 disabled:opacity-40" aria-label="Следующая страница">
+            <ChevronRight size={14} />
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -645,7 +706,9 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
 
   useEffect(() => {
     window.dispatchEvent(
-      new CustomEvent('pochta:geo-status', { detail: { granted: gpsPermissionStatus === 'granted' } })
+      new CustomEvent('pochta:geo-status', {
+        detail: { status: gpsPermissionStatus, granted: gpsPermissionStatus === 'granted' },
+      })
     );
   }, [gpsPermissionStatus]);
 
@@ -669,10 +732,9 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
 
     // 3. И только если проверка на отсутствие активного талона пройдена — открываем окно при входе в геозону:
     if (isInsideGeofence && activeBranchInsideGeofence) {
-      if (!currentCoordinates.accuracy || currentCoordinates.accuracy < 100) {
-        if (arrivalSheetDismissedMode !== simulationMode) {
-          setIsArrivalSheetOpen(true);
-        }
+      // GPS confidence is already evaluated by useGeofencing; do not apply a second accuracy gate here.
+      if (arrivalSheetDismissedMode !== simulationMode) {
+        setIsArrivalSheetOpen(true);
       }
     } else {
       // Hysteresis: only auto-close if distance is clearly greater than 120m or mode changed
@@ -755,11 +817,6 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
     };
   }, []);
 
-  const friendlyError = (err: any, fallback: string) => {
-    if (err?.name === 'AbortError') return null;
-    return err instanceof Error ? err.message : fallback;
-  };
-
   const arrivalStorageKey = (ticketId: string) => `client-arrived:${ticketId}`;
   const hasArrivalAcknowledgement = (ticketId: string): boolean => {
     try { return sessionStorage.getItem(arrivalStorageKey(ticketId)) === '1'; } catch { return false; }
@@ -774,13 +831,13 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
       setError(null);
       const loaded = await api.listBranches();
       setBranches(loaded);
-      if (!branchId && loaded.length > 0) setBranchId(loaded[0].id);
+      setBranchId(current => current || loaded[0]?.id || '');
     } catch (err: any) {
       setError(friendlyError(err, 'Не удалось загрузить данные отделений'));
     } finally {
       setLoading(false);
     }
-  }, [branchId, kiosk]);
+  }, []);
 
   useEffect(() => {
     loadBranches();
@@ -789,6 +846,8 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
   // Поиск и сортировка отделений по удаленности / минимальному общему времени T = дорога + очередь
   const [branchSearchQuery, setBranchSearchQuery] = useState('');
   const [branchSortMode, setBranchSortMode] = useState<'distance' | 'fastest'>('distance');
+  const [branchPageSize, setBranchPageSize] = useState<BranchPageSize>(5);
+  const [branchPage, setBranchPage] = useState(1);
 
   const {
     enrichedBranches,
@@ -853,6 +912,19 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
       return [...result].sort((a, b) => (a.distanceMeters ?? Infinity) - (b.distanceMeters ?? Infinity));
     }
   }, [enrichedBranches, branchSearchQuery, branchSortMode]);
+
+  const branchPageData = useMemo(
+    () => paginateBranches(displayBranches, branchPage, branchPageSize),
+    [displayBranches, branchPage, branchPageSize]
+  );
+
+  useEffect(() => {
+    setBranchPage(1);
+  }, [branchSearchQuery, branchSortMode, branchPageSize, screen]);
+
+  useEffect(() => {
+    if (branchPage !== branchPageData.page) setBranchPage(branchPageData.page);
+  }, [branchPage, branchPageData.page]);
 
   const fetchServices = useCallback(async (targetBranchId: string) => {
     if (!targetBranchId) {
@@ -1555,7 +1627,6 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
 
   const renderBooking = () => {
     const steps = ['Отделение', 'Услуга', 'Время'];
-    const bookingBranches = getBookingBranchOptions(displayBranches, branchSearchQuery);
 
     return (
       <div className="max-w-2xl mx-auto space-y-4">
@@ -1641,15 +1712,13 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                     <span>Быстрее всего (дорога + очередь)</span>
                   </button>
                 </div>
-                <span className="text-[11px] text-slate-400 font-medium whitespace-nowrap hidden sm:inline">
-                  {branchSearchQuery.trim()
-                    ? `${displayBranches.length} совпадений`
-                    : `${Math.min(displayBranches.length, BOOKING_BRANCH_PREVIEW_LIMIT)} из ${displayBranches.length} отделений`}
-                </span>
               </div>
-              {!branchSearchQuery.trim() && displayBranches.length > BOOKING_BRANCH_PREVIEW_LIMIT && (
-                <p className="text-xs text-slate-500">Показаны ближайшие отделения. Введите название, адрес или индекс, чтобы найти любое из {displayBranches.length} отделений.</p>
-              )}
+              <BranchListPageControls
+                pageData={branchPageData}
+                pageSize={branchPageSize}
+                onPageSizeChange={setBranchPageSize}
+                onPageChange={setBranchPage}
+              />
 
               {/* Совет системы: если самое быстрое отделение быстрее ближайшего */}
               {fastestBranch && closestBranch && fastestBranch.id !== closestBranch.id && timeSavedMinutes > 0 && (
@@ -1682,13 +1751,13 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
 
               {loading ? (
                 <p className="text-xs text-slate-400 font-mono py-8 text-center animate-pulse">Загрузка отделений...</p>
-              ) : bookingBranches.length === 0 ? (
+              ) : branchPageData.items.length === 0 ? (
                 <div className="p-6 text-center text-xs text-slate-500 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
                   <p>Отделения не найдены по вашему запросу</p>
-                  <button type="button" onClick={() => setBranchSearchQuery('')} className="mt-2 text-xs font-semibold text-[#003B73] underline cursor-pointer">Сбросить поиск</button>
+                  <button type="button" onClick={() => setBranchSearchQuery('')} className="cx-link-button mt-2 text-xs font-semibold text-[#003B73] underline cursor-pointer">Сбросить поиск</button>
                 </div>
               ) : (
-                bookingBranches.map((b) => (
+                branchPageData.items.map((b) => (
                   <BranchCard
                     key={b.id}
                     branch={b}
@@ -1701,7 +1770,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                     isFastest={fastestBranch?.id === b.id}
                     isClosest={closestBranch?.id === b.id}
                     timeSavedMinutes={timeSavedMinutes}
-                    metro={b.metro}
+                    location={b.loc}
                     rating={b.rating}
                   />
                 ))
@@ -1889,10 +1958,13 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                     <span>Быстрее всего (дорога + очередь)</span>
                   </button>
                 </div>
-                <span className="text-[11px] text-slate-400 font-medium whitespace-nowrap hidden sm:inline">
-                  {displayBranches.length} {displayBranches.length === 1 ? 'отделение' : 'отделений'}
-                </span>
               </div>
+              <BranchListPageControls
+                pageData={branchPageData}
+                pageSize={branchPageSize}
+                onPageSizeChange={setBranchPageSize}
+                onPageChange={setBranchPage}
+              />
 
               {/* Совет системы: если самое быстрое отделение быстрее ближайшего */}
               {fastestBranch && closestBranch && fastestBranch.id !== closestBranch.id && timeSavedMinutes > 0 && (
@@ -1925,13 +1997,13 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
 
               {loading ? (
                 <p className="text-xs text-slate-400 font-mono py-8 text-center animate-pulse">Загрузка отделений...</p>
-              ) : displayBranches.length === 0 ? (
+              ) : branchPageData.items.length === 0 ? (
                 <div className="p-6 text-center text-xs text-slate-500 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
                   <p>Отделения не найдены по вашему запросу</p>
-                  <button type="button" onClick={() => setBranchSearchQuery('')} className="mt-2 text-xs font-semibold text-[#003B73] underline cursor-pointer">Сбросить поиск</button>
+                  <button type="button" onClick={() => setBranchSearchQuery('')} className="cx-link-button mt-2 text-xs font-semibold text-[#003B73] underline cursor-pointer">Сбросить поиск</button>
                 </div>
               ) : (
-                displayBranches.map((b) => (
+                branchPageData.items.map((b) => (
                   <BranchCard
                     key={b.id}
                     branch={b}
@@ -1944,7 +2016,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                     isFastest={fastestBranch?.id === b.id}
                     isClosest={closestBranch?.id === b.id}
                     timeSavedMinutes={timeSavedMinutes}
-                    metro={b.metro}
+                    location={b.loc}
                     rating={b.rating}
                   />
                 ))

@@ -1,5 +1,5 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { BarChart3, CheckCircle2, Clock, Eye, MapPin, RotateCcw, Smartphone, UserPlus, UserX, Volume2, VolumeX, X } from 'lucide-react';
+import React, { useCallback, useEffect, useState, useRef } from 'react';
+import { BarChart3, CheckCircle2, Clock, Eye, Loader2, MapPin, RotateCcw, Smartphone, UserPlus, UserX, Volume2, VolumeX, X } from 'lucide-react';
 import { PochtaEmblem, PochtaWordmark } from './PochtaBrand';
 import { getMe, logout, User } from '../../api/authApi';
 import { ClientAuthModal } from '../../features/auth/ClientAuthModal';
@@ -15,18 +15,21 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [soundEnabled, setSoundEnabledState] = useState(() => isSoundEnabled());
-  const [isA11y, setIsA11y] = useState(() => {
+  const [scale, setScale] = useState(() => {
     try {
-      return localStorage.getItem('pochta_a11y') === 'true';
+      const stored = Number(localStorage.getItem('pochta_a11y_scale') || '100');
+      return [100, 125, 150].includes(stored) ? stored : 100;
     } catch {
-      return false;
+      return 100;
     }
   });
   const [a11yOpen, setA11yOpen] = useState(false);
-  const [scale, setScale] = useState(() => Number(localStorage.getItem('pochta_a11y_scale') || (isA11y ? '125' : '100')));
-  const [contrast, setContrast] = useState(() => localStorage.getItem('pochta_a11y_contrast') === 'true');
+  const [contrast, setContrast] = useState(() => {
+    try { return localStorage.getItem('pochta_a11y_contrast') === 'true'; } catch { return false; }
+  });
   const [timeStr, setTimeStr] = useState('');
-  const [geoGranted, setGeoGranted] = useState(false);
+  const [geoStatus, setGeoStatus] = useState<'prompt' | 'locating' | 'granted' | 'denied' | 'unavailable'>('prompt');
+  const accessibilityActive = scale !== 100 || contrast;
 
   const a11yRef = useRef<HTMLDivElement>(null);
   const a11yButtonRef = useRef<HTMLButtonElement>(null);
@@ -34,14 +37,16 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
   useEffect(() => {
     if (typeof navigator !== 'undefined' && navigator.permissions && navigator.permissions.query) {
       navigator.permissions.query({ name: 'geolocation' as PermissionName }).then((res) => {
-        setGeoGranted(res.state === 'granted');
-        res.onchange = () => setGeoGranted(res.state === 'granted');
+        setGeoStatus(current => current === 'locating' ? current : (res.state === 'granted' ? 'granted' : res.state));
+        res.onchange = () => setGeoStatus(res.state === 'granted' ? 'granted' : res.state);
       }).catch(() => {});
     }
     const handleGeoStatus = (e: Event) => {
-      const custom = e as CustomEvent<{ granted: boolean }>;
-      if (custom.detail && typeof custom.detail.granted === 'boolean') {
-        setGeoGranted(custom.detail.granted);
+      const custom = e as CustomEvent<{ granted?: boolean; status?: typeof geoStatus }>;
+      if (custom.detail?.status) {
+        setGeoStatus(custom.detail.status);
+      } else if (typeof custom.detail?.granted === 'boolean') {
+        setGeoStatus(custom.detail.granted ? 'granted' : 'prompt');
       }
     };
     window.addEventListener('pochta:geo-status', handleGeoStatus);
@@ -49,15 +54,15 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
   }, []);
 
   const handleRequestGeo = () => {
+    if (geoStatus === 'locating') return;
+    setGeoStatus('locating');
     window.dispatchEvent(new CustomEvent('pochta:request-geo'));
-    if (typeof navigator !== 'undefined' && navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        () => setGeoGranted(true),
-        () => setGeoGranted(false),
-        { enableHighAccuracy: true, timeout: 8000 }
-      );
-    }
   };
+
+  const closeA11y = useCallback(() => {
+    setA11yOpen(false);
+    window.requestAnimationFrame(() => a11yButtonRef.current?.focus());
+  }, []);
 
   useEffect(() => {
     const handleSound = (e: Event) => {
@@ -79,7 +84,10 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
   useEffect(() => {
     if (!a11yOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setA11yOpen(false);
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        closeA11y();
+      }
     };
     const handleClickOutside = (e: MouseEvent) => {
       if (
@@ -88,7 +96,7 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
         a11yButtonRef.current &&
         !a11yButtonRef.current.contains(e.target as Node)
       ) {
-        setA11yOpen(false);
+        closeA11y();
       }
     };
     document.addEventListener('keydown', handleKeyDown);
@@ -97,18 +105,9 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
       document.removeEventListener('keydown', handleKeyDown);
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [a11yOpen]);
-
-  const toggleA11yMode = (enable: boolean) => {
-    setIsA11y(enable);
-    if (!enable) setScale(100);
-    if (enable && scale === 100) {
-      setScale(125);
-    }
-  };
+  }, [a11yOpen, closeA11y]);
 
   const handleResetA11y = () => {
-    setIsA11y(false);
     setScale(100);
     setContrast(false);
     try {
@@ -119,21 +118,15 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
   };
 
   useEffect(() => {
-    if (isA11y) {
-      document.documentElement.classList.add('a11y-mode');
-      document.documentElement.style.fontSize = `${scale}%`;
-      try {
-        localStorage.setItem('pochta_a11y', 'true');
-        localStorage.setItem('pochta_a11y_scale', String(scale));
-      } catch {}
-    } else {
-      document.documentElement.style.fontSize = '';
-      try {
-        localStorage.removeItem('pochta_a11y');
-      } catch {}
-    }
-    document.documentElement.classList.toggle('a11y-mode', isA11y || contrast);
-  }, [isA11y, scale, contrast]);
+    document.documentElement.style.fontSize = scale === 100 ? '' : `${scale}%`;
+    document.documentElement.classList.toggle('a11y-mode', accessibilityActive);
+    document.documentElement.classList.toggle('a11y-contrast', contrast);
+    try {
+      localStorage.setItem('pochta_a11y', String(accessibilityActive));
+      localStorage.setItem('pochta_a11y_scale', String(scale));
+      localStorage.setItem('pochta_a11y_contrast', String(contrast));
+    } catch {}
+  }, [accessibilityActive, scale, contrast]);
 
   useEffect(() => {
     // Удаляем настройку старого пункта меню, чтобы он не мог включиться сам.
@@ -142,13 +135,6 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
       localStorage.removeItem('pochta_a11y_motion');
     } catch {}
   }, []);
-
-  useEffect(() => {
-    document.documentElement.classList.toggle('a11y-contrast', contrast);
-    try {
-      localStorage.setItem('pochta_a11y_contrast', String(contrast));
-    } catch {}
-  }, [contrast, isA11y]);
 
   useEffect(() => {
     let active = true;
@@ -201,7 +187,7 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
       <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:bg-[#FFE600] focus:text-black focus:px-4 focus:py-2">К содержимому</a>
       <header className="main-product-header bg-[#003B73] text-white shadow-lg sticky top-0 z-40">
         {/* Top Status & Brand Line */}
-        <div className="max-w-7xl mx-auto px-2.5 sm:px-4 py-2 sm:py-2.5 flex items-center justify-between gap-1.5 sm:gap-2 border-b border-white/10">
+        <div className="product-header-row max-w-7xl mx-auto px-2.5 sm:px-4 py-2 sm:py-2.5 flex flex-wrap items-center justify-between gap-2 border-b border-white/10">
           {/* Brand Block */}
           <a href="/" className="flex items-center gap-2 sm:gap-3 select-none group transition-transform shrink-0">
             <PochtaEmblem className="w-8 h-8 sm:w-9 sm:h-9 shrink-0 drop-shadow-md transition-transform group-hover:scale-105" bg="#003B73" fg="#FFFFFF" />
@@ -214,7 +200,7 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
           </a>
 
           {/* Quick Tools Panel */}
-          <div className="flex items-center gap-1 sm:gap-2 text-xs font-mono shrink-0">
+          <div className="product-header-tools flex min-w-0 items-center gap-1 sm:gap-2 text-xs font-mono sm:shrink-0">
             {/* 1. Звук (Audio Toggle) */}
             <button
               type="button"
@@ -232,14 +218,17 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
             <button
               type="button"
               onClick={handleRequestGeo}
+              disabled={geoStatus === 'locating'}
+              aria-busy={geoStatus === 'locating'}
+              aria-label={geoStatus === 'locating' ? 'Определяем местоположение' : 'Определить местоположение'}
               className={`cx-header-btn h-8 px-2 sm:px-2.5 gap-1.5 ${
-                geoGranted ? '!bg-white/20 !border-white/40 text-emerald-300' : ''
+                geoStatus === 'granted' ? '!bg-white/20 !border-white/40 text-emerald-300' : ''
               }`}
-              title={geoGranted ? 'Геолокация активна (определение отделений)' : 'Разрешить геолокацию для точного поиска отделений'}
+              title={geoStatus === 'granted' ? 'Геолокация активна (определение отделений)' : 'Разрешить геолокацию для точного поиска отделений'}
             >
-              <MapPin className={`w-3.5 h-3.5 ${geoGranted ? 'text-emerald-400' : 'text-[#86BBFF]'}`} />
+              {geoStatus === 'locating' ? <Loader2 className="w-3.5 h-3.5 animate-spin text-[#FFE600]" /> : <MapPin className={`w-3.5 h-3.5 ${geoStatus === 'granted' ? 'text-emerald-400' : 'text-[#86BBFF]'}`} />}
               <span className="font-bold text-white hidden sm:inline whitespace-nowrap">
-                {geoGranted ? 'Гео: ВКЛ' : 'Геолокация'}
+                {geoStatus === 'locating' ? 'Определяем…' : geoStatus === 'granted' ? 'Гео: ВКЛ' : 'Геолокация'}
               </span>
             </button>
 
@@ -248,17 +237,18 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
               ref={a11yButtonRef}
               type="button"
               onClick={() => setA11yOpen((prev: boolean) => !prev)}
-              aria-pressed={isA11y}
+              aria-pressed={accessibilityActive}
               aria-expanded={a11yOpen}
               aria-controls="a11y-settings"
+              aria-label="Настройки доступности"
               className={`cx-header-btn h-8 w-8 sm:w-auto sm:min-w-[104px] sm:px-2.5 sm:gap-1.5 ${
-                isA11y ? '!bg-[#FFE600] !text-black !border-[#FFE600] font-bold shadow-md' : ''
+                accessibilityActive ? '!bg-[#FFE600] !text-black !border-[#FFE600] font-bold shadow-md' : ''
               }`}
               title="Настройки доступности (версия для слабовидящих)"
             >
               <Eye className="w-3.5 h-3.5" />
               <span className="font-bold hidden sm:inline whitespace-nowrap">
-                {isA11y ? 'Доступность: ВКЛ' : 'Доступность'}
+                {accessibilityActive ? 'Доступность: ВКЛ' : 'Доступность'}
               </span>
             </button>
 
@@ -266,19 +256,19 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
               <div
                 ref={a11yRef}
                 id="a11y-settings"
-                role="region"
-                aria-label="Настройки доступности"
-                className="absolute right-2 sm:right-4 top-12 sm:top-14 z-50 w-[calc(100vw-1rem)] sm:w-80 max-w-[340px] rounded-2xl border border-white/20 bg-[#002B55] p-4 text-left text-xs text-white shadow-2xl backdrop-blur-md"
+                role="dialog"
+                aria-labelledby="a11y-settings-title"
+                className="absolute right-2 sm:right-4 top-[5.75rem] sm:top-14 z-50 w-[calc(100vw-1rem)] sm:w-80 max-w-[340px] rounded-2xl border border-white/20 bg-[#002B55] p-3.5 text-left text-xs text-white shadow-2xl backdrop-blur-md"
               >
                 {/* Header */}
                 <div className="flex items-center justify-between pb-2.5 border-b border-white/15 mb-3">
                   <div className="flex items-center gap-2">
                     <Eye className="w-4 h-4 text-[#FFE600]" />
-                    <span className="font-bold text-sm text-white">Панель доступности</span>
+                    <span id="a11y-settings-title" className="font-bold text-sm text-white">Панель доступности</span>
                   </div>
                   <button
                     type="button"
-                    onClick={() => setA11yOpen(false)}
+                    onClick={closeA11y}
                     className="p-1 text-white/70 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
                     aria-label="Закрыть настройки доступности"
                   >
@@ -286,32 +276,9 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
                   </button>
                 </div>
 
-                {/* Master Toggle */}
-                <div className="mb-3.5 bg-white/10 p-2.5 rounded-xl flex items-center justify-between">
-                  <div className="pr-2">
-                    <div className="font-bold text-xs text-white">Увеличенный текст</div>
-                    <div className="text-[10px] text-blue-200">Без изменения цветовой схемы</div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => toggleA11yMode(!isA11y)}
-                    aria-pressed={isA11y}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                      isA11y
-                        ? 'bg-[#FFE600] text-black shadow-sm'
-                        : 'bg-white/20 text-white hover:bg-white/30'
-                    }`}
-                  >
-                    {isA11y ? 'ВКЛЮЧЕН' : 'ВЫКЛ'}
-                  </button>
-                </div>
-
                 {/* Font Scale */}
-                <div className="mb-3">
-                  <div className="text-[11px] font-bold text-blue-200 mb-1.5 flex items-center justify-between">
-                    <span>Размер шрифта:</span>
-                    <span className="font-mono text-white font-bold">{scale}%</span>
-                  </div>
+                <div className="mb-3" role="group" aria-label="Размер текста">
+                  <div className="text-[11px] font-bold text-blue-200 mb-1.5">Размер текста</div>
                   <div className="grid grid-cols-3 gap-1.5">
                     {[
                       { val: 100, label: 'А 100%' },
@@ -322,10 +289,7 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
                         key={val}
                         type="button"
                         aria-pressed={scale === val}
-                        onClick={() => {
-                          setScale(val);
-                          setIsA11y(val !== 100);
-                        }}
+                        onClick={() => setScale(val)}
                         className={`py-1.5 px-1 text-center rounded-lg text-xs font-bold border transition-all ${
                           scale === val
                             ? 'bg-[#FFE600] text-black border-[#FFE600] shadow'
@@ -339,8 +303,8 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
                 </div>
 
                 {/* Color Theme / Contrast */}
-                <div className="mb-3">
-                  <div className="text-[11px] font-bold text-blue-200 mb-1.5">Цветовая схема:</div>
+                <div className="mb-3" role="group" aria-label="Цветовая схема">
+                  <div className="text-[11px] font-bold text-blue-200 mb-1.5">Цветовая схема</div>
                   <div className="grid grid-cols-2 gap-1.5">
                     <button
                       type="button"
@@ -381,7 +345,7 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setA11yOpen(false)}
+                    onClick={closeA11y}
                     className="px-3 py-1 bg-white/15 hover:bg-white/25 rounded-lg text-xs font-bold text-white transition-colors"
                   >
                     Готово

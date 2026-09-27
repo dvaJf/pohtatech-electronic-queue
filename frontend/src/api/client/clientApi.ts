@@ -142,12 +142,16 @@ async function request<T>(path: string, init?: RequestInit, parser?: (value: unk
 
   if (!response.ok) {
     let message = `Ошибка сервера (${response.status})`;
+    console.error('[client-api] request failed', { path, status: response.status, statusText: response.statusText });
     try {
       const body = await response.json() as { error?: { message?: string; code?: string } };
-      message = body.error?.message || message;
+      message = body.error?.message || (response.status >= 500
+        ? 'Сервис временно недоступен. Попробуйте обновить страницу.'
+        : message);
       throw new ClientApiError(message, response.status, body.error?.code);
     } catch (error) {
       if (error instanceof ClientApiError) throw error;
+      if (response.status >= 500) message = 'Сервис временно недоступен. Попробуйте обновить страницу.';
       throw new ClientApiError(message, response.status);
     }
   }
@@ -281,4 +285,3 @@ export type BranchWorkload = {
 export async function getBranchWorkload(branchId: string, signal?: AbortSignal): Promise<BranchWorkload> {
   return request(`/branches/${encodeURIComponent(branchId)}/workload`, { signal });
 }
-

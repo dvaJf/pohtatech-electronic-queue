@@ -29,6 +29,7 @@ export interface BranchLocation {
   address: string;
   metro: string;
   metroColor: string;
+  landmarkType?: 'metro' | 'landmark';
   lat: number;
   lng: number;
   workHours: string;
@@ -602,6 +603,7 @@ export const MOSCOW_BRANCHES: BranchLocation[] = [
     address: 'г. Рязань, ул. Почтовая, д. 49',
     metro: 'пл. Ленина',
     metroColor: '#0055A5',
+    landmarkType: 'landmark',
     lat: 54.6291,
     lng: 39.7368,
     workHours: '08:00–22:00',

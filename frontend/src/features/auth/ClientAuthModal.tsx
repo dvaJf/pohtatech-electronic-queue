@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { X, Lock, Mail, Eye, EyeOff, CheckCircle2, RefreshCw, ArrowLeft } from 'lucide-react';
+import { X, Lock, Mail, Eye, EyeOff, CheckCircle2, RefreshCw, ArrowLeft, ShieldCheck } from 'lucide-react';
 import { login, register, confirmEmailCode, resendEmailCode, getMe, User } from '../../api/authApi';
+import { LegalModal } from '../legal/LegalModal';
+import { LegalDocument } from '../legal/legalTexts';
 
 interface ClientAuthModalProps {
   isOpen: boolean;
@@ -18,6 +20,9 @@ export function ClientAuthModal({ isOpen, onClose, onUserChanged }: ClientAuthMo
   const [error, setError] = useState('');
   const [infoMsg, setInfoMsg] = useState('');
   const [cooldown, setCooldown] = useState(0);
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
+  const [legalModalOpen, setLegalModalOpen] = useState(false);
+  const [legalDoc, setLegalDoc] = useState<LegalDocument['id']>('privacy');
 
   // Таймер повторной отправки кода
   useEffect(() => {
@@ -241,10 +246,45 @@ export function ClientAuthModal({ isOpen, onClose, onUserChanged }: ClientAuthMo
               </div>
             </div>
 
+            {mode === 'register' && (
+              <div className="pt-1 pb-1">
+                <label
+                  style={{ display: 'flex', alignItems: 'flex-start', gap: '0.625rem', marginBottom: 0 }}
+                  className="cursor-pointer select-none group"
+                >
+                  <input
+                    type="checkbox"
+                    required
+                    checked={agreedToTerms}
+                    onChange={(e) => setAgreedToTerms(e.target.checked)}
+                    style={{
+                      width: '18px',
+                      height: '18px',
+                      minWidth: '18px',
+                      marginTop: '2px',
+                      padding: 0,
+                      cursor: 'pointer',
+                      accentColor: '#003B73'
+                    }}
+                    className="rounded border border-slate-300 text-[#003B73] focus:ring-[#054FA6] shrink-0 cursor-pointer"
+                  />
+                  <span className="text-xs text-slate-600 leading-snug group-hover:text-slate-900 transition-colors">
+                    Я принимаю условия использования и даю согласие на обработку персональных данных
+                  </span>
+                </label>
+              </div>
+            )}
+
+            {mode === 'login' && (
+              <p className="text-[11px] text-slate-400 text-center leading-tight">
+                Авторизуясь, вы подтверждаете согласие с условиями сервиса и политикой обработки данных.
+              </p>
+            )}
+
             <button
               type="submit"
-              disabled={pending}
-              className="w-full min-h-[44px] py-2.5 bg-[#003B73] hover:bg-[#054FA6] text-white rounded-xl font-bold text-xs uppercase tracking-wider transition-colors shadow-md disabled:opacity-50"
+              disabled={pending || (mode === 'register' && !agreedToTerms)}
+              className="w-full min-h-[44px] py-2.5 bg-[#003B73] hover:bg-[#054FA6] text-white rounded-xl font-bold text-xs uppercase tracking-wider transition-colors shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {pending ? 'Проверка…' : mode === 'login' ? 'Войти' : 'Создать аккаунт'}
             </button>
@@ -290,8 +330,28 @@ export function ClientAuthModal({ isOpen, onClose, onUserChanged }: ClientAuthMo
                 {mode === 'login' ? 'Нет учётной записи? Зарегистрироваться' : 'Уже есть аккаунт? Войти'}
               </button>
             </div>
+
+            <div className="mt-3 pt-3 border-t border-slate-100 text-center">
+              <button
+                type="button"
+                onClick={() => {
+                  setLegalDoc('privacy');
+                  setLegalModalOpen(true);
+                }}
+                className="text-[11px] text-slate-400 hover:text-[#003B73] font-medium inline-flex items-center gap-1 transition-colors"
+              >
+                <ShieldCheck className="w-3.5 h-3.5 text-slate-400" />
+                <span>Официальные документы (152-ФЗ РФ)</span>
+              </button>
+            </div>
           </>
         )}
+        {/* Модальное окно официальных документов (152-ФЗ) */}
+        <LegalModal
+          isOpen={legalModalOpen}
+          onClose={() => setLegalModalOpen(false)}
+          initialDoc={legalDoc}
+        />
       </div>
     </div>
   );

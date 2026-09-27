@@ -83,7 +83,7 @@ html, body {
   max-width: 460px;
 }
 
-.product-shell label {
+.product-shell label:not([class*="flex"]):not([style*="flex"]) {
   display: grid;
   gap: 0.4rem;
   margin-bottom: var(--space);
@@ -92,7 +92,7 @@ html, body {
   color: var(--text);
 }
 
-.product-shell input:not([style*="padding-left"]):not([class*="pl-"]):not([class*="field-with-icon"]),
+.product-shell input:not([type="checkbox"]):not([type="radio"]):not([style*="padding-left"]):not([class*="pl-"]):not([class*="field-with-icon"]),
 .product-shell select {
   padding: 0.5rem 0.75rem;
   border: 1px solid var(--border-medium);

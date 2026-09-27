@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState, useRef } from 'react';
-import { BarChart3, CheckCircle2, Clock, Eye, Loader2, MapPin, MoreHorizontal, RotateCcw, Smartphone, UserPlus, UserX, Volume2, VolumeX, X } from 'lucide-react';
+import { BarChart3, CheckCircle2, ChevronRight, Clock, Eye, Loader2, MapPin, MoreHorizontal, RotateCcw, Smartphone, UserPlus, UserX, Volume2, VolumeX, X } from 'lucide-react';
 import { PochtaEmblem, PochtaWordmark } from './PochtaBrand';
 import { getMe, logout, User } from '../../api/authApi';
 import { ClientAuthModal } from '../../features/auth/ClientAuthModal';
@@ -118,6 +118,7 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
       if (e.key === 'Escape') {
         e.preventDefault();
         setMobileMenuOpen(false);
+        window.requestAnimationFrame(() => mobileMenuButtonRef.current?.focus());
       }
     };
     const handleClickOutside = (e: MouseEvent) => {
@@ -146,10 +147,7 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
       localStorage.setItem('pochta_a11y_scale', '100');
       localStorage.setItem('pochta_a11y_contrast', 'false');
       localStorage.removeItem('pochta_a11y_motion');
-      document.documentElement.style.fontSize = '';
-      if (document.documentElement.getAttribute('style') === '') {
-        document.documentElement.removeAttribute('style');
-      }
+      document.documentElement.dataset.textScale = '100';
       document.documentElement.classList.remove('a11y-mode', 'a11y-contrast');
       document.documentElement.removeAttribute('data-reduced-motion');
       document.documentElement.removeAttribute('data-font-size');
@@ -158,14 +156,7 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
   };
 
   useEffect(() => {
-    if (scale === 100) {
-      document.documentElement.style.fontSize = '';
-      if (document.documentElement.getAttribute('style') === '') {
-        document.documentElement.removeAttribute('style');
-      }
-    } else {
-      document.documentElement.style.fontSize = `${scale}%`;
-    }
+    document.documentElement.dataset.textScale = String(scale);
     document.documentElement.classList.toggle('a11y-mode', accessibilityActive);
     document.documentElement.classList.toggle('a11y-contrast', contrast);
     try {
@@ -275,13 +266,13 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
               disabled={geoStatus === 'locating'}
               aria-busy={geoStatus === 'locating'}
               aria-label={geoStatus === 'locating' ? 'Определяем местоположение' : 'Определить местоположение'}
-              className={`cx-header-btn h-8 px-2 sm:px-2.5 gap-1.5 flex items-center transition-all cursor-pointer ${
+              className={`cx-header-btn h-8 w-8 sm:w-auto px-0 sm:px-2.5 gap-1.5 flex items-center justify-center transition-all cursor-pointer ${
                 geoStatus === 'granted' ? '!bg-white/20 !border-white/40 text-emerald-300' : ''
               }`}
               title={geoStatus === 'granted' ? 'Геолокация активна (определение отделений)' : 'Разрешить геолокацию для точного поиска отделений'}
             >
-              {geoStatus === 'locating' ? <Loader2 className="w-3.5 h-3.5 animate-spin text-[#FFE600]" /> : <MapPin className={`w-3.5 h-3.5 ${geoStatus === 'granted' ? 'text-emerald-400' : 'text-[#86BBFF]'}`} />}
-              <span className="font-bold text-white text-[11px] sm:text-xs whitespace-nowrap">
+              {geoStatus === 'locating' ? <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-200" /> : <MapPin className={`w-3.5 h-3.5 ${geoStatus === 'granted' ? 'text-emerald-400' : 'text-[#86BBFF]'}`} />}
+              <span className="font-bold text-white text-[11px] sm:text-xs whitespace-nowrap hidden sm:inline">
                 {geoStatus === 'locating' ? 'Определяем…' : geoStatus === 'granted' ? 'Гео: ВКЛ' : 'Гео'}
               </span>
             </button>
@@ -295,8 +286,8 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
               aria-expanded={a11yOpen}
               aria-controls="a11y-settings"
               aria-label="Настройки доступности"
-              className={`cx-header-btn h-8 w-8 sm:w-auto sm:min-w-[104px] sm:px-2.5 sm:gap-1.5 flex items-center justify-center cursor-pointer ${
-                accessibilityActive ? '!bg-[#FFE600] !text-black !border-[#FFE600] font-bold shadow-md' : ''
+              className={`cx-header-btn h-8 w-8 sm:w-auto sm:min-w-[104px] px-0 sm:px-2.5 sm:gap-1.5 flex items-center justify-center cursor-pointer ${
+                accessibilityActive ? '!bg-[#0B4DA2] !text-white !border-blue-400 font-bold shadow-md' : ''
               }`}
               title="Настройки доступности (версия для слабовидящих)"
             >
@@ -312,6 +303,7 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
               type="button"
               onClick={() => setMobileMenuOpen((prev) => !prev)}
               aria-expanded={mobileMenuOpen}
+              aria-controls="mobile-service-menu"
               aria-label="Дополнительное меню"
               className={`sm:hidden h-8 w-8 rounded-lg border flex items-center justify-center transition-all cursor-pointer ${
                 mobileMenuOpen
@@ -334,7 +326,7 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
                 {/* Header */}
                 <div className="flex items-center justify-between pb-2.5 border-b border-white/15 mb-3">
                   <div className="flex items-center gap-2">
-                    <Eye className="w-4 h-4 text-[#FFE600]" />
+                    <Eye className="w-4 h-4 text-blue-300" />
                     <span id="a11y-settings-title" className="font-bold text-sm text-white">Панель доступности</span>
                   </div>
                   <button
@@ -363,7 +355,7 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
                         onClick={() => setScale(val)}
                         className={`py-1.5 px-1 text-center rounded-lg text-xs font-bold border transition-all ${
                           scale === val
-                            ? 'bg-[#FFE600] text-black border-[#FFE600] shadow'
+                            ? 'bg-[#0B4DA2] text-white border-blue-400 shadow-sm'
                             : 'bg-white/10 text-white border-white/20 hover:bg-white/20'
                         }`}
                       >
@@ -383,7 +375,7 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
                       onClick={() => setContrast(false)}
                       className={`py-1.5 px-2 rounded-lg text-xs font-bold border transition-all ${
                         !contrast
-                          ? 'bg-blue-600 text-white border-blue-400 shadow'
+                          ? 'bg-[#0B4DA2] text-white border-blue-400 shadow-sm'
                           : 'bg-white/10 text-white border-white/20 hover:bg-white/20'
                       }`}
                     >
@@ -395,7 +387,7 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
                       onClick={() => setContrast(true)}
                       className={`py-1.5 px-2 rounded-lg text-xs font-bold border transition-all ${
                         contrast
-                          ? 'bg-black text-[#FFE600] border-[#FFE600] shadow'
+                          ? 'bg-black text-white border-white shadow'
                           : 'bg-white/10 text-white border-white/20 hover:bg-white/20'
                       }`}
                     >
@@ -482,6 +474,7 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
         {mobileMenuOpen && (
           <div
             ref={mobileMenuRef}
+            id="mobile-service-menu"
             className="sm:hidden absolute right-2.5 top-[3.25rem] z-50 w-72 max-w-[calc(100vw-1.25rem)] rounded-2xl border border-white/20 bg-[#002B55] p-3 text-white shadow-2xl backdrop-blur-md space-y-2.5 animate-in fade-in"
           >
             {/* Header info */}
@@ -497,6 +490,7 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
             <button
               type="button"
               onClick={() => toggleSound()}
+              aria-pressed={soundEnabled}
               className="w-full h-10 px-3 rounded-xl bg-white/10 hover:bg-white/15 border border-white/15 flex items-center justify-between text-xs font-bold text-white transition-colors cursor-pointer"
             >
               <div className="flex items-center gap-2">
@@ -542,18 +536,18 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
               <button
                 type="button"
                 onClick={() => { setMobileMenuOpen(false); setIsAuthModalOpen(true); }}
-                className="w-full h-10 px-3 rounded-xl bg-[#FFE600] hover:bg-[#FFD600] active:scale-95 text-black font-extrabold text-xs flex items-center justify-center gap-2 shadow-sm transition-all cursor-pointer"
+                className="w-full h-10 px-3 rounded-xl bg-[#003B73] hover:bg-[#002B55] active:scale-95 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-sm transition-all border border-blue-400/30 cursor-pointer"
               >
-                <UserPlus className="w-4 h-4 text-[#003B73]" />
+                <UserPlus className="w-4 h-4 text-blue-200" />
                 <span>Войти в личный кабинет</span>
               </button>
             ) : null}
 
             {/* Доступность быстрые опции */}
-            <div className="pt-2 border-t border-white/15">
-              <div className="flex items-center justify-between mb-1.5 text-[11px] text-blue-200 font-bold">
+            <div className="pt-2 border-t border-white/15 space-y-2">
+              <div className="flex items-center justify-between text-[11px] text-blue-200 font-bold">
                 <span>Размер шрифта</span>
-                {scale !== 100 && <span className="text-[#FFE600]">{scale}%</span>}
+                {scale !== 100 && <span className="text-blue-300 font-mono">{scale}%</span>}
               </div>
               <div className="grid grid-cols-3 gap-1.5">
                 {[100, 125, 150].map((val) => (
@@ -561,9 +555,10 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
                     key={val}
                     type="button"
                     onClick={() => setScale(val)}
-                    className={`py-1 rounded-lg text-xs font-bold border transition-colors cursor-pointer ${
+                    aria-pressed={scale === val}
+                    className={`py-1.5 rounded-lg text-xs font-bold border transition-colors cursor-pointer ${
                       scale === val
-                        ? 'bg-[#FFE600] text-black border-[#FFE600]'
+                        ? 'bg-[#0B4DA2] text-white border-blue-400 shadow-sm'
                         : 'bg-white/10 text-white border-white/20 hover:bg-white/20'
                     }`}
                   >
@@ -571,6 +566,17 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
                   </button>
                 ))}
               </div>
+              <button
+                type="button"
+                onClick={() => { setMobileMenuOpen(false); setA11yOpen(true); }}
+                className="w-full py-2 px-2.5 rounded-xl bg-white/10 hover:bg-white/15 border border-white/15 text-xs text-blue-100 flex items-center justify-between transition-colors cursor-pointer"
+              >
+                <div className="flex items-center gap-2">
+                  <Eye className="w-3.5 h-3.5 text-blue-300" />
+                  <span>Все настройки доступности</span>
+                </div>
+                <ChevronRight className="w-3.5 h-3.5 text-blue-300" />
+              </button>
             </div>
           </div>
         )}

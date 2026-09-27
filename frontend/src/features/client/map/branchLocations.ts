@@ -79,6 +79,13 @@ export function isUsableDurationMinutes(value: unknown, maximum: number): value 
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= maximum;
 }
 
+/** Returns a total in minutes only when both components are usable minute durations. */
+export function calculateBranchTotalTime(travelMinutes: unknown, waitMinutes: unknown): number | undefined {
+  if (!isUsableDurationMinutes(travelMinutes, MAX_ROUTE_TRAVEL_MINUTES)
+      || !isUsableDurationMinutes(waitMinutes, MAX_QUEUE_WAIT_MINUTES)) return undefined;
+  return Math.round((travelMinutes + waitMinutes) * 10) / 10;
+}
+
 export const DEFAULT_BRANCH_ID = '11111111-1111-1111-1111-111111111111';
 
 export const DEFAULT_USER_COORDINATES = {
@@ -819,12 +826,8 @@ export function calculateSmartRouting(
     const distanceKm = calculateHaversineDistance(userLat, userLng, b.lat, b.lng);
     const travelMinutes = calculateTravelTimeMinutes(distanceKm);
     const waitMinutes = calculateWaitTime(b, serviceCategory);
-    const totalMinutes = calculateTotalTimeMinutes(travelMinutes, waitMinutes);
-    if (!isUsableDurationMinutes(travelMinutes, MAX_ROUTE_TRAVEL_MINUTES)
-        || !isUsableDurationMinutes(waitMinutes, MAX_QUEUE_WAIT_MINUTES)
-        || !isUsableDurationMinutes(totalMinutes, MAX_ROUTE_TRAVEL_MINUTES + MAX_QUEUE_WAIT_MINUTES)) {
-      return [];
-    }
+    const totalMinutes = calculateBranchTotalTime(travelMinutes, waitMinutes);
+    if (totalMinutes === undefined) return [];
     const projectedArrivalQueue = projectQueueAtArrival(b.activeQueueCount, travelMinutes, b.activeWindows);
     const workload = getBranchWorkload(b.activeQueueCount, b.activeWindows);
 

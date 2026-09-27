@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { browserEnabled, mountMap } from './mapBrowserHarness.mjs';
 
 test('BranchMapModal integrates Yandex Maps 2.1 API key and script URL', async () => {
   const fileContent = await readFile(
@@ -10,6 +11,25 @@ test('BranchMapModal integrates Yandex Maps 2.1 API key and script URL', async (
 
   assert.match(fileContent, /YANDEX_MAPS_API_KEY\s*=\s*'97fb22de-5d60-4106-aab0-6cf5d831324c'/);
   assert.match(fileContent, /https:\/\/api-maps\.yandex\.ru\/2\.1\/\?apikey=97fb22de-5d60-4106-aab0-6cf5d831324c&lang=ru_RU/);
+});
+
+test('map locate delegates to the shared parent location stream', { skip: !browserEnabled }, async t => {
+  const { page, open } = await mountMap(t);
+  await open();
+  await page.getByRole('button', { name: 'Определить моё местоположение' }).click();
+  assert.equal(await page.evaluate(() => window.__locationRequests), 1);
+  assert.equal(await page.evaluate(() => window.__geoRequests), 0);
+});
+
+test('reopening applies requested filters and clears old search and selected branch', { skip: !browserEnabled }, async t => {
+  const { page, open, render } = await mountMap(t);
+  await open({ selectedBranchId: 'A' });
+  await page.getByPlaceholder('Поиск по адресу, метро, индексу...').first().fill('несуществующий адрес');
+  await render({ isOpen: false });
+  await open({ selectedBranchId: null, initialFilter: 'letters' });
+  assert.equal(await page.getByPlaceholder('Поиск по адресу, метро, индексу...').first().inputValue(), '');
+  assert.equal(await page.getByTestId('desktop-branch-card-overlay').count(), 0);
+  assert.equal(await page.getByRole('button', { name: 'Письма', exact: true }).first().getAttribute('aria-pressed'), 'true');
 });
 
 test('BranchMapModal implements Yandex Maps Clusterer with custom balloon', async () => {
@@ -146,11 +166,53 @@ test('Design tokens apply Postal Reflex Blue, Deep Cobalt, canvas, borders, and 
 test('map shows the client position on Yandex and fallback maps', async () => {
   const modal = await readFile(new URL('../src/features/client/map/BranchMapModal.tsx', import.meta.url), 'utf8');
   const workspace = await readFile(new URL('../src/features/client/ClientWorkspace.tsx', import.meta.url), 'utf8');
-  assert.match(workspace, /userCoordinates=\{hasRealGpsFix \? \[currentCoordinates\.lat, currentCoordinates\.lng\] : null\}/);
+  assert.match(workspace, /userCoordinates=\{hasReliableGpsFix \? \[currentCoordinates\.lat, currentCoordinates\.lng\] : null\}/);
   assert.match(modal, /userLocation=\{userLocation\}/);
   assert.match(modal, /data-testid="client-location-marker"/);
   assert.match(modal, /updateUserPlacemark\(initialUserLocation\)/);
   assert.doesNotMatch(workspace, /Проверить всплывающее окно · тестовое отделение/);
+});
+
+test('branch selection is keyboard operable and map controls meet mobile touch size', { skip: !browserEnabled }, async t => {
+  const { page, open } = await mountMap(t);
+  await open();
+  const branch = page.getByRole('button', { name: /Первое отделение/ }).first();
+  assert.equal(await branch.count(), 1, 'branch list is a real keyboard-operable button');
+  await branch.focus();
+  await page.keyboard.press('Enter');
+  assert(await page.getByTestId('desktop-branch-card-overlay').isVisible());
+  for (const label of ['Закрыть карту', 'Определить моё местоположение', 'Снять выбор отделения']) {
+    const box = await page.getByRole('button', { name: label }).boundingBox();
+    assert(box.width >= 44 && box.height >= 44, `${label} has a 44px touch target`);
+  }
+});
+
+test('offline map positions the shared marker relative to stable center and honors Geo intent', { skip: !browserEnabled }, async t => {
+  const { page, render } = await mountMap(t);
+  await page.evaluate(() => {
+    window.ymaps = null;
+    window.__ymapsPromise = Promise.reject(new Error('controlled offline maps'));
+    window.__ymapsPromise.catch(() => {});
+  });
+  await render({ isOpen: true, selectedBranchId: 'A', userCoordinates: [55.76, 37.64] });
+  const marker = page.getByTestId('client-location-marker');
+  await marker.waitFor();
+  const initial = await marker.evaluate(node => node.style.left);
+  await render({ userCoordinates: [55.762, 37.641] });
+  assert.notEqual(await marker.evaluate(node => node.style.left), initial, 'walking marker moves relative to branch-centered viewport');
+  await render({ locationCenterRequest: 1 });
+  assert.equal(await marker.evaluate(node => node.style.left), 'calc(50% + 0px)', 'explicit Geo centers the offline viewport');
+  await render({ userCoordinates: [55.763, 37.642] });
+  assert.notEqual(await marker.evaluate(node => node.style.left), 'calc(50% + 0px)', 'background GPS does not follow after Geo');
+  const pin = page.getByRole('button', { name: 'Выбрать отделение: Второе отделение', exact: true });
+  assert.equal(await pin.count(), 1, 'offline branch marker is keyboard operable');
+  for (const label of ['Приблизить карту', 'Отдалить карту']) {
+    const box = await page.getByRole('button', { name: label }).boundingBox();
+    assert(box.width >= 44 && box.height >= 44, `${label} has a 44px touch target`);
+  }
+  await pin.focus();
+  await page.keyboard.press('Enter');
+  await page.getByTestId('desktop-branch-card-overlay').getByRole('heading', { name: 'Второе отделение' }).waitFor();
 });
 
 test('external branch target is consumed by id and blocks automatic GPS recentering', async () => {
@@ -166,11 +228,20 @@ test('external branch target is consumed by id and blocks automatic GPS recenter
   assert.doesNotMatch(workspace, /selectedBranchId=\{null\}/);
 });
 
-test('client reuses granted GPS on entry without a parallel watch and opens the arrival sheet', async () => {
-  const workspace = await readFile(new URL('../src/features/client/ClientWorkspace.tsx', import.meta.url), 'utf8');
-  const geofence = await readFile(new URL('../src/features/client/arrival/useGeofencing.ts', import.meta.url), 'utf8');
-  assert.match(workspace, /initialMode:\s*'real_gps'/);
-  assert.match(workspace, /if \(isInsideGeofence && activeBranchInsideGeofence\)[\s\S]*?setIsArrivalSheetOpen\(true\)/);
-  assert.match(geofence, /permission\.state === 'granted'\) requestGpsPermission\(\)/);
-  assert.doesNotMatch(geofence, /watchPosition/);
+for (const [control, expectedLeft] of [['Приблизить карту', 'calc(50% + 172.2px)'], ['Отдалить карту', 'calc(50% + 147.6px)']]) {
+test(`offline zoom (${control}) cancels a pending older Geo center request before coordinates arrive`, { skip: !browserEnabled }, async t => {
+  const { page, render } = await mountMap(t);
+  await page.evaluate(() => {
+    window.ymaps = null;
+    window.__ymapsPromise = Promise.reject(new Error('controlled offline maps'));
+    window.__ymapsPromise.catch(() => {});
+  });
+  await render({ isOpen: true, userCoordinates: null, selectedBranchId: null });
+  await page.getByTestId('leaflet-carto-osm-fallback').waitFor();
+  await render({ locationCenterRequest: 1 });
+  await page.getByRole('button', { name: control }).click();
+  await render({ userCoordinates: [55.8, 37.7] });
+  const left = await page.getByTestId('client-location-marker').evaluate(node => node.style.left);
+  assert.equal(left, expectedLeft, 'late GPS marker projects against the original center at the manually selected zoom');
 });
+}

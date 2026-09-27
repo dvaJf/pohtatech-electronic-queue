@@ -11,6 +11,40 @@ async function loadTS(path) {
   return import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
 }
 
+test('branch total duration accepts minutes only and rejects malformed components', async () => {
+  const { calculateBranchTotalTime } = await loadTS('../src/features/client/map/branchLocations.ts');
+  assert.equal(typeof calculateBranchTotalTime, 'function');
+  assert.equal(calculateBranchTotalTime(12, 8), 20);
+  assert.equal(calculateBranchTotalTime(0, 0), 0);
+  assert.equal(calculateBranchTotalTime(180, 480), 660);
+  assert.equal(calculateBranchTotalTime(1.2, 2.3), 3.5);
+  for (const invalid of [undefined, null, '12', Number.NaN, Infinity, -Infinity, -1]) {
+    assert.equal(calculateBranchTotalTime(invalid, 8), undefined, `invalid travel: ${invalid}`);
+    assert.equal(calculateBranchTotalTime(12, invalid), undefined, `invalid wait: ${invalid}`);
+  }
+  assert.equal(calculateBranchTotalTime(181, 8), undefined);
+  assert.equal(calculateBranchTotalTime(12, 481), undefined);
+  assert.equal(calculateBranchTotalTime(720, 8), undefined, 'seconds passed as travel minutes');
+  assert.equal(calculateBranchTotalTime(12, 1800), undefined, 'seconds passed as queue minutes');
+});
+
+test('nearest and fastest totals produce zero savings for the same branch and positive minutes for a detour', async () => {
+  const { calculateSmartRouting, MOSCOW_BRANCHES } = await loadTS('../src/features/client/map/branchLocations.ts');
+  const close = { ...MOSCOW_BRANCHES[0], id: 'nearest', lat: 55.76, lng: 37.63, serverWaitMinutes: 30 };
+  const alternative = { ...close, id: 'alternative', lat: 55.765, serverWaitMinutes: 2 };
+  const detour = calculateSmartRouting(55.76, 37.63, [close, alternative]).recommendation;
+  assert.equal(detour.fastestBranch.id, 'alternative');
+  assert.equal(detour.timeSavedMinutes, 21);
+  const stay = calculateSmartRouting(55.76, 37.63, [{ ...close, serverWaitMinutes: 0 }, alternative]).recommendation;
+  assert.equal(stay.fastestBranch.id, 'nearest');
+  assert.equal(stay.timeSavedMinutes, 0);
+  for (const serverWaitMinutes of [Number.NaN, Infinity, -1, 1800]) {
+    const result = calculateSmartRouting(55.76, 37.63, [{ ...close, serverWaitMinutes }, alternative]);
+    assert.equal(result.rankedBranches.length, 1);
+    assert.equal(result.recommendation.timeSavedMinutes, 0);
+  }
+});
+
 test('Haversine distance calculation is accurate across short and long distances', async () => {
   const { calculateHaversineDistance } = await loadTS('../src/features/client/map/branchLocations.ts');
 

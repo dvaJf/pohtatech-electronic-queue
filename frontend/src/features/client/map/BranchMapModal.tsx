@@ -22,8 +22,8 @@ import {
   CheckCircle2
 } from 'lucide-react';
 import { matchBranchLocation, liveWaitMinutes } from './liveBranches';
-import { getCurrentPositionFast } from './geolocation';
-import { decideUserLocationUpdate, UserLocationUpdateSource } from './mapViewportPolicy';
+import { decideUserLocationUpdate, decideLocationCenterRequest } from './mapViewportPolicy';
+import { useModalFocus } from '../../../hooks/useModalFocus';
 import type { BranchWorkload } from '../../../api/client/clientApi';
 import { Branch } from '../../../api/client/types';
 import { PochtaEmblem } from '../../../components/common/PochtaBrand';
@@ -70,6 +70,10 @@ export interface BranchMapModalProps {
   onBookAppointment?: (branch: Branch) => void;
   initialFilter?: FilterCategory;
   userCoordinates?: [number, number] | null;
+  locationCenterRequest?: number;
+  onRequestLocation?: () => void;
+  isLocatingUser?: boolean;
+  locationError?: string | null;
 }
 
 // Yandex Maps JavaScript API 2.1
@@ -262,7 +266,13 @@ export function BranchMapModal({
   onBookAppointment,
   initialFilter = 'all',
   userCoordinates = null,
+  locationCenterRequest = 0,
+  onRequestLocation,
+  isLocatingUser = false,
+  locationError = null,
 }: BranchMapModalProps) {
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  useModalFocus(isOpen, dialogRef, onClose);
   // Быстрые фильтр-чипы: «Все», «Посылки», «Письма», «Пенсии», «Доступная среда»
   const [selectedFilter, setSelectedFilter] = useState<FilterCategory>(initialFilter);
   const [searchQuery, setSearchQuery] = useState('');
@@ -289,6 +299,17 @@ export function BranchMapModal({
   const mapMarginAreaRef = useRef<any>(null);
   const focusSequenceRef = useRef(0);
   const [focusRequest, setFocusRequest] = useState<{ branchId: string; sequence: number } | null>(null);
+  const [fallbackCenter, setFallbackCenter] = useState<[number, number]>([55.7618, 37.6385]);
+  const isOpenRef = useRef(isOpen);
+  isOpenRef.current = isOpen;
+  const consumedCenterRequestRef = useRef(locationCenterRequest);
+  const seenCenterRequestRef = useRef(locationCenterRequest);
+  const focusedTargetRef = useRef<string | null>(null);
+
+  const cancelViewportWork = useCallback(() => {
+    focusSequenceRef.current += 1;
+    ymapsInstanceRef.current?.action?.stop?.();
+  }, []);
 
   // Only server branches with an address-matched location are eligible for map pins.
   const allBranches = useMemo<MapBranch[]>(() => incomingBranches.flatMap(b => {
@@ -341,14 +362,40 @@ export function BranchMapModal({
   }, [filteredBranches, allBranches, selectedBranchId]);
 
   // Состояние и логика кнопки геолокации
-  const [locationError, setLocationError] = useState<string | null>(null);
-  const [isLocatingUser, setIsLocatingUser] = useState(false);
-  const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
+  const userLocation = userCoordinates && Number.isFinite(userCoordinates[0]) && Math.abs(userCoordinates[0]) <= 90
+    && Number.isFinite(userCoordinates[1]) && Math.abs(userCoordinates[1]) <= 180 ? userCoordinates : null;
   const userPlacemarkRef = useRef<any>(null);
   const userLocationRef = useRef<[number, number] | null>(null);
   const hasAutoCenteredRef = useRef(false);
+  userLocationRef.current = userLocation;
   const filteredBranchesRef = useRef(filteredBranches);
   filteredBranchesRef.current = filteredBranches;
+
+  useLayoutEffect(() => {
+    cancelViewportWork();
+    setFocusRequest(null);
+    focusedTargetRef.current = null;
+    consumedCenterRequestRef.current = locationCenterRequest;
+    seenCenterRequestRef.current = locationCenterRequest;
+    if (isOpen) {
+      setSelectedFilter(initialFilter);
+      setSearchQuery('');
+      setSelectedBranchId(null);
+      setBottomSheetState('half');
+      hasAutoCenteredRef.current = Boolean(targetBranchId);
+      const target = allBranchesRef.current.find(branch => branch.id === targetBranchId);
+      setFallbackCenter(target?.coordinates ?? userLocationRef.current ?? [55.7618, 37.6385]);
+    }
+    return cancelViewportWork;
+  }, [isOpen, cancelViewportWork]);
+
+  const handleManualMapInteraction = useCallback(() => {
+    hasAutoCenteredRef.current = true;
+    focusedTargetRef.current = targetBranchIdRef.current;
+    consumedCenterRequestRef.current = seenCenterRequestRef.current;
+    cancelViewportWork();
+    setFocusRequest(null);
+  }, [cancelViewportWork]);
 
   const updateUserPlacemark = useCallback((coords: [number, number]) => {
     const ymaps = (window as any).ymaps;
@@ -373,48 +420,43 @@ export function BranchMapModal({
   }, []);
 
   const centerMapOnUser = useCallback((coords: [number, number]) => {
+    setFallbackCenter(coords);
     const map = ymapsInstanceRef.current;
     if (!map) return;
-    map.panTo(coords, { flying: true, duration: 800 }).then(() => {
-      ymapsInstanceRef.current?.setZoom(15, { duration: 400 });
-    });
-  }, []);
-
-  const renderUserLocation = useCallback((coords: [number, number], source: UserLocationUpdateSource = 'automatic') => {
-    userLocationRef.current = coords;
-    setUserLocation(coords);
-    updateUserPlacemark(coords);
-    const decision = decideUserLocationUpdate(hasAutoCenteredRef.current, source);
-    hasAutoCenteredRef.current = decision.hasAutoCentered;
-    if (decision.shouldCenter) centerMapOnUser(coords);
-  }, [centerMapOnUser, updateUserPlacemark]);
+    cancelViewportWork();
+    setFocusRequest(null);
+    const sequence = focusSequenceRef.current;
+    Promise.resolve(map.panTo(coords, { flying: true, duration: 800 })).then(() => {
+      if (isOpenRef.current && sequence === focusSequenceRef.current && ymapsInstanceRef.current === map) {
+        return map.setZoom(15, { duration: 400 });
+      }
+    }).catch(() => { /* A cancelled animation has no follow-up work. */ });
+  }, [cancelViewportWork]);
 
   useEffect(() => {
-    if (isOpen && userCoordinates
-        && Number.isFinite(userCoordinates[0]) && Number.isFinite(userCoordinates[1])) {
-      renderUserLocation(userCoordinates);
+    if (!isOpen) return;
+    if (seenCenterRequestRef.current !== locationCenterRequest) {
+      seenCenterRequestRef.current = locationCenterRequest;
+      focusedTargetRef.current = targetBranchIdRef.current;
+      hasAutoCenteredRef.current = true;
+      cancelViewportWork();
+      setFocusRequest(null);
     }
-  }, [isOpen, userCoordinates?.[0], userCoordinates?.[1], renderUserLocation]);
-
-  const handleLocateUser = useCallback(() => {
-    setLocationError(null);
-    setIsLocatingUser(true);
-
-    if (typeof navigator !== 'undefined' && navigator.geolocation) {
-      getCurrentPositionFast(navigator.geolocation).then(pos => {
-        renderUserLocation([pos.coords.latitude, pos.coords.longitude], 'explicit');
-        setIsLocatingUser(false);
-      }).catch((err: GeolocationPositionError) => {
-        setIsLocatingUser(false);
-        setLocationError(err.code === 1
-          ? 'Разрешите доступ к геолокации в настройках браузера и попробуйте снова.'
-          : 'Не удалось получить координаты. Проверьте GPS или сеть и попробуйте ещё раз.');
-      });
-    } else {
-      setIsLocatingUser(false);
-      setLocationError('Геолокация недоступна в этом браузере.');
+    const map = ymapsInstanceRef.current;
+    if (!userLocation) {
+      if (userPlacemarkRef.current) map?.geoObjects.remove?.(userPlacemarkRef.current);
+      userPlacemarkRef.current = null;
+      return;
     }
-  }, [renderUserLocation]);
+    if (!map && !useFallbackMap) return;
+    updateUserPlacemark(userLocation);
+    const explicit = decideLocationCenterRequest(consumedCenterRequestRef.current, locationCenterRequest, true);
+    consumedCenterRequestRef.current = explicit.consumedSequence;
+    const automatic = decideUserLocationUpdate(hasAutoCenteredRef.current, 'automatic');
+    hasAutoCenteredRef.current = automatic.hasAutoCentered;
+    if (explicit.shouldCenter || automatic.shouldCenter) centerMapOnUser(userLocation);
+  }, [isOpen, userLocation?.[0], userLocation?.[1], locationCenterRequest, isYmapsLoading, useFallbackMap,
+    updateUserPlacemark, centerMapOnUser, cancelViewportWork]);
 
   const updateMapOccupiedArea = useCallback(() => {
     const map = ymapsInstanceRef.current;
@@ -442,10 +484,10 @@ export function BranchMapModal({
     else mapMarginAreaRef.current = map.margin.addArea(area);
   }, []);
 
-  const panBranchIntoVisibleArea = useCallback((branchId: string, animate = true) => {
+  const panBranchIntoVisibleArea = useCallback((branchId: string, sequence: number, animate = true) => {
     const branch = allBranchesRef.current.find((item) => item.id === branchId);
     const map = ymapsInstanceRef.current;
-    if (!branch || !map) return false;
+    if (!branch || !map || sequence !== focusSequenceRef.current || !isOpenRef.current) return false;
     updateMapOccupiedArea();
     const currentZoom = Number(map.getZoom?.());
     const desiredZoom = Number.isFinite(currentZoom) && currentZoom >= 14 && currentZoom <= 17
@@ -454,42 +496,49 @@ export function BranchMapModal({
     const adjustZoom = desiredZoom !== currentZoom
       ? map.setZoom(desiredZoom, { duration: animate ? 250 : 0 })
       : Promise.resolve();
-    Promise.resolve(adjustZoom).then(() => map.panTo(branch.coordinates, {
-      flying: animate,
-      duration: animate ? 550 : 0,
-      useMapMargin: true,
-    }));
+    Promise.resolve(adjustZoom).then(() => {
+      if (isOpenRef.current && sequence === focusSequenceRef.current && ymapsInstanceRef.current === map) {
+        return map.panTo(branch.coordinates, { flying: animate, duration: animate ? 550 : 0, useMapMargin: true });
+      }
+    }).catch(() => { /* A cancelled animation has no follow-up work. */ });
     return true;
   }, [updateMapOccupiedArea]);
 
   const focusBranchOnMap = useCallback((branchId: string) => {
     const branch = allBranchesRef.current.find((item) => item.id === branchId);
     if (!branch) return false;
+    cancelViewportWork();
+    focusedTargetRef.current = targetBranchIdRef.current;
+    consumedCenterRequestRef.current = seenCenterRequestRef.current;
+    setFallbackCenter(branch.coordinates);
     hasAutoCenteredRef.current = true;
     setSelectedBranchId(branch.id);
     setBottomSheetState('half');
-    focusSequenceRef.current += 1;
     setFocusRequest({ branchId, sequence: focusSequenceRef.current });
     return true;
-  }, []);
+  }, [cancelViewportWork]);
+
+  const clearBranchSelection = useCallback(() => {
+    cancelViewportWork();
+    setFocusRequest(null);
+    setSelectedBranchId(null);
+  }, [cancelViewportWork]);
 
   useLayoutEffect(() => {
     if (!isOpen || !focusRequest || (!useFallbackMap && !ymapsInstanceRef.current)) return;
     updateMapOccupiedArea();
-    panBranchIntoVisibleArea(focusRequest.branchId, true);
+    panBranchIntoVisibleArea(focusRequest.branchId, focusRequest.sequence, true);
   }, [isOpen, focusRequest, useFallbackMap, isYmapsLoading, updateMapOccupiedArea, panBranchIntoVisibleArea]);
 
   useEffect(() => {
     if (!isOpen || !selectedBranchId || typeof ResizeObserver === 'undefined') return;
     const observer = new ResizeObserver(() => {
       updateMapOccupiedArea();
-      const branchId = selectedBranchIdRef.current;
-      if (branchId) panBranchIntoVisibleArea(branchId, false);
     });
     if (desktopBranchCardRef.current) observer.observe(desktopBranchCardRef.current);
     if (mobileBottomSheetRef.current) observer.observe(mobileBottomSheetRef.current);
     return () => observer.disconnect();
-  }, [isOpen, selectedBranchId, updateMapOccupiedArea, panBranchIntoVisibleArea]);
+  }, [isOpen, selectedBranchId, updateMapOccupiedArea]);
 
   useEffect(() => {
     if (!selectedBranchId) updateMapOccupiedArea();
@@ -546,7 +595,7 @@ export function BranchMapModal({
         hintContent: `${b.name} (★ ${ratingText})`,
       }, {
         iconLayout: pinLayout,
-        iconShape: { type: 'Rectangle', coordinates: [[-50, -36], [50, 0]] },
+        iconShape: { type: 'Rectangle', coordinates: [[-70, -36], [70, 4]] },
       });
       placemark.events.add('click', () => {
         focusBranchOnMap(b.id);
@@ -579,7 +628,7 @@ export function BranchMapModal({
           ? allBranchesRef.current.find((branch) => branch.id === initialTargetBranchId)
           : null;
         const centerCoords = targetBranch?.coordinates || initialUserLocation || [55.7618, 37.6385];
-        if (targetBranch) hasAutoCenteredRef.current = true;
+        if (targetBranch || initialUserLocation) hasAutoCenteredRef.current = true;
 
         const map = new ymaps.Map(
           mapContainerRef.current,
@@ -594,6 +643,9 @@ export function BranchMapModal({
           }
         );
         ymapsInstanceRef.current = map;
+        map.events.add('actionbegin', (event: any) => {
+          if (event?.get?.('originalEvent') || event?.get?.('action')?.originalEvent) handleManualMapInteraction();
+        });
         if (initialUserLocation) updateUserPlacemark(initialUserLocation);
 
         // Кастомный макет балуна для кластеров ymaps.Clusterer
@@ -642,6 +694,7 @@ export function BranchMapModal({
 
     return () => {
       isMounted = false;
+      cancelViewportWork();
       if (ymapsInstanceRef.current) {
         const resizeHandler = (ymapsInstanceRef.current as any).__queueResizeHandler;
         if (resizeHandler) window.removeEventListener('resize', resizeHandler);
@@ -654,7 +707,7 @@ export function BranchMapModal({
       userPlacemarkRef.current = null;
       hasAutoCenteredRef.current = false;
     };
-  }, [isOpen, useFallbackMap, syncBranchPlacemarks, updateUserPlacemark]);
+  }, [isOpen, useFallbackMap, syncBranchPlacemarks, updateUserPlacemark, cancelViewportWork, handleManualMapInteraction]);
 
   useEffect(() => {
     syncBranchPlacemarks(filteredBranches);
@@ -668,8 +721,8 @@ export function BranchMapModal({
   const targetBranchAvailable = Boolean(targetBranchId && allBranches.some((branch) => branch.id === targetBranchId));
 
   useEffect(() => {
-    if (!isOpen || !targetBranchId || (!useFallbackMap && !ymapsInstanceRef.current)) return;
-    focusBranchOnMap(targetBranchId);
+    if (!isOpen || !targetBranchId || focusedTargetRef.current === targetBranchId || (!useFallbackMap && !ymapsInstanceRef.current)) return;
+    if (focusBranchOnMap(targetBranchId)) focusedTargetRef.current = targetBranchId;
   }, [isOpen, targetBranchId, targetBranchAvailable, useFallbackMap, isYmapsLoading, focusBranchOnMap]);
 
   // Кнопка «Взять талон»
@@ -712,10 +765,12 @@ export function BranchMapModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 backdrop-blur-sm p-0 md:p-4 lg:p-6 font-['Manrope',sans-serif]"
+      className="client-typography fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 backdrop-blur-sm p-0 md:p-4 lg:p-6 font-['Manrope',sans-serif]"
       role="dialog"
+      ref={dialogRef}
+      tabIndex={-1}
       aria-modal="true"
-      aria-label="Карта отделений Почты России"
+      aria-labelledby="branch-map-title"
     >
 
       <div className="relative w-full h-full md:max-w-6xl md:h-[90vh] bg-[#F8FAFC] md:rounded-3xl border border-[#E2E8F0] shadow-2xl flex flex-col overflow-hidden">
@@ -726,7 +781,7 @@ export function BranchMapModal({
               <MapPin size={22} className="text-white" />
             </div>
             <div>
-              <h2 className="text-base md:text-lg font-extrabold text-[#031E56] leading-tight">
+              <h2 id="branch-map-title" className="text-base md:text-lg font-extrabold text-[#031E56] leading-tight">
                 Отделения Почты России
               </h2>
               <div className="flex items-center gap-2 text-xs text-slate-500 font-medium">
@@ -751,7 +806,7 @@ export function BranchMapModal({
             <button
               type="button"
               onClick={onClose}
-              className="w-10 h-10 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center transition-colors"
+              className="w-11 h-11 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center transition-colors"
               aria-label="Закрыть карту"
             >
               <X size={20} />
@@ -778,6 +833,7 @@ export function BranchMapModal({
                 <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={17} />
                 <input
                   type="text"
+                  aria-label="Поиск отделения"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Поиск по адресу, метро, индексу..."
@@ -788,7 +844,8 @@ export function BranchMapModal({
                   <button
                     type="button"
                     onClick={() => setSearchQuery('')}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    aria-label="Очистить поиск"
+                    className="absolute right-0 top-1/2 -translate-y-1/2 w-11 h-11 flex items-center justify-center text-slate-400 hover:text-slate-600"
                   >
                     <X size={14} />
                   </button>
@@ -853,16 +910,18 @@ export function BranchMapModal({
                   const landmark = getLandmarkPresentation(branch.rawLocation);
 
                   return (
-                    <div
+                    <button
+                      type="button"
+                      aria-pressed={isSelected}
                       key={branch.id}
                       onClick={() => {
                         if (selectedBranchId === branch.id) {
-                          setSelectedBranchId(null);
+                          clearBranchSelection();
                         } else {
                           handleSelectBranch(branch);
                         }
                       }}
-                      className={`p-3.5 rounded-2xl border transition-all cursor-pointer text-left ${
+                      className={`w-full min-h-11 p-3.5 rounded-2xl border transition-all cursor-pointer text-left ${
                         isSelected
                           ? 'bg-blue-50/70 border-[#052F85] ring-2 ring-[#052F85]/15 shadow-sm'
                           : 'bg-white border-[#E2E8F0] hover:border-slate-300 hover:shadow-sm'
@@ -870,7 +929,7 @@ export function BranchMapModal({
                     >
                       <div className="flex items-start gap-2.5 min-w-0">
                         {branch.photoUrl && (
-                          <img src={branch.photoUrl} alt="" onError={(event) => { event.currentTarget.style.display = 'none'; }}
+                          <img src={branch.photoUrl} alt="Иллюстрация почтового отделения" loading="lazy" decoding="async" onError={(event) => { event.currentTarget.style.display = 'none'; }}
                             className="h-14 w-16 rounded-xl object-cover shrink-0 bg-slate-100" />
                         )}
                         <div className="min-w-0 flex-1">
@@ -909,7 +968,7 @@ export function BranchMapModal({
                       </div>
                         </div>
                       </div>
-                    </div>
+                    </button>
                   );
                 })
               )}
@@ -928,8 +987,8 @@ export function BranchMapModal({
                     </span>
                     <button
                       type="button"
-                      onClick={() => setSelectedBranchId(null)}
-                      className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+                      onClick={clearBranchSelection}
+                      className="w-11 h-11 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
                       title="Снять выбор отделения"
                       aria-label="Снять выбор отделения"
                     >
@@ -969,9 +1028,10 @@ export function BranchMapModal({
             {/* Плавающая кнопка «Моё местоположение» (геолокация) */}
             <button
               type="button"
-              onClick={handleLocateUser}
+              onClick={onRequestLocation}
               disabled={isLocatingUser}
-              className="absolute top-4 left-4 z-20 w-10 h-10 bg-white hover:bg-slate-50 text-slate-700 rounded-xl shadow-lg border border-slate-200/90 flex items-center justify-center transition-all active:scale-95 cursor-pointer group"
+              aria-busy={isLocatingUser}
+              className="absolute top-4 left-4 z-20 w-11 h-11 bg-white hover:bg-slate-50 text-slate-700 rounded-xl shadow-lg border border-slate-200/90 flex items-center justify-center transition-all active:scale-95 cursor-pointer group"
               title="Моё местоположение"
               aria-label="Определить моё местоположение"
             >
@@ -992,12 +1052,20 @@ export function BranchMapModal({
                 branches={filteredBranches}
                 selectedBranch={selectedBranch}
                 userLocation={userLocation}
+                mapCenter={fallbackCenter}
                 onSelectBranch={handleSelectBranch}
+                onManualInteraction={handleManualMapInteraction}
               />
             ) : (
               // Яндекс.Карты 2.1
               <div className="relative w-full h-full">
-                <div ref={mapContainerRef} data-testid="branch-map-canvas" className="w-full h-full" />
+                <div ref={mapContainerRef} data-testid="branch-map-canvas" className="w-full h-full"
+                  onPointerDownCapture={handleManualMapInteraction}
+                  onTouchStartCapture={handleManualMapInteraction}
+                  onWheelCapture={handleManualMapInteraction}
+                  onKeyDownCapture={(event) => {
+                    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', '+', '-'].includes(event.key)) handleManualMapInteraction();
+                  }} />
                 {isYmapsLoading && (
                   <div className="absolute inset-0 bg-slate-100/80 backdrop-blur-xs flex items-center justify-center z-10">
                     <div className="flex flex-col items-center gap-2 p-4 bg-white rounded-2xl shadow-xl border border-slate-200">
@@ -1018,7 +1086,7 @@ export function BranchMapModal({
                   branch={selectedBranch}
                   compact
                   userLocation={userLocation}
-                  onClose={() => setSelectedBranchId(null)}
+                  onClose={clearBranchSelection}
                   onTakeTicket={() => handleTakeTicket(selectedBranch)}
                   onBookAppointment={() => handleBookAppointment(selectedBranch)}
                 />
@@ -1040,7 +1108,10 @@ export function BranchMapModal({
               }`}
             >
               {/* Полоса свайпа (Drag Handle) */}
-              <div
+              <button
+                type="button"
+                aria-label="Размер списка отделений"
+                aria-expanded={bottomSheetState !== 'collapsed'}
                 onTouchStart={handleTouchStart}
                 onTouchEnd={handleTouchEnd}
                 onClick={() =>
@@ -1048,14 +1119,14 @@ export function BranchMapModal({
                     prev === 'collapsed' ? 'half' : prev === 'half' ? 'expanded' : 'collapsed'
                   )
                 }
-                className="w-full pt-3 pb-2 flex flex-col items-center justify-center cursor-grab active:cursor-grabbing border-b border-slate-100"
+                className="w-full min-h-11 pt-3 pb-2 flex flex-col items-center justify-center cursor-grab active:cursor-grabbing border-b border-slate-100"
               >
                 <div className="w-12 h-1.5 rounded-full bg-slate-300 mb-1" />
                 <div className="flex items-center gap-2 text-[11px] font-bold text-slate-500">
                   <span>{filteredBranches.length} отделений на карте</span>
                   {bottomSheetState === 'collapsed' ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                 </div>
-              </div>
+              </button>
 
               {/* Мобильные фильтр-чипы */}
               <div className="px-3 py-2 bg-slate-50 border-b border-[#E2E8F0] flex items-center gap-1.5 overflow-x-auto scrollbar-none">
@@ -1092,6 +1163,7 @@ export function BranchMapModal({
                   <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={15} />
                   <input
                     type="text"
+                    aria-label="Поиск отделения"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder="Поиск по адресу, метро, индексу..."
@@ -1102,7 +1174,8 @@ export function BranchMapModal({
                     <button
                       type="button"
                       onClick={() => setSearchQuery('')}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5"
+                      aria-label="Очистить поиск"
+                      className="absolute right-0 top-1/2 -translate-y-1/2 w-11 h-11 flex items-center justify-center text-slate-400 hover:text-slate-600"
                     >
                       <X size={13} />
                     </button>
@@ -1116,7 +1189,7 @@ export function BranchMapModal({
                   <DetailedBranchCard
                     branch={selectedBranch}
                     userLocation={userLocation}
-                    onClose={() => setSelectedBranchId(null)}
+                    onClose={clearBranchSelection}
                     onTakeTicket={() => handleTakeTicket(selectedBranch)}
                     onBookAppointment={() => handleBookAppointment(selectedBranch)}
                   />
@@ -1125,13 +1198,14 @@ export function BranchMapModal({
                     {filteredBranches.map((b) => {
                       const landmark = getLandmarkPresentation(b.rawLocation);
                       return (
-                      <div
+                      <button
+                        type="button"
                         key={b.id}
                         onClick={() => handleSelectBranch(b)}
-                        className="p-3 rounded-2xl bg-slate-50 hover:bg-blue-50/50 border border-slate-200 hover:border-blue-200 transition-colors flex items-start gap-2.5 cursor-pointer min-w-0"
+                        className="w-full min-h-11 text-left p-3 rounded-2xl bg-slate-50 hover:bg-blue-50/50 border border-slate-200 hover:border-blue-200 transition-colors flex items-start gap-2.5 cursor-pointer min-w-0"
                       >
                         {b.photoUrl && (
-                          <img src={b.photoUrl} alt="" onError={(event) => { event.currentTarget.style.display = 'none'; }}
+                          <img src={b.photoUrl} alt="Иллюстрация почтового отделения" loading="lazy" decoding="async" onError={(event) => { event.currentTarget.style.display = 'none'; }}
                             className="h-14 w-16 rounded-xl object-cover shrink-0 bg-slate-100" />
                         )}
                         <div className="min-w-0 flex-1">
@@ -1157,7 +1231,7 @@ export function BranchMapModal({
                         >
                           {getWaitBadgeInfo(b.liveWaitMinutes).label}
                         </div>
-                      </div>
+                      </button>
                     );})}
                   </div>
                 )}
@@ -1188,7 +1262,8 @@ function FilterChip({
     <button
       type="button"
       onClick={onClick}
-      className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-1.5 ${
+      aria-pressed={active}
+      className={`min-h-11 px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-1.5 ${
         active
           ? 'bg-[#052F85] text-white shadow-sm shadow-[#052F85]/20'
           : 'bg-white text-slate-600 border border-[#E2E8F0] hover:bg-slate-50 hover:text-slate-900'
@@ -1236,14 +1311,18 @@ export function DetailedBranchCard({
         {!imgError && displayPhoto ? (
           <img
             src={displayPhoto}
-            alt={`Вход в отделение ${branch.name}`}
+            alt="Иллюстрация почтового отделения"
+            loading="lazy"
+            decoding="async"
             onError={() => setImgError(true)}
             className="w-full h-full object-cover"
           />
         ) : (
           <img
             src="/images/branch_city.jpg"
-            alt={`Вход в отделение ${branch.name}`}
+            alt="Иллюстрация почтового отделения"
+            loading="lazy"
+            decoding="async"
             className="w-full h-full object-cover"
           />
         )}
@@ -1275,7 +1354,7 @@ export function DetailedBranchCard({
           <button
             type="button"
             onClick={onClose}
-            className="absolute top-3 right-3 z-30 w-8 h-8 rounded-full bg-slate-900/65 hover:bg-slate-900/85 text-white flex items-center justify-center backdrop-blur-md border border-white/20 transition-all active:scale-95 shadow-md cursor-pointer"
+            className="absolute top-3 right-3 z-30 w-11 h-11 rounded-full bg-slate-900/65 hover:bg-slate-900/85 text-white flex items-center justify-center backdrop-blur-md border border-white/20 transition-all active:scale-95 shadow-md cursor-pointer"
             aria-label="Свернуть карточку отделения"
             title="Свернуть"
           >
@@ -1384,7 +1463,7 @@ export function DetailedBranchCard({
           <button
             type="button"
             onClick={onTakeTicket}
-            className={`w-full ${compact ? 'py-2' : 'py-2.5'} px-4 rounded-2xl bg-[#052F85] hover:bg-[#031E56] text-white text-xs font-extrabold transition-all shadow-md shadow-[#052F85]/20 flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer`}
+            className={`w-full min-h-11 ${compact ? 'py-2' : 'py-2.5'} px-4 rounded-2xl bg-[#052F85] hover:bg-[#031E56] text-white text-xs font-extrabold transition-all shadow-md shadow-[#052F85]/20 flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer`}
           >
             <span>Взять талон</span>
             <ArrowRight size={14} />
@@ -1392,7 +1471,7 @@ export function DetailedBranchCard({
           <button
             type="button"
             onClick={onBookAppointment}
-            className={`w-full ${compact ? 'py-2' : 'py-2.5'} px-4 rounded-2xl border-2 border-[#052F85] text-[#052F85] hover:bg-blue-50 text-xs font-extrabold transition-all flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer`}
+            className={`w-full min-h-11 ${compact ? 'py-2' : 'py-2.5'} px-4 rounded-2xl border-2 border-[#052F85] text-[#052F85] hover:bg-blue-50 text-xs font-extrabold transition-all flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer`}
           >
             <Clock size={14} />
             <span>Записаться</span>
@@ -1405,7 +1484,7 @@ export function DetailedBranchCard({
             <button
               type="button"
               onClick={onClose}
-              className="text-xs font-bold text-slate-500 hover:text-slate-800 transition-colors cursor-pointer py-1"
+              className="min-h-11 text-xs font-bold text-slate-500 hover:text-slate-800 transition-colors cursor-pointer py-1"
             >
               ← Свернуть отделение и показать все
             </button>
@@ -1425,18 +1504,23 @@ export function LeafletCartoOsmFallbackMap({
   branches,
   selectedBranch,
   userLocation,
+  mapCenter,
   onSelectBranch,
+  onManualInteraction,
 }: {
   branches: MapBranch[];
   selectedBranch: MapBranch | null;
   userLocation: [number, number] | null;
+  mapCenter?: [number, number];
   onSelectBranch: (branch: MapBranch) => void;
+  onManualInteraction?: () => void;
 }) {
   const [zoomLevel, setZoomLevel] = useState(13);
 
   // Вычисление относительных координат на резервной карте (Carto / OSM)
-  const centerLat = selectedBranch?.coordinates[0] ?? userLocation?.[0] ?? 55.7618;
-  const centerLon = selectedBranch?.coordinates[1] ?? userLocation?.[1] ?? 37.6385;
+  const centerLat = mapCenter?.[0] ?? selectedBranch?.coordinates[0] ?? userLocation?.[0] ?? 55.7618;
+  const centerLon = mapCenter?.[1] ?? selectedBranch?.coordinates[1] ?? userLocation?.[1] ?? 37.6385;
+  const scale = 2600 * (zoomLevel / 13);
 
   return (
     <div
@@ -1467,16 +1551,22 @@ export function LeafletCartoOsmFallbackMap({
       <div className="absolute top-4 right-4 z-10 flex flex-col gap-1">
         <button
           type="button"
-          onClick={() => setZoomLevel((z) => Math.min(18, z + 1))}
-          className="w-9 h-9 rounded-xl bg-white shadow-md border border-[#E2E8F0] text-slate-700 font-bold flex items-center justify-center hover:bg-slate-50 transition-colors"
+          onClick={() => {
+            onManualInteraction?.();
+            setZoomLevel((z) => Math.min(18, z + 1));
+          }}
+          className="w-11 h-11 rounded-xl bg-white shadow-md border border-[#E2E8F0] text-slate-700 font-bold flex items-center justify-center hover:bg-slate-50 transition-colors"
           aria-label="Приблизить карту"
         >
           +
         </button>
         <button
           type="button"
-          onClick={() => setZoomLevel((z) => Math.max(10, z - 1))}
-          className="w-9 h-9 rounded-xl bg-white shadow-md border border-[#E2E8F0] text-slate-700 font-bold flex items-center justify-center hover:bg-slate-50 transition-colors"
+          onClick={() => {
+            onManualInteraction?.();
+            setZoomLevel((z) => Math.max(10, z - 1));
+          }}
+          className="w-11 h-11 rounded-xl bg-white shadow-md border border-[#E2E8F0] text-slate-700 font-bold flex items-center justify-center hover:bg-slate-50 transition-colors"
           aria-label="Отдалить карту"
         >
           −
@@ -1490,6 +1580,7 @@ export function LeafletCartoOsmFallbackMap({
             data-testid="client-location-marker"
             role="img"
             aria-label="Вы находитесь здесь"
+            style={{ left: `calc(50% + ${(userLocation[1] - centerLon) * scale}px)`, top: `calc(50% + ${-(userLocation[0] - centerLat) * scale}px)` }}
             className="absolute left-1/2 top-1/2 z-30 flex h-9 w-9 -translate-x-1/2 -translate-y-1/2 items-center justify-center"
           >
             <span className="absolute h-9 w-9 animate-ping rounded-full bg-blue-500/30" />
@@ -1501,12 +1592,14 @@ export function LeafletCartoOsmFallbackMap({
           const wait = getWaitBadgeInfo(b.liveWaitMinutes);
 
           // Проекция координат относительно центра карты
-          const scale = 2600 * (zoomLevel / 13);
           const xOffset = (b.coordinates[1] - centerLon) * scale;
           const yOffset = -(b.coordinates[0] - centerLat) * scale;
 
           return (
-            <div
+            <button
+              type="button"
+              aria-label={`Выбрать отделение: ${b.name}`}
+              aria-pressed={isSelected}
               key={b.id}
               onClick={() => onSelectBranch(b)}
               style={{
@@ -1515,13 +1608,13 @@ export function LeafletCartoOsmFallbackMap({
                 top: `calc(50% + ${yOffset}px)`,
                 transform: 'translate(-50%, -100%)',
               }}
-              className={`cursor-pointer transition-transform duration-200 z-10 ${
+              className={`min-w-11 min-h-11 cursor-pointer transition-transform duration-200 z-10 ${
                 isSelected ? 'scale-110 z-20' : 'hover:scale-105'
               }`}
             >
               {/* ПВЗ-бейдж: Компактный горизонтальный маркер [ ★ 4.94 • ~0 мин ] */}
               <div
-                className={`shadow-lg px-2.5 py-1 rounded-full text-white text-[11px] font-extrabold flex items-center gap-1.5 whitespace-nowrap leading-none ${
+                className={`pvz-pin-marker shadow-lg px-2.5 py-1 rounded-full text-white text-[11px] font-extrabold flex items-center gap-1.5 whitespace-nowrap leading-none ${
                   isSelected
                     ? 'border-[3px] border-[#FACC15] ring-4 ring-yellow-400/25'
                     : 'border-2 border-white'
@@ -1538,7 +1631,7 @@ export function LeafletCartoOsmFallbackMap({
                   isSelected ? 'border-[#FACC15]' : 'border-white'
                 } ${wait.colorClass}`}
               />
-            </div>
+            </button>
           );
         })}
       </div>

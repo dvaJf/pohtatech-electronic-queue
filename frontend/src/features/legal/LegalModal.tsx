@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, ShieldCheck, FileText, CheckCircle2, AlertTriangle, Printer } from 'lucide-react';
+import { X, ShieldCheck, FileText, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { LEGAL_DOCUMENTS, LegalDocument } from './legalTexts';
 
 interface LegalModalProps {
@@ -22,10 +22,6 @@ export function LegalModal({ isOpen, onClose, initialDoc = 'privacy' }: LegalMod
     { id: 'disclaimer', label: 'О проекте / Дисклеймер', icon: <AlertTriangle className="w-4 h-4 shrink-0" /> },
   ];
 
-  const handlePrint = () => {
-    window.print();
-  };
-
   return (
     <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-3 sm:p-4 backdrop-blur-sm animate-in fade-in duration-150">
       <div className="bg-white rounded-3xl max-w-2xl w-full shadow-2xl border border-slate-200 flex flex-col max-h-[90vh] overflow-hidden">
@@ -40,23 +36,15 @@ export function LegalModal({ isOpen, onClose, initialDoc = 'privacy' }: LegalMod
               <p className="text-[11px] text-slate-500 font-medium">pointers-team.tech • Соответствие 152-ФЗ РФ</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handlePrint}
-              className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
-              title="Распечатать документ"
-            >
-              <Printer className="w-4 h-4" />
-            </button>
-            <button
-              type="button"
-              onClick={onClose}
-              className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+            title="Закрыть"
+            aria-label="Закрыть"
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
 
         {/* Tabs */}

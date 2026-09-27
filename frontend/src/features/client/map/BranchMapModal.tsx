@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from 'react';
 import {
   X,
   Search,
@@ -64,6 +64,7 @@ export interface BranchMapModalProps {
   branches?: Branch[];
   workloads?: Record<string, BranchWorkload>;
   selectedBranchId?: string | null;
+  recommendedBranchId?: string | null;
   onSelectBranch?: (branch: Branch, action?: 'walkin' | 'booking') => void;
   onTakeTicket?: (branch: Branch) => void;
   onBookAppointment?: (branch: Branch) => void;
@@ -254,6 +255,8 @@ export function BranchMapModal({
   onClose,
   branches: incomingBranches = [],
   workloads = {},
+  selectedBranchId: targetBranchId = null,
+  recommendedBranchId = null,
   onSelectBranch,
   onTakeTicket,
   onBookAppointment,
@@ -264,6 +267,10 @@ export function BranchMapModal({
   const [selectedFilter, setSelectedFilter] = useState<FilterCategory>(initialFilter);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedBranchId, setSelectedBranchId] = useState<string | null>(null);
+  const selectedBranchIdRef = useRef<string | null>(null);
+  selectedBranchIdRef.current = selectedBranchId;
+  const recommendedBranchIdRef = useRef<string | null>(null);
+  recommendedBranchIdRef.current = recommendedBranchId;
 
   // Режим карты и Leaflet/Carto/OSM fallback
   const [useFallbackMap, setUseFallbackMap] = useState<boolean>(false);
@@ -275,8 +282,13 @@ export function BranchMapModal({
   const touchStartYRef = useRef<number | null>(null);
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
+  const desktopBranchCardRef = useRef<HTMLDivElement | null>(null);
+  const mobileBottomSheetRef = useRef<HTMLDivElement | null>(null);
   const ymapsInstanceRef = useRef<any>(null);
   const clustererRef = useRef<any>(null);
+  const mapMarginAreaRef = useRef<any>(null);
+  const focusSequenceRef = useRef(0);
+  const [focusRequest, setFocusRequest] = useState<{ branchId: string; sequence: number } | null>(null);
 
   // Only server branches with an address-matched location are eligible for map pins.
   const allBranches = useMemo<MapBranch[]>(() => incomingBranches.flatMap(b => {
@@ -289,6 +301,10 @@ export function BranchMapModal({
       liveWaitMinutes: liveWaitMinutes(workload) ?? null,
       waitingCount: workload?.currentWaiting ?? null }];
   }), [incomingBranches, workloads]);
+  const allBranchesRef = useRef(allBranches);
+  const targetBranchIdRef = useRef(targetBranchId);
+  allBranchesRef.current = allBranches;
+  targetBranchIdRef.current = targetBranchId;
 
   // Фильтрация списка отделений
   const filteredBranches = useMemo(() => {
@@ -400,6 +416,85 @@ export function BranchMapModal({
     }
   }, [renderUserLocation]);
 
+  const updateMapOccupiedArea = useCallback(() => {
+    const map = ymapsInstanceRef.current;
+    const mapElement = mapContainerRef.current;
+    if (!map?.margin || !mapElement) return;
+
+    const overlay = [desktopBranchCardRef.current, mobileBottomSheetRef.current]
+      .find((element) => element && element.offsetParent !== null);
+    if (!overlay || !selectedBranchIdRef.current) {
+      mapMarginAreaRef.current?.remove?.();
+      mapMarginAreaRef.current = null;
+      return;
+    }
+
+    const mapRect = mapElement.getBoundingClientRect();
+    const overlayRect = overlay.getBoundingClientRect();
+    const gutter = 16;
+    const area = {
+      top: Math.max(0, overlayRect.top - mapRect.top - gutter),
+      left: Math.max(0, overlayRect.left - mapRect.left - gutter),
+      width: Math.min(mapRect.width, overlayRect.width + gutter * 2),
+      height: Math.min(mapRect.height, overlayRect.height + gutter * 2),
+    };
+    if (mapMarginAreaRef.current?.setArea) mapMarginAreaRef.current.setArea(area);
+    else mapMarginAreaRef.current = map.margin.addArea(area);
+  }, []);
+
+  const panBranchIntoVisibleArea = useCallback((branchId: string, animate = true) => {
+    const branch = allBranchesRef.current.find((item) => item.id === branchId);
+    const map = ymapsInstanceRef.current;
+    if (!branch || !map) return false;
+    updateMapOccupiedArea();
+    const currentZoom = Number(map.getZoom?.());
+    const desiredZoom = Number.isFinite(currentZoom) && currentZoom >= 14 && currentZoom <= 17
+      ? currentZoom
+      : 15;
+    const adjustZoom = desiredZoom !== currentZoom
+      ? map.setZoom(desiredZoom, { duration: animate ? 250 : 0 })
+      : Promise.resolve();
+    Promise.resolve(adjustZoom).then(() => map.panTo(branch.coordinates, {
+      flying: animate,
+      duration: animate ? 550 : 0,
+      useMapMargin: true,
+    }));
+    return true;
+  }, [updateMapOccupiedArea]);
+
+  const focusBranchOnMap = useCallback((branchId: string) => {
+    const branch = allBranchesRef.current.find((item) => item.id === branchId);
+    if (!branch) return false;
+    hasAutoCenteredRef.current = true;
+    setSelectedBranchId(branch.id);
+    setBottomSheetState('half');
+    focusSequenceRef.current += 1;
+    setFocusRequest({ branchId, sequence: focusSequenceRef.current });
+    return true;
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!isOpen || !focusRequest || (!useFallbackMap && !ymapsInstanceRef.current)) return;
+    updateMapOccupiedArea();
+    panBranchIntoVisibleArea(focusRequest.branchId, true);
+  }, [isOpen, focusRequest, useFallbackMap, isYmapsLoading, updateMapOccupiedArea, panBranchIntoVisibleArea]);
+
+  useEffect(() => {
+    if (!isOpen || !selectedBranchId || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => {
+      updateMapOccupiedArea();
+      const branchId = selectedBranchIdRef.current;
+      if (branchId) panBranchIntoVisibleArea(branchId, false);
+    });
+    if (desktopBranchCardRef.current) observer.observe(desktopBranchCardRef.current);
+    if (mobileBottomSheetRef.current) observer.observe(mobileBottomSheetRef.current);
+    return () => observer.disconnect();
+  }, [isOpen, selectedBranchId, updateMapOccupiedArea, panBranchIntoVisibleArea]);
+
+  useEffect(() => {
+    if (!selectedBranchId) updateMapOccupiedArea();
+  }, [selectedBranchId, updateMapOccupiedArea]);
+
   const syncBranchPlacemarks = useCallback((branchesToRender: MapBranch[]) => {
     const ymaps = (window as any).ymaps;
     const map = ymapsInstanceRef.current;
@@ -408,14 +503,38 @@ export function BranchMapModal({
 
     clusterer.removeAll();
     branchesToRender.forEach((b) => {
+      const isSelected = selectedBranchIdRef.current === b.id;
+      const isRecommended = recommendedBranchIdRef.current === b.id && !isSelected;
       const waitInfo = getWaitBadgeInfo(b.liveWaitMinutes);
-      const ratingText = b.rating === null ? '—' : b.rating.toFixed(2);
+      const hasRating = b.rating !== null && Number.isFinite(b.rating) && b.rating > 0;
+      const hasWait = b.liveWaitMinutes !== null && Number.isFinite(b.liveWaitMinutes);
+      const ratingText = hasRating ? b.rating!.toFixed(2) : '—';
+
+      let border = '2px solid #FFFFFF';
+      let boxShadow = '0 4px 14px rgba(5,47,133,0.35)';
+      if (isSelected) {
+        border = '3px solid #FACC15';
+        boxShadow = '0 0 0 5px rgba(250,204,21,.25), 0 5px 18px rgba(5,47,133,.45)';
+      } else if (isRecommended) {
+        border = '2.5px solid #10B981';
+        boxShadow = '0 0 0 3px rgba(16,185,129,.35), 0 4px 14px rgba(5,47,133,0.35)';
+      }
+
+      let content = `<span style="color:#FEF08A;">★</span><span>${ratingText}</span><span style="opacity:.6;">•</span><span>${waitInfo.label}</span>`;
+      if (!hasRating && hasWait) {
+        content = `<span>${waitInfo.label}</span>`;
+      } else if (hasRating && !hasWait) {
+        content = `<span style="color:#FEF08A;">★</span><span>${ratingText}</span>`;
+      } else if (!hasRating && !hasWait) {
+        content = `<span style="color:#FEF08A;">★</span><span>Почта</span>`;
+      }
+
       const pinLayout = ymaps.templateLayoutFactory.createClass(
         `<div class="pvz-pin-marker cursor-pointer select-none group" style="display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-100%);">
-          <div style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:9999px;background-color:${waitInfo.hex};border:2px solid #FFFFFF;color:#FFFFFF;font-family:'Manrope',sans-serif;font-size:11px;font-weight:800;white-space:nowrap;box-shadow:0 4px 14px rgba(5,47,133,0.35);">
-            <span style="color:#FEF08A;">★</span><span>${ratingText}</span><span style="opacity:.6;">•</span><span>${waitInfo.label}</span>
+          <div style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:9999px;background-color:${waitInfo.hex};border:${border};color:#FFFFFF;font-family:'Manrope',sans-serif;font-size:11px;font-weight:800;white-space:nowrap;line-height:1.2;box-shadow:${boxShadow};">
+            ${content}
           </div>
-          <div style="width:8px;height:8px;transform:rotate(45deg);margin-top:-4px;background-color:${waitInfo.hex};border-right:2px solid #FFFFFF;border-bottom:2px solid #FFFFFF;"></div>
+          <div style="width:8px;height:8px;transform:rotate(45deg);margin-top:-4px;background-color:${waitInfo.hex};border-right:${border};border-bottom:${border};"></div>
         </div>`
       );
       const placemark = new ymaps.Placemark(b.coordinates, {
@@ -430,13 +549,11 @@ export function BranchMapModal({
         iconShape: { type: 'Rectangle', coordinates: [[-50, -36], [50, 0]] },
       });
       placemark.events.add('click', () => {
-        setSelectedBranchId(b.id);
-        setBottomSheetState('half');
-        map.panTo(b.coordinates, { flying: true, duration: 600 }).then(() => map.setZoom(16, { duration: 300 }));
+        focusBranchOnMap(b.id);
       });
       clusterer.add(placemark);
     });
-  }, []);
+  }, [focusBranchOnMap]);
 
   // Интеграция Yandex Maps JavaScript API 2.1 и ymaps.Clusterer
   useEffect(() => {
@@ -457,13 +574,18 @@ export function BranchMapModal({
         }
 
         const initialUserLocation = userLocationRef.current;
-        const centerCoords = initialUserLocation || [55.7618, 37.6385];
+        const initialTargetBranchId = targetBranchIdRef.current;
+        const targetBranch = initialTargetBranchId
+          ? allBranchesRef.current.find((branch) => branch.id === initialTargetBranchId)
+          : null;
+        const centerCoords = targetBranch?.coordinates || initialUserLocation || [55.7618, 37.6385];
+        if (targetBranch) hasAutoCenteredRef.current = true;
 
         const map = new ymaps.Map(
           mapContainerRef.current,
           {
             center: centerCoords,
-            zoom: initialUserLocation ? 15 : 13,
+            zoom: targetBranch ? 16 : initialUserLocation ? 15 : 13,
             controls: ['zoomControl'],
           },
           {
@@ -527,6 +649,8 @@ export function BranchMapModal({
         ymapsInstanceRef.current = null;
       }
       clustererRef.current = null;
+      mapMarginAreaRef.current?.remove?.();
+      mapMarginAreaRef.current = null;
       userPlacemarkRef.current = null;
       hasAutoCenteredRef.current = false;
     };
@@ -534,19 +658,19 @@ export function BranchMapModal({
 
   useEffect(() => {
     syncBranchPlacemarks(filteredBranches);
-  }, [filteredBranches, syncBranchPlacemarks]);
+  }, [filteredBranches, selectedBranchId, syncBranchPlacemarks]);
 
   // Плавный переход при выборе карточки
   const handleSelectBranch = useCallback((branch: MapBranch) => {
-    setSelectedBranchId(branch.id);
-    if (ymapsInstanceRef.current) {
-      ymapsInstanceRef.current
-        .panTo(branch.coordinates, { flying: true, duration: 600 })
-        .then(() => {
-          ymapsInstanceRef.current.setZoom(16, { duration: 300 });
-        });
-    }
-  }, []);
+    focusBranchOnMap(branch.id);
+  }, [focusBranchOnMap]);
+
+  const targetBranchAvailable = Boolean(targetBranchId && allBranches.some((branch) => branch.id === targetBranchId));
+
+  useEffect(() => {
+    if (!isOpen || !targetBranchId || (!useFallbackMap && !ymapsInstanceRef.current)) return;
+    focusBranchOnMap(targetBranchId);
+  }, [isOpen, targetBranchId, targetBranchAvailable, useFallbackMap, isYmapsLoading, focusBranchOnMap]);
 
   // Кнопка «Взять талон»
   const handleTakeTicket = (branch: MapBranch) => {
@@ -873,7 +997,7 @@ export function BranchMapModal({
             ) : (
               // Яндекс.Карты 2.1
               <div className="relative w-full h-full">
-                <div ref={mapContainerRef} className="w-full h-full" />
+                <div ref={mapContainerRef} data-testid="branch-map-canvas" className="w-full h-full" />
                 {isYmapsLoading && (
                   <div className="absolute inset-0 bg-slate-100/80 backdrop-blur-xs flex items-center justify-center z-10">
                     <div className="flex flex-col items-center gap-2 p-4 bg-white rounded-2xl shadow-xl border border-slate-200">
@@ -889,9 +1013,10 @@ export function BranchMapModal({
 
             {/* Всплывающая подробная карточка отделения над картой на десктопе */}
             {selectedBranch && (
-              <div className="hidden lg:block absolute bottom-6 right-6 w-96 z-20 animate-in fade-in slide-in-from-bottom-2 duration-200">
+              <div ref={desktopBranchCardRef} data-testid="desktop-branch-card-overlay" className="hidden lg:block absolute bottom-5 right-5 w-[34%] min-w-[256px] max-w-[320px] max-h-[calc(100%-2.5rem)] overflow-y-auto rounded-3xl z-20 animate-in fade-in slide-in-from-bottom-2 duration-200">
                 <DetailedBranchCard
                   branch={selectedBranch}
+                  compact
                   onClose={() => setSelectedBranchId(null)}
                   onTakeTicket={() => handleTakeTicket(selectedBranch)}
                   onBookAppointment={() => handleBookAppointment(selectedBranch)}
@@ -903,6 +1028,8 @@ export function BranchMapModal({
             {/* МОБИЛЬНЫЙ DRAGGABLE / COLLAPSIBLE BOTTOM SHEET           */}
             {/* ======================================================== */}
             <div
+              ref={mobileBottomSheetRef}
+              data-testid="mobile-branch-bottom-sheet"
               className={`md:hidden absolute bottom-0 inset-x-0 bg-white rounded-t-3xl shadow-2xl border-t border-[#E2E8F0] transition-all duration-300 z-30 flex flex-col ${
                 bottomSheetState === 'collapsed'
                   ? 'h-24'
@@ -1079,11 +1206,13 @@ export function DetailedBranchCard({
   onTakeTicket,
   onBookAppointment,
   onClose,
+  compact = false,
 }: {
   branch: MapBranch;
   onTakeTicket: () => void;
   onBookAppointment: () => void;
   onClose?: () => void;
+  compact?: boolean;
 }) {
   const [imgError, setImgError] = useState(false);
   const wait = getWaitBadgeInfo(branch.liveWaitMinutes);
@@ -1099,7 +1228,7 @@ export function DetailedBranchCard({
   return (
     <div className="bg-white rounded-3xl border border-[#E2E8F0] shadow-xl overflow-hidden font-['Manrope']">
       {/* Фото входа отделения / фирменный фасад Почты России */}
-      <div className="relative h-36 sm:h-44 w-full bg-gradient-to-br from-[#052F85] via-[#004B93] to-[#031E56] overflow-hidden flex items-center justify-center">
+      <div className={`branch-card-photo relative ${compact ? 'h-28' : 'h-36 sm:h-44'} w-full bg-gradient-to-br from-[#052F85] via-[#004B93] to-[#031E56] overflow-hidden flex items-center justify-center`}>
         {!imgError && displayPhoto ? (
           <img
             src={displayPhoto}
@@ -1118,23 +1247,24 @@ export function DetailedBranchCard({
         {/* Затемняющий градиент для контрастности бейджей */}
         <div className="absolute inset-0 bg-gradient-to-b from-black/55 via-transparent to-black/30 pointer-events-none" />
 
-        {/* Бейджи поверх шапки: рейтинг и время ожидания */}
-        <div className="absolute top-3 left-3 flex items-center gap-1.5 z-20">
-          <a href={yandexBranchSearchUrl(branch.name, branch.address)} target="_blank" rel="noreferrer" title="Открыть актуальную карточку отделения в Яндекс Картах" className="px-2.5 py-1 rounded-full bg-slate-900/75 backdrop-blur-md text-white text-[11px] font-bold flex items-center gap-1 border border-white/15 hover:bg-slate-900">
-            <Star size={12} className="fill-amber-400 text-amber-400" />
-            <span>{(branch.rating === null ? '—' : branch.rating.toFixed(2))}</span>
-            <span className="text-white/75">Яндекс Карты ↗</span>
-          </a>
-        </div>
-
-        {/* Бейдж ожидания */}
-        <div className={`absolute top-3 ${onClose ? 'right-12' : 'right-3'} z-20 transition-all`}>
-          <div
-            className={`px-2.5 py-1 rounded-full text-white text-[11px] font-bold shadow-md ${wait.colorClass}`}
-          >
-            {wait.label} в очереди
+        {(branch.rating !== null || branch.liveWaitMinutes !== null) && (
+          <div className={`branch-photo-badges absolute top-3 left-3 ${onClose ? 'right-12' : 'right-3'} z-20`}>
+            {branch.rating !== null && (
+              <a href={yandexBranchSearchUrl(branch.name, branch.address)} target="_blank" rel="noreferrer"
+                title="Открыть актуальную карточку отделения в Яндекс Картах"
+                className="branch-rating-badge px-2.5 py-1 rounded-full bg-slate-900/75 backdrop-blur-md text-white text-[11px] font-bold border border-white/15 hover:bg-slate-900">
+                <Star size={12} className="fill-amber-400 text-amber-400 shrink-0" />
+                <span>{branch.rating.toFixed(2)}</span>
+                <span className="branch-rating-source text-white/75">Яндекс Карты ↗</span>
+              </a>
+            )}
+            {branch.liveWaitMinutes !== null && (
+              <div className={`branch-queue-badge px-2.5 py-1 rounded-full text-white text-[11px] font-bold shadow-md ${wait.colorClass}`}>
+                <span>{wait.label}</span><span className="branch-queue-suffix"> в очереди</span>
+              </div>
+            )}
           </div>
-        </div>
+        )}
 
         {/* Кнопка закрытия / сворачивания отделения (X) */}
         {onClose && (
@@ -1151,7 +1281,7 @@ export function DetailedBranchCard({
       </div>
 
       {/* Информация об отделении */}
-      <div className="p-4 space-y-3">
+      <div className={`${compact ? 'p-3 space-y-2' : 'p-4 space-y-3'}`}>
         <div>
           <h3 className="text-sm font-extrabold text-[#031E56] leading-snug">
             {branch.name}
@@ -1246,7 +1376,7 @@ export function DetailedBranchCard({
           <button
             type="button"
             onClick={onTakeTicket}
-            className="w-full py-2.5 px-4 rounded-2xl bg-[#052F85] hover:bg-[#031E56] text-white text-xs font-extrabold transition-all shadow-md shadow-[#052F85]/20 flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer"
+            className={`w-full ${compact ? 'py-2' : 'py-2.5'} px-4 rounded-2xl bg-[#052F85] hover:bg-[#031E56] text-white text-xs font-extrabold transition-all shadow-md shadow-[#052F85]/20 flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer`}
           >
             <span>Взять талон</span>
             <ArrowRight size={14} />
@@ -1254,7 +1384,7 @@ export function DetailedBranchCard({
           <button
             type="button"
             onClick={onBookAppointment}
-            className="w-full py-2.5 px-4 rounded-2xl border-2 border-[#052F85] text-[#052F85] hover:bg-blue-50 text-xs font-extrabold transition-all flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer"
+            className={`w-full ${compact ? 'py-2' : 'py-2.5'} px-4 rounded-2xl border-2 border-[#052F85] text-[#052F85] hover:bg-blue-50 text-xs font-extrabold transition-all flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer`}
           >
             <Clock size={14} />
             <span>Записаться</span>
@@ -1297,8 +1427,8 @@ export function LeafletCartoOsmFallbackMap({
   const [zoomLevel, setZoomLevel] = useState(13);
 
   // Вычисление относительных координат на резервной карте (Carto / OSM)
-  const centerLat = userLocation?.[0] ?? selectedBranch?.coordinates[0] ?? 55.7618;
-  const centerLon = userLocation?.[1] ?? selectedBranch?.coordinates[1] ?? 37.6385;
+  const centerLat = selectedBranch?.coordinates[0] ?? userLocation?.[0] ?? 55.7618;
+  const centerLon = selectedBranch?.coordinates[1] ?? userLocation?.[1] ?? 37.6385;
 
   return (
     <div
@@ -1381,17 +1511,24 @@ export function LeafletCartoOsmFallbackMap({
                 isSelected ? 'scale-110 z-20' : 'hover:scale-105'
               }`}
             >
-              {/* ПВЗ-бейдж: Star rating badge (★ 4.92) и время ожидания */}
+              {/* ПВЗ-бейдж: Компактный горизонтальный маркер [ ★ 4.94 • ~0 мин ] */}
               <div
-                className={`shadow-lg border-2 border-white px-2.5 py-1 rounded-full text-white text-[11px] font-extrabold flex items-center gap-1 whitespace-nowrap ${wait.colorClass}`}
+                className={`shadow-lg px-2.5 py-1 rounded-full text-white text-[11px] font-extrabold flex items-center gap-1.5 whitespace-nowrap leading-none ${
+                  isSelected
+                    ? 'border-[3px] border-[#FACC15] ring-4 ring-yellow-400/25'
+                    : 'border-2 border-white'
+                } ${wait.colorClass}`}
               >
-                <span className="text-yellow-200">★</span>
-                <span>{(b.rating === null ? '—' : b.rating.toFixed(2))}</span>
-                <span className="opacity-60">|</span>
-                <span>{wait.label}</span>
+                {b.rating !== null && <span className="text-yellow-200">★</span>}
+                {b.rating !== null && <span>{b.rating.toFixed(2)}</span>}
+                {b.rating !== null && b.liveWaitMinutes !== null && <span className="opacity-60">•</span>}
+                {b.liveWaitMinutes !== null && <span>{wait.label}</span>}
+                {b.rating === null && b.liveWaitMinutes === null && <span>Почта</span>}
               </div>
               <div
-                className={`w-2.5 h-2.5 rotate-45 mx-auto -mt-1 border-r-2 border-b-2 border-white ${wait.colorClass}`}
+                className={`w-2 h-2 rotate-45 mx-auto -mt-1 border-r-2 border-b-2 ${
+                  isSelected ? 'border-[#FACC15]' : 'border-white'
+                } ${wait.colorClass}`}
               />
             </div>
           );

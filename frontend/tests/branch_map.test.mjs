@@ -93,6 +93,24 @@ test('Detailed branch card displays photo, address, metro, hours, live wait, ame
   assert.match(fileContent, /Записаться/);
 });
 
+test('photo badges use card-container layout and omit unavailable values', async () => {
+  const modal = await readFile(new URL('../src/features/client/map/BranchMapModal.tsx', import.meta.url), 'utf8');
+  const css = await readFile(new URL('../src/features/client/client.css', import.meta.url), 'utf8');
+  assert.match(modal, /branch\.rating\s*!==\s*null\s*&&/);
+  assert.match(modal, /branch\.liveWaitMinutes\s*!==\s*null\s*&&/);
+  assert.match(modal, /branch-photo-badges/);
+  assert.match(css, /container-type:\s*inline-size/);
+  assert.match(css, /\.branch-photo-badges[\s\S]*display:\s*flex[\s\S]*flex-wrap:\s*wrap[\s\S]*justify-content:\s*space-between/);
+  assert.match(css, /@container\s*\(max-width:\s*340px\)/);
+});
+
+test('map marker remains a compact single-line pill separate from card badges', async () => {
+  const modal = await readFile(new URL('../src/features/client/map/BranchMapModal.tsx', import.meta.url), 'utf8');
+  assert.match(modal, /pvz-pin-marker[\s\S]*display:inline-flex;align-items:center;gap:5px[\s\S]*white-space:nowrap/);
+  assert.match(modal, /★<\/span><span>\$\{ratingText\}<\/span><span style="opacity:\.6;">•/);
+  assert.match(modal, /width:8px;height:8px;transform:rotate\(45deg\)/);
+});
+
 test('Leaflet/Carto/OSM fallback operates seamlessly with required test keywords', async () => {
   const fileContent = await readFile(
     new URL('../src/features/client/map/BranchMapModal.tsx', import.meta.url),
@@ -133,6 +151,19 @@ test('map shows the client position on Yandex and fallback maps', async () => {
   assert.match(modal, /data-testid="client-location-marker"/);
   assert.match(modal, /updateUserPlacemark\(initialUserLocation\)/);
   assert.doesNotMatch(workspace, /Проверить всплывающее окно · тестовое отделение/);
+});
+
+test('external branch target is consumed by id and blocks automatic GPS recentering', async () => {
+  const modal = await readFile(new URL('../src/features/client/map/BranchMapModal.tsx', import.meta.url), 'utf8');
+  const workspace = await readFile(new URL('../src/features/client/ClientWorkspace.tsx', import.meta.url), 'utf8');
+  assert.match(modal, /selectedBranchId:\s*targetBranchId/);
+  assert.match(modal, /focusBranchOnMap\(targetBranchId/);
+  assert.match(modal, /hasAutoCenteredRef\.current\s*=\s*true/);
+  assert.match(modal, /map\.margin\.addArea\(area\)/);
+  assert.match(modal, /useMapMargin:\s*true/);
+  assert.match(modal, /ResizeObserver/);
+  assert.match(workspace, /selectedBranchId=\{mapTargetBranchId\}/);
+  assert.doesNotMatch(workspace, /selectedBranchId=\{null\}/);
 });
 
 test('client reuses granted GPS on entry without a parallel watch and opens the arrival sheet', async () => {

@@ -11,7 +11,7 @@ import { BranchWorkloadCard } from './BranchWorkloadCard';
 import { Appointment24hPicker } from './Appointment24hPicker';
 import { useGeofencing, ArrivalSheet, GeofenceSimulationMode, calculateHaversineDistanceMeters, DEFAULT_GEOFENCE_THRESHOLD_METERS } from './arrival';
 import { BranchMapModal } from './map/BranchMapModal';
-import { calculateSmartRouting, MOSCOW_BRANCHES, BranchLocation, RankedBranch } from './map/branchLocations';
+import { calculateSmartRouting, isUsableDurationMinutes, MAX_QUEUE_WAIT_MINUTES, MAX_ROUTE_TRAVEL_MINUTES, MOSCOW_BRANCHES, BranchLocation, RankedBranch } from './map/branchLocations';
 
 import { matchBranchLocation, liveWaitMinutes } from './map/liveBranches';
 import { useBranchWorkloads } from './map/useBranchWorkloads';
@@ -181,6 +181,63 @@ interface BranchCardProps {
   timeSavedMinutes?: number;
   location?: BranchLocation;
   rating?: number;
+}
+
+interface RecommendationListBranch {
+  id: string;
+  name: string;
+  travelMinutes?: number;
+  waitMinutes?: number;
+  totalMinutes?: number;
+}
+
+function BranchRecommendation({
+  nearestBranch,
+  fastestBranch,
+  savingMinutes,
+  onSelect,
+}: {
+  nearestBranch: RecommendationListBranch | null;
+  fastestBranch: RecommendationListBranch | null;
+  savingMinutes: number;
+  onSelect: (branchId: string) => void;
+}) {
+  if (!nearestBranch || !fastestBranch
+      || !Number.isFinite(fastestBranch.travelMinutes)
+      || !Number.isFinite(fastestBranch.waitMinutes)
+      || !Number.isFinite(fastestBranch.totalMinutes)) return null;
+  const isNearest = nearestBranch.id === fastestBranch.id;
+  const total = Math.round(fastestBranch.totalMinutes!);
+  const travel = Math.round(fastestBranch.travelMinutes!);
+  const wait = Math.round(fastestBranch.waitMinutes!);
+  const saving = Number.isFinite(savingMinutes) && savingMinutes > 0 ? Math.round(savingMinutes) : 0;
+
+  return (
+    <div className="p-3.5 bg-gradient-to-r from-emerald-50 via-teal-50 to-blue-50 border border-emerald-200 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-xs animate-in fade-in">
+      <div className="flex items-center gap-2.5 min-w-0">
+        <div className="w-8 h-8 rounded-xl bg-emerald-500 text-white flex items-center justify-center shrink-0 shadow-xs">
+          <Sparkles size={16} />
+        </div>
+        <div className="text-left min-w-0">
+          <div className="font-extrabold text-emerald-950 flex items-center gap-1.5 flex-wrap">
+            <span>{isNearest ? 'Рекомендуем ближайшее к вам' : 'Рекомендуем быстрее всего'}: {fastestBranch.name} · ~{total} мин</span>
+            {saving > 0 && (
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300">
+                Экономия ~{saving} мин относительно ближайшего
+              </span>
+            )}
+          </div>
+          <p className="text-[11px] text-emerald-800 mt-0.5">
+            Суммарно ~{total} мин: {travel} мин дорога + {wait} мин очередь
+          </p>
+        </div>
+      </div>
+      <button type="button" onClick={() => onSelect(fastestBranch.id)}
+        className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shrink-0 shadow-xs transition-colors cursor-pointer">
+        Выбрать
+      </button>
+    </div>
+  );
 }
 
 function BranchCard({
@@ -662,6 +719,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
   // Map Modal State
   const [isMapModalOpen, setIsMapModalOpen] = useState(false);
   const [mapInitialFilter, setMapInitialFilter] = useState<'all' | 'parcels' | 'letters' | 'pensions' | 'accessible'>('all');
+  const [mapTargetBranchId, setMapTargetBranchId] = useState<string | null>(null);
 
   // Check if client already took a ticket for this branch (walkin or online appointment)
   const hasActiveTicketForBranch = useMemo(() => {
@@ -749,8 +807,9 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
     setArrivalSheetDismissedMode(null);
   };
 
-  const handleOpenMap = (filter: 'all' | 'parcels' | 'letters' | 'pensions' | 'accessible' = 'all') => {
+  const handleOpenMap = (filter: 'all' | 'parcels' | 'letters' | 'pensions' | 'accessible' = 'all', targetBranchId: string | null = null) => {
     setMapInitialFilter(filter);
+    setMapTargetBranchId(targetBranchId);
     setIsMapModalOpen(true);
   };
 
@@ -866,8 +925,10 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
       const loc = matchBranchLocation(b, MOSCOW_BRANCHES);
       const hasPosition = simulationMode !== 'real_gps' || hasRealGpsFix;
       const dMeters = loc && hasPosition ? calculateHaversineDistanceMeters(clientLat, clientLng, loc.lat, loc.lng) : undefined;
-      const travelMin = dMeters === undefined ? undefined : Math.round((dMeters / 1000) * 12);
-      const waitMin = liveWaitMinutes(workloads[b.id]);
+      const rawTravelMin = dMeters === undefined ? undefined : Math.round((dMeters / 1000) * 12);
+      const travelMin = isUsableDurationMinutes(rawTravelMin, MAX_ROUTE_TRAVEL_MINUTES) ? rawTravelMin : undefined;
+      const rawWaitMin = liveWaitMinutes(workloads[b.id]);
+      const waitMin = isUsableDurationMinutes(rawWaitMin, MAX_QUEUE_WAIT_MINUTES) ? rawWaitMin : undefined;
       const totalMin = travelMin === undefined || waitMin === undefined ? undefined : travelMin + waitMin;
       return { ...b, loc, distanceMeters: dMeters, travelMinutes: travelMin,
         waitMinutes: waitMin, totalMinutes: totalMin, metro: loc?.metro, rating: loc?.rating };
@@ -1272,9 +1333,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
     if (screen === 'booking') setBookingStep(1);
     if (screen === 'walkin') setWalkinStep(1);
 
-    if (id === branchId) {
-      fetchServices(id);
-    } else {
+    if (id !== branchId) {
       setServices([]);
       setBranchId(id);
     }
@@ -1287,9 +1346,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
     setWalkinStep(1);
     setScreen('walkin');
 
-    if (targetBranchId === branchId) {
-      fetchServices(targetBranchId);
-    } else {
+    if (targetBranchId !== branchId) {
       setServices([]);
       setBranchId(targetBranchId);
     }
@@ -1408,7 +1465,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
       {notice && <NoticeBanner message={notice} onClose={() => setNotice(null)} />}
 
       {/* Умный маршрут: рекомендация оптимального отделения на главном экране */}
-      {smartRouting.recommendation?.advice === 'detour' && (simulationMode !== 'real_gps' || hasRealGpsFix) && (
+      {smartRouting.recommendation && (simulationMode !== 'real_gps' || hasRealGpsFix) && (
         <div className="bg-gradient-to-r from-emerald-50 via-teal-50 to-blue-50 border border-emerald-200/90 rounded-2xl sm:rounded-3xl p-4 sm:p-5 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4 animate-in fade-in duration-300">
           <div className="flex items-start sm:items-center gap-3.5 min-w-0">
             <div className="w-10 h-10 rounded-2xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-md">
@@ -1419,15 +1476,17 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                 <span className="text-[11px] font-black uppercase tracking-wider text-emerald-800 bg-emerald-100/90 px-2.5 py-0.5 rounded-full border border-emerald-200">
                   Умный маршрут
                 </span>
-                <span className="text-xs font-bold text-emerald-700">
-                  Экономия ~{smartRouting.recommendation.timeSavedMinutes} мин
-                </span>
+                {smartRouting.recommendation.timeSavedMinutes > 0 && (
+                  <span className="text-xs font-bold text-emerald-700">
+                    Экономия ~{smartRouting.recommendation.timeSavedMinutes} мин относительно ближайшего
+                  </span>
+                )}
               </div>
               <p className="text-sm font-extrabold text-[#031E56] mt-1">
                 {smartRouting.recommendation.bannerText}
               </p>
               <p className="text-xs text-slate-600 mt-0.5">
-                Ближайшее: {smartRouting.recommendation.currentClosestBranch.name} (очередь ~{smartRouting.recommendation.currentClosestBranch.waitMinutes} мин). Рекомендуем: {smartRouting.recommendation.fastestBranch.name}.
+                {smartRouting.recommendation.stayReason}
               </p>
             </div>
           </div>
@@ -1443,7 +1502,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
             </button>
             <button
               type="button"
-              onClick={() => handleBranchSelect(smartRouting.recommendation!.fastestBranch.id)}
+              onClick={() => handleRepeatTicket(smartRouting.recommendation!.fastestBranch.id)}
               className="flex-1 md:flex-none px-4 py-2.5 rounded-xl bg-[#052F85] hover:bg-[#031E56] active:scale-95 text-white font-bold text-xs shadow-sm transition-all flex items-center justify-center gap-1.5 cursor-pointer"
             >
               <TicketIcon size={14} />
@@ -1461,10 +1520,10 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
           aria-modal="true"
         >
           <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl p-5 sm:p-6 w-full max-w-md space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-50 text-[#052F85] text-xs font-bold">
-                <Sparkles size={13} className="text-amber-500" />
-                <span>Отделение выбрано</span>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="text-base font-extrabold text-[#031E56]">{routeOfferBranch.name}</h3>
+                <p className="text-xs text-slate-500 mt-0.5">{routeOfferBranch.address}</p>
               </div>
               <button
                 type="button"
@@ -1476,12 +1535,11 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
               </button>
             </div>
 
-            <div>
-              <h3 className="text-base font-extrabold text-[#031E56]">{routeOfferBranch.name}</h3>
-              <p className="text-xs text-slate-500 mt-0.5">{routeOfferBranch.address}</p>
-              <div className="mt-2.5 text-xs font-semibold text-emerald-800 bg-emerald-50 px-3 py-2 rounded-xl border border-emerald-200/80">
-                ⚡ Экономия времени: ~{Math.round(smartRouting.recommendation?.timeSavedMinutes ?? 0)} мин дороги и ожидания
-              </div>
+            <div className="text-xs font-semibold text-emerald-800 bg-emerald-50 px-3 py-2 rounded-xl border border-emerald-200/80">
+              <div>Суммарно ~{Math.round(routeOfferBranch.totalMinutes)} мин: {Math.round(routeOfferBranch.travelMinutes)} мин дорога + {Math.round(routeOfferBranch.waitMinutes)} мин очередь</div>
+              {(smartRouting.recommendation?.fastestBranch.id === routeOfferBranch.id) && smartRouting.recommendation.timeSavedMinutes > 0 && (
+                <div className="mt-1">Экономия ~{smartRouting.recommendation.timeSavedMinutes} мин относительно ближайшего</div>
+              )}
             </div>
 
             <div className="space-y-2 pt-2">
@@ -1511,8 +1569,9 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
               <button
                 type="button"
                 onClick={() => {
+                  const targetBranchId = routeOfferBranch.id;
                   setRouteOfferBranch(null);
-                  handleOpenMap();
+                  handleOpenMap('all', targetBranchId);
                 }}
                 className="w-full py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer"
               >
@@ -1720,34 +1779,8 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                 onPageChange={setBranchPage}
               />
 
-              {/* Совет системы: если самое быстрое отделение быстрее ближайшего */}
-              {fastestBranch && closestBranch && fastestBranch.id !== closestBranch.id && timeSavedMinutes > 0 && (
-                <div className="p-3.5 bg-gradient-to-r from-emerald-50 via-teal-50 to-blue-50 border border-emerald-200 rounded-2xl flex items-center justify-between gap-3 text-xs shadow-xs animate-in fade-in">
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <div className="w-8 h-8 rounded-xl bg-emerald-500 text-white flex items-center justify-center shrink-0 shadow-xs">
-                      <Sparkles size={16} />
-                    </div>
-                    <div className="text-left min-w-0">
-                      <div className="font-extrabold text-emerald-950 flex items-center gap-1.5 flex-wrap">
-                        <span>⚡ Совет системы: выберите {fastestBranch.name}</span>
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300">
-                          Быстрее на ~{timeSavedMinutes} мин
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-emerald-800 mt-0.5">
-                        В ближайшем отделении очередь ~{closestBranch.waitMinutes} мин. В {fastestBranch.name} дорога {fastestBranch.travelMinutes} мин + очередь {fastestBranch.waitMinutes} мин!
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => handleBranchSelect(fastestBranch.id)}
-                    className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shrink-0 shadow-xs transition-colors cursor-pointer"
-                  >
-                    Выбрать
-                  </button>
-                </div>
-              )}
+              <BranchRecommendation nearestBranch={closestBranch} fastestBranch={fastestBranch}
+                savingMinutes={timeSavedMinutes} onSelect={handleBranchSelect} />
 
               {loading ? (
                 <p className="text-xs text-slate-400 font-mono py-8 text-center animate-pulse">Загрузка отделений...</p>
@@ -1966,34 +1999,8 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                 onPageChange={setBranchPage}
               />
 
-              {/* Совет системы: если самое быстрое отделение быстрее ближайшего */}
-              {fastestBranch && closestBranch && fastestBranch.id !== closestBranch.id && timeSavedMinutes > 0 && (
-                <div className="p-3.5 bg-gradient-to-r from-emerald-50 via-teal-50 to-blue-50 border border-emerald-200 rounded-2xl flex items-center justify-between gap-3 text-xs shadow-xs animate-in fade-in">
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <div className="w-8 h-8 rounded-xl bg-emerald-500 text-white flex items-center justify-center shrink-0 shadow-xs">
-                      <Sparkles size={16} />
-                    </div>
-                    <div className="text-left min-w-0">
-                      <div className="font-extrabold text-emerald-950 flex items-center gap-1.5 flex-wrap">
-                        <span>⚡ Совет системы: выберите {fastestBranch.name}</span>
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300">
-                          Быстрее на ~{timeSavedMinutes} мин
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-emerald-800 mt-0.5">
-                        В ближайшем отделении очередь ~{closestBranch.waitMinutes} мин. В {fastestBranch.name} дорога {fastestBranch.travelMinutes} мин + очередь {fastestBranch.waitMinutes} мин!
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => handleBranchSelect(fastestBranch.id)}
-                    className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shrink-0 shadow-xs transition-colors cursor-pointer"
-                  >
-                    Выбрать
-                  </button>
-                </div>
-              )}
+              <BranchRecommendation nearestBranch={closestBranch} fastestBranch={fastestBranch}
+                savingMinutes={timeSavedMinutes} onSelect={handleBranchSelect} />
 
               {loading ? (
                 <p className="text-xs text-slate-400 font-mono py-8 text-center animate-pulse">Загрузка отделений...</p>
@@ -2294,7 +2301,8 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
           branches={branches}
           workloads={workloads}
           userCoordinates={hasRealGpsFix ? [currentCoordinates.lat, currentCoordinates.lng] : null}
-          selectedBranchId={null}
+          selectedBranchId={mapTargetBranchId}
+          recommendedBranchId={smartRouting.recommendation?.fastestBranch.id ?? null}
           initialFilter={mapInitialFilter}
           onSelectBranch={handleSelectBranchFromMap}
           onTakeTicket={(b) => handleSelectBranchFromMap(b, 'walkin')}

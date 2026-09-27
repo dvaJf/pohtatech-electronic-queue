@@ -27,8 +27,9 @@ async function setup(accuracy, rejectFirst = false) {
    constructor(coords){this.coords=coords;this.events={add:()=>{}};this.geometry={setCoordinates:value=>{this.coords=value}}}
   }
   class FakeMap {
-   constructor(_node,state){this.center=[...state.center];this.zoom=state.zoom;this.destroyed=false;this.geoObjects=new FakeCollection();this.container={fitToViewport:()=>{}};window.__queueFakeMaps.push(this)}
-   panTo(coords){this.center=[...coords];return Promise.resolve()}
+   constructor(_node,state){this.center=[...state.center];this.zoom=state.zoom;this.destroyed=false;this.geoObjects=new FakeCollection();this.container={fitToViewport:()=>{}};this.margin={areas:[],addArea:area=>{const accessor={area,setArea:value=>{accessor.area=value;return accessor},remove:()=>{this.margin.areas=this.margin.areas.filter(item=>item!==accessor)}};this.margin.areas.push(accessor);return accessor}};window.__queueFakeMaps.push(this)}
+   panTo(coords,options){this.center=[...coords];this.lastPanOptions=options;return Promise.resolve()}
+   getZoom(){return this.zoom}
    setZoom(zoom){this.zoom=zoom;return Promise.resolve()}
    destroy(){this.destroyed=true}
   }
@@ -116,6 +117,53 @@ try {
  assert(Date.now()-geoStarted<1500,'explicit geolocation should update without a sequential timeout');
  assert.deepEqual(await coarse.page.evaluate(()=>window.__geoStats),{current:2,watch:0},'one click must create exactly one browser lookup');
 
+ const routeButton=coarse.page.getByRole('button',{name:'Маршрут',exact:true});
+ await routeButton.click();
+ const routeDialog=coarse.page.getByRole('dialog').filter({has:coarse.page.getByRole('button',{name:'Посмотреть на карте'})});
+ await routeDialog.waitFor();
+ assert.equal(await routeDialog.getByText('Отделение выбрано',{exact:true}).count(),0,'obsolete selected-branch pill must be removed');
+ const recommendedName=(await routeDialog.locator('h3').innerText()).trim();
+ const recommendedBranch=branches.find(branch=>branch.name===recommendedName);
+ assert(recommendedBranch,`recommended branch is not from API catalog: ${recommendedName}`);
+ await routeDialog.getByRole('button',{name:'Посмотреть на карте'}).click();
+ const targetedMap=coarse.page.getByRole('dialog',{name:'Карта отделений Почты России'});
+ await targetedMap.waitFor();
+ await coarse.page.waitForFunction(()=>window.__queueFakeMaps.at(-1)?.zoom===16);
+ assert(await targetedMap.getByText(recommendedName,{exact:true}).count()>0,'target branch card must open by branch id');
+ const targetedCenter=await coarse.page.evaluate(()=>window.__queueFakeMaps.at(-1).center);
+ assert.notDeepEqual(targetedCenter,[55.761845,37.638521],'target branch focus must not be replaced by user geolocation');
+ assert(await coarse.page.evaluate(()=>window.__queueFakeMaps.at(-1).margin.areas.length>0),'selected branch overlay must register a measured map margin');
+ assert.equal(await coarse.page.evaluate(()=>window.__queueFakeMaps.at(-1).lastPanOptions?.useMapMargin),true,'branch focus must account for the occupied overlay area');
+ await coarse.page.setViewportSize({width:1440,height:900});
+ const desktopCard=targetedMap.getByTestId('desktop-branch-card-overlay');
+ await desktopCard.waitFor();
+ for(const fontSize of ['100%','125%','150%']) {
+  await coarse.page.evaluate(value=>{document.documentElement.style.fontSize=value},fontSize);
+  await coarse.page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+  const [ratingBox,queueBox]=await Promise.all([
+   desktopCard.locator('.branch-rating-badge').boundingBox(),
+   desktopCard.locator('.branch-queue-badge').boundingBox(),
+  ]);
+  const overlaps=ratingBox&&queueBox&&ratingBox.x<queueBox.x+queueBox.width&&ratingBox.x+ratingBox.width>queueBox.x&&ratingBox.y<queueBox.y+queueBox.height&&ratingBox.y+ratingBox.height>queueBox.y;
+  assert(!overlaps,`rating and queue badges overlap at ${fontSize}`);
+ }
+ await coarse.page.waitForFunction(()=>window.__queueFakeMaps.at(-1).margin.areas.at(-1)?.area?.left>0);
+ const [cardBox,mapBox]=await Promise.all([desktopCard.boundingBox(),targetedMap.getByTestId('branch-map-canvas').boundingBox()]);
+ assert(cardBox&&mapBox&&cardBox.width<=mapBox.width*.36,`desktop branch card is too wide: card=${cardBox?.width}, map=${mapBox?.width}`);
+ assert.equal(await coarse.page.evaluate(()=>window.__queueFakeMaps.at(-1).lastPanOptions?.useMapMargin),true,'resize and 150% text must retain margin-aware focus');
+ await coarse.page.evaluate(()=>{document.documentElement.style.fontSize='' });
+ await coarse.page.setViewportSize({width:390,height:844});
+ await targetedMap.getByRole('button',{name:'Закрыть карту'}).click();
+ await coarse.page.getByRole('button',{name:'Выбрать',exact:true}).first().click();
+ await coarse.page.getByText(service.name,{exact:true}).waitFor().catch(async error=>{
+  console.log((await coarse.page.locator('body').innerText()).slice(0,3500));
+  await coarse.page.screenshot({path:'/tmp/queue-selection-error.png'});
+  throw error;
+ });
+ assert.equal(await coarse.page.evaluate(()=>sessionStorage.getItem('client_selected_branch_id')),recommendedBranch.id,'Choose must preserve the recommended branch id');
+ await coarse.page.getByRole('button',{name:'Назад'}).click();
+ await coarse.page.getByRole('button',{name:'Назад'}).click();
+
  const a11yButton=coarse.page.getByRole('button',{name:'Настройки доступности',exact:true});
  await a11yButton.click();
  assert.equal(await a11yButton.evaluate(node=>getComputedStyle(node).outlineStyle),'none','mouse click must not leave a browser outline');
@@ -178,7 +226,7 @@ try {
  await coarse.page.getByRole('button',{name:'Назад'}).click();
  await coarse.page.getByRole('button',{name:'Назад'}).click();
  coarse.setWait(0);
- await coarse.page.getByText('Умный маршрут',{exact:true}).waitFor({state:'hidden',timeout:25000});
+ await coarse.page.getByText('Рекомендуем ближайшее к вам',{exact:false}).waitFor({timeout:25000});
  const mapButton=coarse.page.getByRole('button',{name:/Карта отделений/});
  await mapButton.click();
  await coarse.page.getByRole('dialog').waitFor();

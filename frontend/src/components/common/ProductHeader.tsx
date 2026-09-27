@@ -18,7 +18,9 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
   const [scale, setScale] = useState(() => {
     try {
       const stored = Number(localStorage.getItem('pochta_a11y_scale') || '100');
-      return [100, 125, 150].includes(stored) ? stored : 100;
+      if ([100, 125, 150].includes(stored)) return stored;
+      localStorage.setItem('pochta_a11y_scale', '100');
+      return 100;
     } catch {
       return 100;
     }
@@ -111,26 +113,49 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
     setScale(100);
     setContrast(false);
     try {
-      localStorage.removeItem('pochta_a11y');
-      localStorage.removeItem('pochta_a11y_scale');
-      localStorage.removeItem('pochta_a11y_contrast');
+      localStorage.setItem('pochta_a11y', 'false');
+      localStorage.setItem('pochta_a11y_scale', '100');
+      localStorage.setItem('pochta_a11y_contrast', 'false');
+      localStorage.removeItem('pochta_a11y_motion');
+      document.documentElement.style.fontSize = '';
+      if (document.documentElement.getAttribute('style') === '') {
+        document.documentElement.removeAttribute('style');
+      }
+      document.documentElement.classList.remove('a11y-mode', 'a11y-contrast');
+      document.documentElement.removeAttribute('data-reduced-motion');
+      document.documentElement.removeAttribute('data-font-size');
+      document.documentElement.removeAttribute('data-accessibility');
     } catch {}
   };
 
   useEffect(() => {
-    document.documentElement.style.fontSize = scale === 100 ? '' : `${scale}%`;
+    if (scale === 100) {
+      document.documentElement.style.fontSize = '';
+      if (document.documentElement.getAttribute('style') === '') {
+        document.documentElement.removeAttribute('style');
+      }
+    } else {
+      document.documentElement.style.fontSize = `${scale}%`;
+    }
     document.documentElement.classList.toggle('a11y-mode', accessibilityActive);
     document.documentElement.classList.toggle('a11y-contrast', contrast);
     try {
       localStorage.setItem('pochta_a11y', String(accessibilityActive));
       localStorage.setItem('pochta_a11y_scale', String(scale));
       localStorage.setItem('pochta_a11y_contrast', String(contrast));
+      if (!accessibilityActive) {
+        document.documentElement.removeAttribute('data-font-size');
+        document.documentElement.removeAttribute('data-accessibility');
+        document.documentElement.removeAttribute('data-reduced-motion');
+      }
     } catch {}
   }, [accessibilityActive, scale, contrast]);
 
   useEffect(() => {
     // Удаляем настройку старого пункта меню, чтобы он не мог включиться сам.
     document.documentElement.removeAttribute('data-reduced-motion');
+    document.documentElement.removeAttribute('data-font-size');
+    document.documentElement.removeAttribute('data-accessibility');
     try {
       localStorage.removeItem('pochta_a11y_motion');
     } catch {}

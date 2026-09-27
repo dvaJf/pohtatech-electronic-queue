@@ -1,6 +1,7 @@
 package sms
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -19,18 +20,24 @@ type Provider interface {
 }
 
 type Client struct {
-	httpClient *http.Client
-	aeroEmail  string
-	aeroKey    string
-	aeroSign   string
-	smsRuKey   string
-	logger     *slog.Logger
+	httpClient  *http.Client
+	androidURL  string
+	androidUser string
+	androidPass string
+	aeroEmail   string
+	aeroKey     string
+	aeroSign    string
+	smsRuKey    string
+	logger      *slog.Logger
 }
 
 func NewClient(logger *slog.Logger) *Client {
 	if logger == nil {
 		logger = slog.Default()
 	}
+	androidURL := strings.TrimSpace(os.Getenv("ANDROID_SMS_URL"))
+	androidUser := strings.TrimSpace(os.Getenv("ANDROID_SMS_USER"))
+	androidPass := strings.TrimSpace(os.Getenv("ANDROID_SMS_PASSWORD"))
 	email := strings.TrimSpace(os.Getenv("SMSAERO_EMAIL"))
 	key := strings.TrimSpace(os.Getenv("SMSAERO_API_KEY"))
 	sign := strings.TrimSpace(os.Getenv("SMSAERO_SIGN"))
@@ -40,12 +47,15 @@ func NewClient(logger *slog.Logger) *Client {
 	smsRuKey := strings.TrimSpace(os.Getenv("SMSRU_API_KEY"))
 
 	return &Client{
-		httpClient: &http.Client{Timeout: 10 * time.Second},
-		aeroEmail:  email,
-		aeroKey:    key,
-		aeroSign:   sign,
-		smsRuKey:   smsRuKey,
-		logger:     logger,
+		httpClient:  &http.Client{Timeout: 10 * time.Second},
+		androidURL:  androidURL,
+		androidUser: androidUser,
+		androidPass: androidPass,
+		aeroEmail:   email,
+		aeroKey:     key,
+		aeroSign:    sign,
+		smsRuKey:    smsRuKey,
+		logger:      logger,
 	}
 }
 
@@ -67,14 +77,24 @@ func NormalizePhone(raw string) (string, error) {
 	return digits, nil
 }
 
-// Send dispatches an SMS via SMS Aero if configured, then SMS.ru, or fallback to mock log.
+// Send dispatches an SMS via Android Gateway (0 RUB), SMS Aero, SMS.ru, or fallback to mock log.
 func (c *Client) Send(ctx context.Context, phone, message string) error {
 	normalized, err := NormalizePhone(phone)
 	if err != nil {
 		return err
 	}
 
-	// 1. Try SMS Aero if credentials exist
+	// 1. Try Android Phone Gateway (100% Free, via phone SIM card)
+	if c.androidURL != "" {
+		err := c.sendAndroidGateway(ctx, normalized, message)
+		if err == nil {
+			c.logger.Info("SMS delivered via Android Gateway (0 RUB)", "phone", normalized)
+			return nil
+		}
+		c.logger.Warn("Android Gateway send failed, trying next provider", "error", err)
+	}
+
+	// 2. Try SMS Aero if credentials exist
 	if c.aeroEmail != "" && c.aeroKey != "" {
 		err := c.sendSMSAero(ctx, normalized, message)
 		if err == nil {
@@ -84,7 +104,7 @@ func (c *Client) Send(ctx context.Context, phone, message string) error {
 		c.logger.Warn("SMS Aero send failed, trying fallback", "error", err)
 	}
 
-	// 2. Try SMS.ru if configured
+	// 3. Try SMS.ru if configured
 	if c.smsRuKey != "" {
 		err := c.sendSMSRu(ctx, normalized, message)
 		if err == nil {
@@ -94,8 +114,73 @@ func (c *Client) Send(ctx context.Context, phone, message string) error {
 		c.logger.Warn("SMS.ru send failed", "error", err)
 	}
 
-	// 3. Fallback / Dev Mock
+	// 4. Fallback / Dev Mock
 	c.logger.Info("[DEV/DEMO SMS]", "to", normalized, "message", message)
+	return nil
+}
+
+type androidLocalMessageRequest struct {
+	PhoneNumbers []string `json:"phoneNumbers"`
+	Message      string   `json:"message"`
+}
+
+type androidTextMessage struct {
+	Text string `json:"text"`
+}
+
+type androidCloudMessageRequest struct {
+	PhoneNumbers []string           `json:"phoneNumbers"`
+	TextMessage  androidTextMessage `json:"textMessage"`
+}
+
+func (c *Client) sendAndroidGateway(ctx context.Context, phone, message string) error {
+	isCloud := strings.Contains(c.androidURL, "sms-gate.app") || strings.HasSuffix(c.androidURL, "/messages")
+
+	var endpoint string
+	var data []byte
+	var err error
+
+	if isCloud {
+		endpoint = c.androidURL
+		if !strings.Contains(endpoint, "/messages") {
+			endpoint = strings.TrimRight(endpoint, "/") + "/3rdparty/v1/messages"
+		}
+		data, err = json.Marshal(androidCloudMessageRequest{
+			PhoneNumbers: []string{"+" + phone},
+			TextMessage:  androidTextMessage{Text: message},
+		})
+	} else {
+		endpoint = strings.TrimRight(c.androidURL, "/") + "/message"
+		data, err = json.Marshal(androidLocalMessageRequest{
+			PhoneNumbers: []string{"+" + phone},
+			Message:      message,
+		})
+	}
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if c.androidUser != "" && c.androidPass != "" {
+		req.SetBasicAuth(c.androidUser, c.androidPass)
+	} else if c.androidPass != "" {
+		req.Header.Set("Authorization", "Bearer "+c.androidPass)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("android gateway request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("android gateway returned HTTP %d: %s", resp.StatusCode, string(b))
+	}
 	return nil
 }
 

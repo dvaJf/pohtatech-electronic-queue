@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as api from '../../api/client/clientApi';
 import { getMe } from '../../api/authApi';
 import { Appointment, Branch, Service, Ticket, TicketStatus, TicketSource, QueuePosition, TicketETA } from '../../api/client/types';
-import { CalendarClock, Ticket as TicketIcon, ListChecks, ChevronLeft, ChevronRight, MapPin, Clock, Check, Sparkles, Building2, AlertCircle, CheckCircle2, Navigation, X, Search, Zap, Star } from 'lucide-react';
+import { CalendarClock, Ticket as TicketIcon, ListChecks, ChevronLeft, ChevronRight, MapPin, Clock, Check, Sparkles, Building2, AlertCircle, CheckCircle2, Navigation, X, Search, Zap, Star, Loader2, MapPinOff } from 'lucide-react';
 import './client.css';
 import './kiosk.css';
 import { formatMoscowDateTime, parseMoscowDatetimeLocal, toMoscowDatetimeLocal } from '../../utils/time';
@@ -1440,22 +1440,41 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
     : getSavedTicketIds(ownerScope).length;
 
   const renderHome = () => (
-    <div className="max-w-5xl xl:max-w-6xl mx-auto space-y-4 sm:space-y-6">
-      {/* Welcome Hero Banner */}
-      <div className="bg-gradient-to-br from-[#003B73] to-[#054FA6] rounded-2xl sm:rounded-3xl p-5 sm:p-8 text-white shadow-md relative overflow-hidden">
-        <div className="relative z-10 space-y-1.5 sm:space-y-2">
-          <div className="flex items-center gap-2.5 sm:gap-3">
-            <PochtaEmblem className="w-9 h-9 sm:w-10 sm:h-10 drop-shadow-sm shrink-0" bg="#FFFFFF" fg="#003B73" />
+    <div className="max-w-5xl xl:max-w-6xl mx-auto space-y-3.5 sm:space-y-6 pb-6">
+      {/* Mobile-optimized compact hero banner */}
+      <div className="sm:hidden bg-gradient-to-r from-[#003B73] via-[#00478F] to-[#054FA6] rounded-2xl p-3.5 text-white shadow-md flex items-center justify-between">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <PochtaEmblem className="w-8 h-8 rounded-lg drop-shadow-sm shrink-0" bg="#FFFFFF" fg="#003B73" />
+          <div className="min-w-0">
+            <div className="text-[10px] font-mono uppercase tracking-wider text-blue-200 font-bold leading-none">
+              Почта России
+            </div>
+            <h1 className="text-base font-black tracking-tight text-white leading-tight mt-0.5">
+              Цифровая очередь
+            </h1>
+          </div>
+        </div>
+        <div className="text-[11px] font-semibold text-blue-100 bg-white/10 border border-white/15 px-2.5 py-1 rounded-full flex items-center gap-1.5 shrink-0">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+          <span>Онлайн</span>
+        </div>
+      </div>
+
+      {/* Desktop hero banner */}
+      <div className="hidden sm:block bg-gradient-to-br from-[#003B73] to-[#054FA6] rounded-3xl p-7 text-white shadow-md relative overflow-hidden">
+        <div className="relative z-10 space-y-2">
+          <div className="flex items-center gap-3">
+            <PochtaEmblem className="w-10 h-10 drop-shadow-sm shrink-0" bg="#FFFFFF" fg="#003B73" />
             <div>
-              <div className="text-[10px] sm:text-xs font-mono uppercase tracking-wider text-blue-200 font-bold">
+              <div className="text-xs font-mono uppercase tracking-wider text-blue-200 font-bold">
                 Почта России · Сервис очередей
               </div>
-              <h2 className="text-xl sm:text-3xl font-black tracking-tight text-white">
+              <h2 className="text-3xl font-black tracking-tight text-white">
                 Добро пожаловать
               </h2>
             </div>
           </div>
-          <p className="text-xs sm:text-sm text-blue-100 max-w-md pt-1 leading-relaxed">
+          <p className="text-sm text-blue-100 max-w-md pt-1 leading-relaxed">
             Получите талон на обслуживание или запишитесь на удобное время визита.
           </p>
         </div>
@@ -1464,38 +1483,59 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
       {error && <ErrorBanner message={error} onClose={() => setError(null)} />}
       {notice && <NoticeBanner message={notice} onClose={() => setNotice(null)} />}
 
-      {/* Умный маршрут: рекомендация оптимального отделения на главном экране */}
-      {smartRouting.recommendation && (simulationMode !== 'real_gps' || hasRealGpsFix) && (
-        <div className="bg-gradient-to-r from-emerald-50 via-teal-50 to-blue-50 border border-emerald-200/90 rounded-2xl sm:rounded-3xl p-4 sm:p-5 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4 animate-in fade-in duration-300">
-          <div className="flex items-start sm:items-center gap-3.5 min-w-0">
-            <div className="w-10 h-10 rounded-2xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-md">
-              <Sparkles size={20} className="text-amber-300" />
+      {/* Состояние поиска геолокации (Skeleton) */}
+      {gpsPermissionStatus === 'locating' && (
+        <div className="rounded-2xl border border-blue-200/80 bg-blue-50/70 p-3.5 sm:p-4 animate-pulse flex items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-9 h-9 rounded-xl bg-blue-200 flex items-center justify-center text-blue-700 shrink-0">
+              <Loader2 size={18} className="animate-spin" />
             </div>
             <div className="min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-[11px] font-black uppercase tracking-wider text-emerald-800 bg-emerald-100/90 px-2.5 py-0.5 rounded-full border border-emerald-200">
+              <div className="h-3.5 bg-blue-200 rounded w-28 mb-1.5" />
+              <div className="h-3 bg-blue-100 rounded w-44" />
+            </div>
+          </div>
+          <span className="text-[11px] font-mono font-bold text-blue-700 shrink-0 bg-blue-100/80 px-2.5 py-1 rounded-full border border-blue-200">
+            Поиск гео…
+          </span>
+        </div>
+      )}
+
+      {/* Умный маршрут: рекомендация оптимального отделения на главном экране */}
+      {smartRouting.recommendation && (simulationMode !== 'real_gps' || hasRealGpsFix) && (
+        <div className="bg-gradient-to-r from-emerald-50 via-teal-50 to-blue-50 border border-emerald-200/90 rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-3 sm:gap-4 animate-in fade-in duration-300">
+          <div className="flex items-start sm:items-center gap-3 sm:gap-3.5 min-w-0 w-full md:w-auto">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-md">
+              <Sparkles size={18} className="text-amber-300 sm:w-5 sm:h-5" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                <span className="text-[10px] sm:text-[11px] font-black uppercase tracking-wider text-emerald-800 bg-emerald-100/90 px-2.5 py-0.5 rounded-full border border-emerald-200">
                   Умный маршрут
                 </span>
+                <span className="text-[11px] sm:text-xs font-bold text-emerald-800 bg-white/80 px-2 py-0.5 rounded-full border border-emerald-200/80">
+                  ~{Math.round(smartRouting.recommendation.fastestBranch.totalMinutes)} мин всего
+                </span>
                 {smartRouting.recommendation.timeSavedMinutes > 0 && (
-                  <span className="text-xs font-bold text-emerald-700">
-                    Экономия ~{smartRouting.recommendation.timeSavedMinutes} мин относительно ближайшего
+                  <span className="text-[11px] sm:text-xs font-bold text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-full border border-emerald-200">
+                    Экономия ~{smartRouting.recommendation.timeSavedMinutes} мин
                   </span>
                 )}
               </div>
-              <p className="text-sm font-extrabold text-[#031E56] mt-1">
+              <p className="text-xs sm:text-sm font-extrabold text-[#031E56] mt-1 break-words">
                 {smartRouting.recommendation.bannerText}
               </p>
-              <p className="text-xs text-slate-600 mt-0.5">
+              <p className="text-[11px] sm:text-xs text-slate-600 mt-0.5">
                 {smartRouting.recommendation.stayReason}
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2 w-full md:w-auto shrink-0">
+          <div className="flex items-center gap-2 w-full md:w-auto shrink-0 pt-1 md:pt-0">
             <button
               type="button"
               onClick={() => setRouteOfferBranch(smartRouting.recommendation!.fastestBranch)}
-              className="flex-1 md:flex-none px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs shadow-sm transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+              className="flex-1 md:flex-none min-h-[42px] px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs shadow-sm transition-all flex items-center justify-center gap-1.5 cursor-pointer"
             >
               <Navigation size={14} />
               <span>Маршрут</span>
@@ -1503,10 +1543,47 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
             <button
               type="button"
               onClick={() => handleRepeatTicket(smartRouting.recommendation!.fastestBranch.id)}
-              className="flex-1 md:flex-none px-4 py-2.5 rounded-xl bg-[#052F85] hover:bg-[#031E56] active:scale-95 text-white font-bold text-xs shadow-sm transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+              className="flex-1 md:flex-none min-h-[42px] px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl bg-[#052F85] hover:bg-[#031E56] active:scale-95 text-white font-bold text-xs shadow-sm transition-all flex items-center justify-center gap-1.5 cursor-pointer"
             >
               <TicketIcon size={14} />
               <span>Выбрать</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Calm notice when geolocation is explicitly denied or unavailable */}
+      {!hasRealGpsFix && simulationMode === 'real_gps' && (gpsPermissionStatus === 'denied' || gpsPermissionStatus === 'unavailable') && (
+        <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3.5 sm:p-4 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-8 h-8 rounded-xl bg-slate-200 flex items-center justify-center text-slate-600 shrink-0">
+              <MapPinOff size={16} />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs sm:text-sm font-bold text-slate-800">
+                Геолокация отключена
+              </p>
+              <p className="text-[11px] sm:text-xs text-slate-500 mt-0.5">
+                Показаны отделения Москвы. Выберите ближайшее на карте или включите геопозицию.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 w-full sm:w-auto shrink-0">
+            <button
+              type="button"
+              onClick={() => handleOpenMap()}
+              className="flex-1 sm:flex-none min-h-[38px] px-3 py-1.5 rounded-xl bg-white hover:bg-slate-100 border border-slate-200 active:scale-95 text-slate-700 font-bold text-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <MapPin size={13} />
+              <span>Карта</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => requestGpsPermission()}
+              className="flex-1 sm:flex-none min-h-[38px] px-3 py-1.5 rounded-xl bg-[#003B73] hover:bg-[#002B55] active:scale-95 text-white font-bold text-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <Navigation size={13} />
+              <span>Включить гео</span>
             </button>
           </div>
         </div>
@@ -1587,102 +1664,109 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
         </div>
       )}
 
-      {/* 4 Prominent Action Cards - Expanded & Spacious */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
-        {/* 1. Записаться онлайн */}
-        <button
-          type="button"
-          onClick={() => { resetBooking(); setScreen('booking'); }}
-          className="p-5 sm:p-6 min-h-[175px] sm:min-h-[195px] rounded-2xl sm:rounded-3xl bg-white border border-[#D2D8E2] hover:border-[#054FA6] hover:shadow-lg active:scale-[0.98] transition-all text-left group flex flex-row sm:flex-col items-center sm:items-start justify-between cursor-pointer"
-        >
-          <div className="relative w-12 h-12 flex items-center justify-center sm:mb-4 group-hover:scale-105 transition-transform shrink-0">
-            <div className="w-10 h-10 rounded-full bg-[#054FA6]/10 absolute" />
-            <CalendarClock size={24} className="relative z-10 text-[#054FA6]" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <h3 className="text-base sm:text-lg font-black text-slate-900 group-hover:text-[#054FA6] transition-colors mb-1">
-              Записаться онлайн
-            </h3>
-            <p className="text-xs text-slate-500 leading-relaxed">
-              Выберите время визита заранее к слоту
-            </p>
-          </div>
-          <ChevronRight className="w-5 h-5 text-slate-400 group-hover:text-[#054FA6] shrink-0 sm:hidden transition-transform group-hover:translate-x-0.5" />
-        </button>
-
-        {/* 2. Взять талон */}
+      {/* 4 Action Cards - Mobile-First Layout: Prominent primary CTA, 2-column secondary, compact full-width status */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-5">
+        {/* 1. Взять талон (Главный сценарий - полноширинный акцент на мобильных) */}
         <button
           type="button"
           onClick={() => { resetWalkin(); setScreen('walkin'); }}
-          className="p-5 sm:p-6 min-h-[175px] sm:min-h-[195px] rounded-2xl sm:rounded-3xl bg-white border border-[#D2D8E2] hover:border-[#003B73] hover:shadow-lg active:scale-[0.98] transition-all text-left group flex flex-row sm:flex-col items-center sm:items-start justify-between cursor-pointer"
+          className="col-span-2 sm:col-span-1 p-4 sm:p-6 min-h-[72px] sm:min-h-[195px] rounded-2xl sm:rounded-3xl bg-gradient-to-r from-[#003B73] via-[#00478F] to-[#054FA6] text-white sm:bg-none sm:bg-white sm:text-slate-900 border border-blue-900 sm:border-[#D2D8E2] hover:border-[#003B73] hover:shadow-lg active:scale-[0.98] transition-all text-left group flex flex-row sm:flex-col items-center sm:items-start justify-between cursor-pointer"
         >
-          <div className="relative w-12 h-12 flex items-center justify-center sm:mb-4 group-hover:scale-105 transition-transform shrink-0">
-            <div className="w-10 h-10 rounded-full bg-[#003B73]/10 absolute" />
-            <TicketIcon size={24} className="relative z-10 text-[#003B73]" />
+          <div className="flex items-center sm:block min-w-0 flex-1">
+            <div className="relative w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center mr-3 sm:mr-0 sm:mb-4 group-hover:scale-105 transition-transform shrink-0">
+              <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-full bg-white/15 sm:bg-[#003B73]/10 absolute" />
+              <TicketIcon size={22} className="relative z-10 text-white sm:text-[#003B73]" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 mb-0.5 sm:mb-1">
+                <h3 className="text-base sm:text-lg font-black text-white sm:text-slate-900 group-hover:text-[#003B73] transition-colors">
+                  Взять талон
+                </h3>
+                <span className="sm:hidden text-[9px] font-mono font-bold bg-[#FFE600] text-black px-1.5 py-0.5 rounded-full uppercase">
+                  Сейчас
+                </span>
+              </div>
+              <p className="text-xs text-blue-100 sm:text-slate-500 leading-relaxed">
+                Получите электронный номерок прямо сейчас
+              </p>
+            </div>
           </div>
-          <div className="flex-1 min-w-0">
-            <h3 className="text-base sm:text-lg font-black text-slate-900 group-hover:text-[#003B73] transition-colors mb-1">
-              Взять талон
-            </h3>
-            <p className="text-xs text-slate-500 leading-relaxed">
-              Получите электронный номерок прямо сейчас
-            </p>
-          </div>
-          <ChevronRight className="w-5 h-5 text-slate-400 group-hover:text-[#003B73] shrink-0 sm:hidden transition-transform group-hover:translate-x-0.5" />
+          <ChevronRight className="w-5 h-5 text-white/70 group-hover:text-white sm:group-hover:text-[#003B73] shrink-0 sm:hidden transition-transform group-hover:translate-x-0.5 ml-2" />
         </button>
 
-        {/* 3. Карта отделений */}
+        {/* 2. Записаться онлайн (Secondary 1) */}
+        <button
+          type="button"
+          onClick={() => { resetBooking(); setScreen('booking'); }}
+          className="col-span-1 p-3.5 sm:p-6 min-h-[110px] sm:min-h-[195px] rounded-2xl sm:rounded-3xl bg-white border border-[#D2D8E2] hover:border-[#054FA6] hover:shadow-lg active:scale-[0.98] transition-all text-left group flex flex-col justify-between cursor-pointer"
+        >
+          <div className="relative w-9 h-9 sm:w-12 sm:h-12 flex items-center justify-center sm:mb-4 group-hover:scale-105 transition-transform shrink-0">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl sm:rounded-full bg-[#054FA6]/10 absolute" />
+            <CalendarClock size={20} className="relative z-10 text-[#054FA6] sm:w-6 sm:h-6" />
+          </div>
+          <div className="min-w-0">
+            <h3 className="text-xs sm:text-lg font-black text-slate-900 group-hover:text-[#054FA6] transition-colors mb-0.5 sm:mb-1 leading-snug">
+              Записаться онлайн
+            </h3>
+            <p className="text-[11px] sm:text-xs text-slate-500 leading-snug">
+              К точному времени визита
+            </p>
+          </div>
+        </button>
+
+        {/* 3. Карта отделений (Secondary 2) */}
         <button
           type="button"
           onClick={() => handleOpenMap()}
-          className="p-5 sm:p-6 min-h-[175px] sm:min-h-[195px] rounded-2xl sm:rounded-3xl bg-white border border-[#D2D8E2] hover:border-[#052F85] hover:shadow-lg active:scale-[0.98] transition-all text-left group flex flex-row sm:flex-col items-center sm:items-start justify-between cursor-pointer"
+          className="col-span-1 p-3.5 sm:p-6 min-h-[110px] sm:min-h-[195px] rounded-2xl sm:rounded-3xl bg-white border border-[#D2D8E2] hover:border-[#052F85] hover:shadow-lg active:scale-[0.98] transition-all text-left group flex flex-col justify-between cursor-pointer"
         >
-          <div className="relative w-12 h-12 flex items-center justify-center sm:mb-4 group-hover:scale-105 transition-transform shrink-0">
-            <div className="w-10 h-10 rounded-full bg-[#052F85]/10 absolute" />
-            <MapPin size={24} className="relative z-10 text-[#052F85]" />
+          <div className="relative w-9 h-9 sm:w-12 sm:h-12 flex items-center justify-center sm:mb-4 group-hover:scale-105 transition-transform shrink-0">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl sm:rounded-full bg-[#052F85]/10 absolute" />
+            <MapPin size={20} className="relative z-10 text-[#052F85] sm:w-6 sm:h-6" />
           </div>
-          <div className="flex-1 min-w-0">
-            <h3 className="text-base sm:text-lg font-black text-slate-900 group-hover:text-[#052F85] transition-colors mb-1">
+          <div className="min-w-0">
+            <h3 className="text-xs sm:text-lg font-black text-slate-900 group-hover:text-[#052F85] transition-colors mb-0.5 sm:mb-1 leading-snug">
               Карта отделений
             </h3>
-            <p className="text-xs text-slate-500 leading-relaxed">
-              Яндекс.Карты, загрузка и фильтры услуг
+            <p className="text-[11px] sm:text-xs text-slate-500 leading-snug">
+              26 отделений и маршруты
             </p>
           </div>
-          <ChevronRight className="w-5 h-5 text-slate-400 group-hover:text-[#052F85] shrink-0 sm:hidden transition-transform group-hover:translate-x-0.5" />
         </button>
 
-        {/* 4. Мои талоны */}
+        {/* 4. Мои талоны (Full width compact row on mobile) */}
         <button
           type="button"
           onClick={() => setScreen('my')}
-          className="p-5 sm:p-6 min-h-[175px] sm:min-h-[195px] rounded-2xl sm:rounded-3xl bg-white border border-[#D2D8E2] hover:border-emerald-600 hover:shadow-lg active:scale-[0.98] transition-all text-left group flex flex-row sm:flex-col items-center sm:items-start justify-between relative cursor-pointer"
+          className="col-span-2 sm:col-span-1 p-3.5 sm:p-6 min-h-[56px] sm:min-h-[195px] rounded-2xl sm:rounded-3xl bg-white border border-[#D2D8E2] hover:border-emerald-600 hover:shadow-lg active:scale-[0.98] transition-all text-left group flex flex-row sm:flex-col items-center sm:items-start justify-between relative cursor-pointer"
         >
-          <div className="relative w-12 h-12 flex items-center justify-center sm:mb-4 group-hover:scale-105 transition-transform shrink-0">
-            <div className="w-10 h-10 rounded-full bg-emerald-600/10 absolute" />
-            <ListChecks size={24} className="relative z-10 text-emerald-700" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <h3 className="text-base sm:text-lg font-black text-slate-900 group-hover:text-emerald-700 transition-colors mb-1">
-                Мои талоны
-              </h3>
-              {savedCount > 0 && (
-                <span className="sm:hidden px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
-                  {savedCount}
-                </span>
-              )}
+          <div className="flex items-center sm:block min-w-0 flex-1">
+            <div className="relative w-9 h-9 sm:w-12 sm:h-12 flex items-center justify-center mr-2.5 sm:mr-0 sm:mb-4 group-hover:scale-105 transition-transform shrink-0">
+              <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl sm:rounded-full bg-emerald-600/10 absolute" />
+              <ListChecks size={20} className="relative z-10 text-emerald-700 sm:w-6 sm:h-6" />
             </div>
-            <p className="text-xs text-slate-500 leading-relaxed">
-              Текущие очереди и статус вызова к окну
-            </p>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <h3 className="text-xs sm:text-lg font-black text-slate-900 group-hover:text-emerald-700 transition-colors">
+                  Мои талоны
+                </h3>
+                {savedCount > 0 && (
+                  <span className="sm:hidden px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                    {savedCount}
+                  </span>
+                )}
+              </div>
+              <p className="hidden sm:block text-xs text-slate-500 leading-relaxed mt-1">
+                Текущие очереди и статус вызова к окну
+              </p>
+            </div>
           </div>
           {savedCount > 0 && (
             <span className="hidden sm:inline absolute top-4 right-4 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
               {savedCount} активных
             </span>
           )}
-          <ChevronRight className="w-5 h-5 text-slate-400 group-hover:text-emerald-700 shrink-0 sm:hidden transition-transform group-hover:translate-x-0.5" />
+          <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-emerald-700 shrink-0 sm:hidden transition-transform group-hover:translate-x-0.5 ml-2" />
         </button>
       </div>
     </div>

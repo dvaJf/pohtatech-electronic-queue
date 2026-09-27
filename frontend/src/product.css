@@ -214,8 +214,8 @@ html, body {
 
 @media (max-width: 639px) {
   .product-header-tools {
-    width: 100%;
-    justify-content: space-between;
+    width: auto;
+    justify-content: flex-end;
   }
 
   .product-header-tools > * {

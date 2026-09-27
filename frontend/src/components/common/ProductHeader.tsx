@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState, useRef } from 'react';
-import { BarChart3, CheckCircle2, Clock, Eye, Loader2, MapPin, RotateCcw, Smartphone, UserPlus, UserX, Volume2, VolumeX, X } from 'lucide-react';
+import { BarChart3, CheckCircle2, Clock, Eye, Loader2, MapPin, MoreHorizontal, RotateCcw, Smartphone, UserPlus, UserX, Volume2, VolumeX, X } from 'lucide-react';
 import { PochtaEmblem, PochtaWordmark } from './PochtaBrand';
 import { getMe, logout, User } from '../../api/authApi';
 import { ClientAuthModal } from '../../features/auth/ClientAuthModal';
@@ -26,6 +26,7 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
     }
   });
   const [a11yOpen, setA11yOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [contrast, setContrast] = useState(() => {
     try { return localStorage.getItem('pochta_a11y_contrast') === 'true'; } catch { return false; }
   });
@@ -35,6 +36,8 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
 
   const a11yRef = useRef<HTMLDivElement>(null);
   const a11yButtonRef = useRef<HTMLButtonElement>(null);
+  const mobileMenuRef = useRef<HTMLDivElement>(null);
+  const mobileMenuButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (typeof navigator !== 'undefined' && navigator.permissions && navigator.permissions.query) {
@@ -108,6 +111,32 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [a11yOpen, closeA11y]);
+
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setMobileMenuOpen(false);
+      }
+    };
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        mobileMenuRef.current &&
+        !mobileMenuRef.current.contains(e.target as Node) &&
+        mobileMenuButtonRef.current &&
+        !mobileMenuButtonRef.current.contains(e.target as Node)
+      ) {
+        setMobileMenuOpen(false);
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [mobileMenuOpen]);
 
   const handleResetA11y = () => {
     setScale(100);
@@ -212,27 +241,27 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
       <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:bg-[#FFE600] focus:text-black focus:px-4 focus:py-2">К содержимому</a>
       <header className="main-product-header bg-[#003B73] text-white shadow-lg sticky top-0 z-40">
         {/* Top Status & Brand Line */}
-        <div className="product-header-row max-w-7xl mx-auto px-2.5 sm:px-4 py-2 sm:py-2.5 flex flex-wrap items-center justify-between gap-2 border-b border-white/10">
+        <div className="product-header-row max-w-7xl mx-auto px-3 sm:px-4 py-2 sm:py-2.5 flex items-center justify-between gap-2 border-b border-white/10">
           {/* Brand Block */}
-          <a href="/" className="flex items-center gap-2 sm:gap-3 select-none group transition-transform shrink-0">
-            <PochtaEmblem className="w-8 h-8 sm:w-9 sm:h-9 shrink-0 drop-shadow-md transition-transform group-hover:scale-105" bg="#003B73" fg="#FFFFFF" />
-            <div className="flex flex-col">
-              <PochtaWordmark className="h-3 sm:h-5 w-auto" color="#FFFFFF" />
-              <div className="text-[10px] sm:text-[11px] text-blue-200 hidden xs:flex items-center gap-1.5 mt-0.5 font-medium">
+          <a href="/" className="flex items-center gap-2 sm:gap-3 select-none group transition-transform shrink-0 min-w-0">
+            <PochtaEmblem className="w-7 h-7 sm:w-9 sm:h-9 shrink-0 drop-shadow-md transition-transform group-hover:scale-105" bg="#003B73" fg="#FFFFFF" />
+            <div className="flex flex-col min-w-0">
+              <PochtaWordmark className="h-3.5 sm:h-5 w-auto" color="#FFFFFF" />
+              <div className="text-[10px] sm:text-[11px] text-blue-200 hidden xs:flex items-center gap-1.5 mt-0.5 font-medium truncate">
                 <span className="font-mono">Электронная очередь</span>
               </div>
             </div>
           </a>
 
           {/* Quick Tools Panel */}
-          <div className="product-header-tools flex min-w-0 items-center gap-1 sm:gap-2 text-xs font-mono sm:shrink-0">
-            {/* 1. Звук (Audio Toggle) */}
+          <div className="product-header-tools flex min-w-0 items-center gap-1 sm:gap-2 text-xs font-mono shrink-0">
+            {/* 1. Звук (Audio Toggle) - visible on md+ */}
             <button
               type="button"
               onClick={() => toggleSound()}
               aria-pressed={soundEnabled}
               aria-label={soundEnabled ? 'Выключить звук' : 'Включить звук'}
-              className="cx-header-btn h-8 w-8 sm:w-auto sm:min-w-[104px] sm:px-2.5 sm:gap-1.5"
+              className="cx-header-btn h-8 w-8 sm:w-auto sm:min-w-[104px] sm:px-2.5 sm:gap-1.5 hidden md:flex items-center"
               title="Звуковое оповещение"
             >
               {soundEnabled ? <Volume2 className="w-3.5 h-3.5 text-[#86BBFF]" /> : <VolumeX className="w-3.5 h-3.5 text-slate-400" />}
@@ -246,14 +275,14 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
               disabled={geoStatus === 'locating'}
               aria-busy={geoStatus === 'locating'}
               aria-label={geoStatus === 'locating' ? 'Определяем местоположение' : 'Определить местоположение'}
-              className={`cx-header-btn h-8 px-2 sm:px-2.5 gap-1.5 ${
+              className={`cx-header-btn h-8 px-2 sm:px-2.5 gap-1.5 flex items-center transition-all cursor-pointer ${
                 geoStatus === 'granted' ? '!bg-white/20 !border-white/40 text-emerald-300' : ''
               }`}
               title={geoStatus === 'granted' ? 'Геолокация активна (определение отделений)' : 'Разрешить геолокацию для точного поиска отделений'}
             >
               {geoStatus === 'locating' ? <Loader2 className="w-3.5 h-3.5 animate-spin text-[#FFE600]" /> : <MapPin className={`w-3.5 h-3.5 ${geoStatus === 'granted' ? 'text-emerald-400' : 'text-[#86BBFF]'}`} />}
-              <span className="font-bold text-white hidden sm:inline whitespace-nowrap">
-                {geoStatus === 'locating' ? 'Определяем…' : geoStatus === 'granted' ? 'Гео: ВКЛ' : 'Геолокация'}
+              <span className="font-bold text-white text-[11px] sm:text-xs whitespace-nowrap">
+                {geoStatus === 'locating' ? 'Определяем…' : geoStatus === 'granted' ? 'Гео: ВКЛ' : 'Гео'}
               </span>
             </button>
 
@@ -266,7 +295,7 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
               aria-expanded={a11yOpen}
               aria-controls="a11y-settings"
               aria-label="Настройки доступности"
-              className={`cx-header-btn h-8 w-8 sm:w-auto sm:min-w-[104px] sm:px-2.5 sm:gap-1.5 ${
+              className={`cx-header-btn h-8 w-8 sm:w-auto sm:min-w-[104px] sm:px-2.5 sm:gap-1.5 flex items-center justify-center cursor-pointer ${
                 accessibilityActive ? '!bg-[#FFE600] !text-black !border-[#FFE600] font-bold shadow-md' : ''
               }`}
               title="Настройки доступности (версия для слабовидящих)"
@@ -277,13 +306,30 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
               </span>
             </button>
 
+            {/* 4. Mobile More (⋯) Menu Button */}
+            <button
+              ref={mobileMenuButtonRef}
+              type="button"
+              onClick={() => setMobileMenuOpen((prev) => !prev)}
+              aria-expanded={mobileMenuOpen}
+              aria-label="Дополнительное меню"
+              className={`sm:hidden h-8 w-8 rounded-lg border flex items-center justify-center transition-all cursor-pointer ${
+                mobileMenuOpen
+                  ? 'bg-white/25 border-white/40 text-white'
+                  : 'bg-white/10 border-white/20 text-white hover:bg-white/20'
+              }`}
+              title="Меню"
+            >
+              <MoreHorizontal className="w-4 h-4" />
+            </button>
+
             {a11yOpen && (
               <div
                 ref={a11yRef}
                 id="a11y-settings"
                 role="dialog"
                 aria-labelledby="a11y-settings-title"
-                className="absolute right-2 sm:right-4 top-[5.75rem] sm:top-14 z-50 w-[calc(100vw-1rem)] sm:w-80 max-w-[340px] rounded-2xl border border-white/20 bg-[#002B55] p-3.5 text-left text-xs text-white shadow-2xl backdrop-blur-md"
+                className="absolute right-2 sm:right-4 top-[3.25rem] sm:top-14 z-50 w-[calc(100vw-1rem)] sm:w-80 max-w-[340px] rounded-2xl border border-white/20 bg-[#002B55] p-3.5 text-left text-xs text-white shadow-2xl backdrop-blur-md"
               >
                 {/* Header */}
                 <div className="flex items-center justify-between pb-2.5 border-b border-white/15 mb-3">
@@ -380,13 +426,13 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
             )}
 
             {/* 4. Время (Moscow Clock: HH:mm without seconds) */}
-            <div className="flex items-center justify-center gap-1.5 h-8 px-2 sm:px-2.5 sm:min-w-[72px] rounded-lg border transition-all bg-white/15 border-white/30 text-white hover:bg-white/25 select-none" title="Московское время (Europe/Moscow)">
+            <div className="hidden md:flex items-center justify-center gap-1.5 h-8 px-2 sm:px-2.5 sm:min-w-[72px] rounded-lg border transition-all bg-white/15 border-white/30 text-white hover:bg-white/25 select-none" title="Московское время (Europe/Moscow)">
               <Clock className="w-3.5 h-3.5 text-[#86BBFF] shrink-0" />
               <span className="font-bold text-white tabular-nums text-xs leading-none whitespace-nowrap">{timeStr || 'МСК'}</span>
             </div>
 
             {/* Auth / Account Area */}
-            <div className="flex items-center gap-1.5 sm:gap-2 border-l border-white/20 pl-1.5 sm:pl-2 ml-0.5">
+            <div className="hidden sm:flex items-center gap-1.5 sm:gap-2 border-l border-white/20 pl-1.5 sm:pl-2 ml-0.5">
               {currentUser ? (
                 <div className="flex items-center gap-1.5 sm:gap-2">
                   <button
@@ -431,6 +477,103 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
             </div>
           </div>
         </div>
+
+        {/* Mobile Dropdown Menu (⋯) */}
+        {mobileMenuOpen && (
+          <div
+            ref={mobileMenuRef}
+            className="sm:hidden absolute right-2.5 top-[3.25rem] z-50 w-72 max-w-[calc(100vw-1.25rem)] rounded-2xl border border-white/20 bg-[#002B55] p-3 text-white shadow-2xl backdrop-blur-md space-y-2.5 animate-in fade-in"
+          >
+            {/* Header info */}
+            <div className="flex items-center justify-between pb-2 border-b border-white/15 text-xs text-blue-200">
+              <span className="font-bold text-white">Меню сервиса</span>
+              <div className="flex items-center gap-1 text-[11px] font-mono">
+                <Clock className="w-3 h-3 text-[#86BBFF]" />
+                <span>{timeStr || 'МСК'}</span>
+              </div>
+            </div>
+
+            {/* Звук */}
+            <button
+              type="button"
+              onClick={() => toggleSound()}
+              className="w-full h-10 px-3 rounded-xl bg-white/10 hover:bg-white/15 border border-white/15 flex items-center justify-between text-xs font-bold text-white transition-colors cursor-pointer"
+            >
+              <div className="flex items-center gap-2">
+                {soundEnabled ? <Volume2 className="w-4 h-4 text-[#86BBFF]" /> : <VolumeX className="w-4 h-4 text-slate-400" />}
+                <span>Звуковое оповещение</span>
+              </div>
+              <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full ${soundEnabled ? 'bg-emerald-500/20 text-emerald-300' : 'bg-white/10 text-white/60'}`}>
+                {soundEnabled ? 'ВКЛ' : 'ВЫКЛ'}
+              </span>
+            </button>
+
+            {/* Пользователь / Войти */}
+            {currentUser ? (
+              <div className="p-2.5 rounded-xl bg-white/10 border border-white/15 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <span className="text-xs font-bold text-white truncate max-w-[150px]">{currentUser.email}</span>
+                    {currentUser.phoneVerified && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-300 shrink-0" />}
+                  </div>
+                  <span className="text-[9px] font-mono text-blue-200 uppercase bg-blue-900/60 px-1.5 py-0.5 rounded">
+                    {currentUser.role === 'opc_chief' ? 'Начальник' : currentUser.role === 'employee' ? 'Оператор' : 'Клиент'}
+                  </span>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => { setMobileMenuOpen(false); setIsProfileOpen(true); }}
+                    className="flex-1 py-1.5 px-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-xs font-bold text-white text-center cursor-pointer"
+                  >
+                    Профиль
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setMobileMenuOpen(false); handleLogout(); }}
+                    className="py-1.5 px-2.5 bg-white/10 hover:bg-white/20 rounded-lg text-xs font-bold text-red-200 flex items-center justify-center gap-1 cursor-pointer"
+                  >
+                    <UserX className="w-3.5 h-3.5" />
+                    <span>Выйти</span>
+                  </button>
+                </div>
+              </div>
+            ) : !isStaffArea ? (
+              <button
+                type="button"
+                onClick={() => { setMobileMenuOpen(false); setIsAuthModalOpen(true); }}
+                className="w-full h-10 px-3 rounded-xl bg-[#FFE600] hover:bg-[#FFD600] active:scale-95 text-black font-extrabold text-xs flex items-center justify-center gap-2 shadow-sm transition-all cursor-pointer"
+              >
+                <UserPlus className="w-4 h-4 text-[#003B73]" />
+                <span>Войти в личный кабинет</span>
+              </button>
+            ) : null}
+
+            {/* Доступность быстрые опции */}
+            <div className="pt-2 border-t border-white/15">
+              <div className="flex items-center justify-between mb-1.5 text-[11px] text-blue-200 font-bold">
+                <span>Размер шрифта</span>
+                {scale !== 100 && <span className="text-[#FFE600]">{scale}%</span>}
+              </div>
+              <div className="grid grid-cols-3 gap-1.5">
+                {[100, 125, 150].map((val) => (
+                  <button
+                    key={val}
+                    type="button"
+                    onClick={() => setScale(val)}
+                    className={`py-1 rounded-lg text-xs font-bold border transition-colors cursor-pointer ${
+                      scale === val
+                        ? 'bg-[#FFE600] text-black border-[#FFE600]'
+                        : 'bg-white/10 text-white border-white/20 hover:bg-white/20'
+                    }`}
+                  >
+                    {val}%
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Secondary Navigation (Staff Only) */}
         {isStaffArea && (

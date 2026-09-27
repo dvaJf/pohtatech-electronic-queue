@@ -247,8 +247,8 @@ export function ClientAuthModal({ isOpen, onClose, onUserChanged }: ClientAuthMo
             </div>
 
             {mode === 'register' && (
-              <div className="pt-0.5">
-                <label className="flex items-start gap-2.5 text-[11px] text-slate-600 select-none cursor-pointer leading-relaxed">
+              <div className="pt-0.5 space-y-1.5">
+                <label className="flex items-start gap-2.5 text-[11px] text-slate-600 select-none cursor-pointer leading-snug">
                   <input
                     type="checkbox"
                     required
@@ -257,33 +257,20 @@ export function ClientAuthModal({ isOpen, onClose, onUserChanged }: ClientAuthMo
                     className="mt-0.5 w-4 h-4 rounded border-slate-300 text-[#003B73] focus:ring-[#054FA6] shrink-0 cursor-pointer"
                   />
                   <span>
-                    Я принимаю{' '}
-                    <button
-                      type="button"
-                      onClick={() => { setLegalDoc('terms'); setLegalModalOpen(true); }}
-                      className="text-[#054FA6] font-semibold hover:underline"
-                    >
-                      Пользовательское соглашение
-                    </button>
-                    , даю{' '}
-                    <button
-                      type="button"
-                      onClick={() => { setLegalDoc('consent'); setLegalModalOpen(true); }}
-                      className="text-[#054FA6] font-semibold hover:underline"
-                    >
-                      Согласие на обработку данных
-                    </button>{' '}
-                    в соответствии с{' '}
-                    <button
-                      type="button"
-                      onClick={() => { setLegalDoc('privacy'); setLegalModalOpen(true); }}
-                      className="text-[#054FA6] font-semibold hover:underline"
-                    >
-                      Политикой конфиденциальности (152-ФЗ)
-                    </button>
-                    .
+                    Я принимаю условия использования и даю согласие на обработку персональных данных.
                   </span>
                 </label>
+
+                <div className="pl-6.5">
+                  <button
+                    type="button"
+                    onClick={() => { setLegalDoc('privacy'); setLegalModalOpen(true); }}
+                    className="text-[11px] text-[#054FA6] hover:text-[#003B73] font-semibold underline flex items-center gap-1 transition-colors"
+                  >
+                    <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+                    <span>Официальные документы (152-ФЗ, Соглашение, Дисклеймер)</span>
+                  </button>
+                </div>
               </div>
             )}
 
@@ -295,7 +282,7 @@ export function ClientAuthModal({ isOpen, onClose, onUserChanged }: ClientAuthMo
                   onClick={() => { setLegalDoc('privacy'); setLegalModalOpen(true); }}
                   className="text-slate-600 font-medium hover:underline"
                 >
-                  Политикой конфиденциальности
+                  Политикой конфиденциальности (152-ФЗ)
                 </button>
               </p>
             )}
@@ -347,6 +334,20 @@ export function ClientAuthModal({ isOpen, onClose, onUserChanged }: ClientAuthMo
                 className="text-xs text-[#054FA6] font-semibold hover:underline"
               >
                 {mode === 'login' ? 'Нет учётной записи? Зарегистрироваться' : 'Уже есть аккаунт? Войти'}
+              </button>
+            </div>
+
+            <div className="mt-3 pt-3 border-t border-slate-100 text-center">
+              <button
+                type="button"
+                onClick={() => {
+                  setLegalDoc('privacy');
+                  setLegalModalOpen(true);
+                }}
+                className="text-[11px] text-slate-400 hover:text-[#003B73] font-medium inline-flex items-center gap-1 transition-colors"
+              >
+                <ShieldCheck className="w-3.5 h-3.5 text-slate-400" />
+                <span>Официальные документы (152-ФЗ РФ)</span>
               </button>
             </div>
           </>

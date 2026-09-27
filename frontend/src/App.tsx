@@ -10,7 +10,6 @@ import { PhysicalQRPage } from './pages/PhysicalQRPage';
 import { ProductHeader } from './components/common/ProductHeader';
 import { ClientQueueBoard } from './features/client/ClientQueueBoard';
 import { TVBoard } from './features/client/TVBoard';
-import { LegalFooter } from './features/legal/LegalFooter';
 
 export function App() {
   const [health, setHealth] = useState<'Checking...' | 'Available' | 'Unavailable'>('Checking...');
@@ -83,7 +82,6 @@ export function App() {
       <main id="main" className="flex-1 w-full max-w-7xl mx-auto px-4 py-4 sm:py-6">
         <Suspense fallback={<p>Загрузка рабочего места…</p>}>{activeRoute.page}</Suspense>
       </main>
-      <LegalFooter />
     </div>
   );
 }

@@ -247,43 +247,37 @@ export function ClientAuthModal({ isOpen, onClose, onUserChanged }: ClientAuthMo
             </div>
 
             {mode === 'register' && (
-              <div className="pt-0.5 space-y-1.5">
-                <label className="flex items-start gap-2.5 text-[11px] text-slate-600 select-none cursor-pointer leading-snug">
+              <div className="pt-1 pb-1">
+                <label
+                  style={{ display: 'flex', alignItems: 'flex-start', gap: '0.625rem', marginBottom: 0 }}
+                  className="cursor-pointer select-none group"
+                >
                   <input
                     type="checkbox"
                     required
                     checked={agreedToTerms}
                     onChange={(e) => setAgreedToTerms(e.target.checked)}
-                    className="mt-0.5 w-4 h-4 rounded border-slate-300 text-[#003B73] focus:ring-[#054FA6] shrink-0 cursor-pointer"
+                    style={{
+                      width: '18px',
+                      height: '18px',
+                      minWidth: '18px',
+                      marginTop: '2px',
+                      padding: 0,
+                      cursor: 'pointer',
+                      accentColor: '#003B73'
+                    }}
+                    className="rounded border border-slate-300 text-[#003B73] focus:ring-[#054FA6] shrink-0 cursor-pointer"
                   />
-                  <span>
-                    Я принимаю условия использования и даю согласие на обработку персональных данных.
+                  <span className="text-xs text-slate-600 leading-snug group-hover:text-slate-900 transition-colors">
+                    Я принимаю условия использования и даю согласие на обработку персональных данных
                   </span>
                 </label>
-
-                <div className="pl-6.5">
-                  <button
-                    type="button"
-                    onClick={() => { setLegalDoc('privacy'); setLegalModalOpen(true); }}
-                    className="text-[11px] text-[#054FA6] hover:text-[#003B73] font-semibold underline flex items-center gap-1 transition-colors"
-                  >
-                    <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
-                    <span>Официальные документы (152-ФЗ, Соглашение, Дисклеймер)</span>
-                  </button>
-                </div>
               </div>
             )}
 
             {mode === 'login' && (
-              <p className="text-[10px] text-slate-400 text-center leading-tight">
-                Авторизуясь, вы подтверждаете согласие с{' '}
-                <button
-                  type="button"
-                  onClick={() => { setLegalDoc('privacy'); setLegalModalOpen(true); }}
-                  className="text-slate-600 font-medium hover:underline"
-                >
-                  Политикой конфиденциальности (152-ФЗ)
-                </button>
+              <p className="text-[11px] text-slate-400 text-center leading-tight">
+                Авторизуясь, вы подтверждаете согласие с условиями сервиса и политикой обработки данных.
               </p>
             )}
 

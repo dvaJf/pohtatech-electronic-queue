@@ -14,6 +14,8 @@
   --radius-lg: 8px;
   --space: 1rem;
   --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --focus-ring-color: #0B63CE;
+  --focus-ring-offset: 3px;
 }
 
 html, body {
@@ -194,9 +196,31 @@ html, body {
   cursor: not-allowed;
 }
 
-.product-shell :focus-visible {
-  outline: 2px solid var(--brand-accent);
-  outline-offset: 2px;
+.product-shell :where(button, a, input, select, textarea, [tabindex]):focus:not(:focus-visible) {
+  outline: none;
+}
+
+.product-shell :where(button, a, input, select, textarea, [tabindex]):focus-visible {
+  outline: 3px solid var(--focus-ring-color);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.cx-link-button {
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+
+@media (max-width: 639px) {
+  .product-header-tools {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .product-header-tools > * {
+    min-width: 0;
+  }
 }
 
 .product-shell [role=alert] {
@@ -646,5 +670,4 @@ html[data-reduced-motion] *, html[data-reduced-motion] *::before, html[data-redu
 .scrollbar-thin::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
 }
-
 

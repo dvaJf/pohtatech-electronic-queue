@@ -880,3 +880,52 @@ html:not(.a11y-contrast) .main-product-header .cx-header-btn[aria-pressed="true"
     padding: 1rem 0.875rem;
   }
 }
+/* The photo header is its own responsive container: compact map cards can shrink
+   independently from the browser viewport. */
+.branch-card-photo {
+  container-type: inline-size;
+}
+
+.branch-photo-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+  pointer-events: none;
+}
+
+.branch-rating-badge {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 1 auto;
+  min-width: 0;
+  gap: 0.25rem;
+  white-space: nowrap;
+  pointer-events: auto;
+}
+
+.branch-queue-badge {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+@container (max-width: 340px) {
+  .branch-rating-source,
+  .branch-queue-suffix {
+    display: none;
+  }
+}
+
+/* Isolated Map Marker styling: strictly single-row, compact, immune to text scaling */
+.pvz-pin-marker {
+  font-family: 'Manrope', sans-serif !important;
+  font-size: 11px !important;
+  line-height: 1.2 !important;
+  white-space: nowrap !important;
+}
+
+.pvz-pin-marker * {
+  white-space: nowrap !important;
+  line-height: 1.2 !important;
+}

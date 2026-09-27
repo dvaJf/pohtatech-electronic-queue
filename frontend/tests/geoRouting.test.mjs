@@ -269,7 +269,7 @@ test('Recommendation triggers when an alternative branch is faster than the clos
   assert.equal(result.recommendation.fastestBranch.id, 'alt-fast');
   assert.ok(result.recommendation.timeSavedMinutes > 15, `Expected >15 min saved, got ${result.recommendation.timeSavedMinutes}`);
   assert.ok(result.recommendation.bannerText.includes('Отделение Рождественка'));
-  assert.ok(result.recommendation.bannerText.includes(String(result.recommendation.timeSavedMinutes)));
+  assert.ok(result.recommendation.bannerText.includes(String(Math.round(result.recommendation.fastestBranch.totalMinutes))));
 
   // Test backwards-compatible calculateFastestAlternative
   const altResult = calculateFastestAlternative('close-crowded', [closeBranch, alternativeBranch], userLat, userLng);
@@ -277,13 +277,40 @@ test('Recommendation triggers when an alternative branch is faster than the clos
   assert.equal(altResult.fastestBranch.id, 'alt-fast');
   assert.equal(altResult.timeSavedMinutes, result.recommendation.timeSavedMinutes);
 
-  // Negative test: when the closest branch is ALREADY the fastest, no recommendation is produced
+  // When the closest branch is already the fastest, it is still recommended.
   const freeCloseBranch = {
     ...closeBranch,
     activeQueueCount: 0, // wait = 0 min, total = ~2 min
   };
   const noRecResult = calculateSmartRouting(userLat, userLng, [freeCloseBranch, alternativeBranch]);
-  assert.equal(noRecResult.recommendation, undefined, 'No recommendation when closest branch is already the fastest');
+  assert.ok(noRecResult.recommendation, 'Closest branch must still be recommended');
+  assert.equal(noRecResult.recommendation.currentClosestBranch.id, 'close-crowded');
+  assert.equal(noRecResult.recommendation.fastestBranch.id, 'close-crowded');
+  assert.equal(noRecResult.recommendation.timeSavedMinutes, 0);
+  assert.equal(noRecResult.recommendation.advice, 'stay');
+  assert.match(noRecResult.recommendation.bannerText, /Рекомендуем ближайшее к вам/);
+});
+
+test('Recommendation omits invalid and implausibly distant route durations', async () => {
+  const { calculateSmartRouting } = await loadTS('../src/features/client/map/branchLocations.ts');
+  const valid = {
+    id: 'valid', code: '1', name: 'Рядом', address: 'Рядом', metro: '', metroColor: '#000000',
+    lat: 55.761, lng: 37.636, workHours: '08:00–20:00', rating: 4.8, reviewCount: 1,
+    services: [{ id: 'all', name: 'Все', category: 'all', avgServiceMinutes: 4 }],
+    activeQueueCount: 1, activeWindows: 1, amenities: [], photos: [], walkingMinutes: 0, distanceKm: 0,
+  };
+  const invalid = { ...valid, id: 'invalid', name: 'Сломанные данные', lat: Number.NaN };
+  const distant = { ...valid, id: 'distant', name: 'Другой город', lat: 47.2357, lng: 39.7015 };
+
+  const result = calculateSmartRouting(55.76, 37.635, [valid, invalid, distant]);
+  assert.equal(result.rankedBranches.length, 1);
+  assert.equal(result.recommendation?.fastestBranch.id, 'valid');
+  for (const value of [
+    result.recommendation?.fastestBranch.travelMinutes,
+    result.recommendation?.fastestBranch.waitMinutes,
+    result.recommendation?.fastestBranch.totalMinutes,
+    result.recommendation?.timeSavedMinutes,
+  ]) assert.ok(Number.isFinite(value) && value >= 0, `invalid recommendation time: ${value}`);
 });
 
 test('MOSCOW_BRANCHES contains at least 7 realistic branches and includes default backend UUID', async () => {

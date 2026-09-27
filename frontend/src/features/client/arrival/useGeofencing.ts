@@ -1,11 +1,11 @@
 import { isReliableArrival } from './arrivalPolicy';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { MOSCOW_BRANCHES, BranchLocation } from '../map/branchLocations';
-import { getPositionWithFallback } from '../map/geolocation';
+import { getCurrentPositionFast } from '../map/geolocation';
 
 export type GeofenceSimulationMode = 'near_101000' | 'home_1500m' | 'real_gps';
 
-export type GpsPermissionState = 'prompt' | 'granted' | 'denied' | 'unavailable';
+export type GpsPermissionState = 'prompt' | 'locating' | 'granted' | 'denied' | 'unavailable';
 
 export interface GeoCoordinates {
   lat: number;
@@ -107,6 +107,7 @@ export function useGeofencing(options: UseGeofencingOptions = {}): UseGeofencing
   const [hasRealGpsFix, setHasRealGpsFix] = useState<boolean>(initialMode !== 'real_gps');
   const [gpsPermissionStatus, setGpsPermissionStatus] = useState<GpsPermissionState>('prompt');
   const [gpsError, setGpsError] = useState<string | null>(null);
+  const requestInFlightRef = useRef<Promise<GeolocationPosition> | null>(null);
 
   const [currentCoordinates, setCurrentCoordinates] = useState<GeoCoordinates>(() => {
     if (initialMode === 'home_1500m') return GEOFENCE_PRESETS.home_1500m;
@@ -122,8 +123,12 @@ export function useGeofencing(options: UseGeofencingOptions = {}): UseGeofencing
       return;
     }
 
+    if (requestInFlightRef.current) return;
     setGpsError(null);
-    getPositionWithFallback(navigator.geolocation).then((pos) => {
+    setGpsPermissionStatus('locating');
+    const request = getCurrentPositionFast(navigator.geolocation);
+    requestInFlightRef.current = request;
+    request.then((pos) => {
         if (modeRef.current !== 'real_gps') return;
         setCurrentCoordinates({
           lat: pos.coords.latitude,
@@ -144,6 +149,8 @@ export function useGeofencing(options: UseGeofencingOptions = {}): UseGeofencing
           setGpsPermissionStatus('unavailable');
           setGpsError(`GPS недоступен (${err.message})`);
         }
+      }).finally(() => {
+        if (requestInFlightRef.current === request) requestInFlightRef.current = null;
       });
   }, []);
 
@@ -161,49 +168,25 @@ export function useGeofencing(options: UseGeofencingOptions = {}): UseGeofencing
     } else if (mode === 'real_gps') {
       setHasRealGpsFix(false);
     }
-  }, [requestGpsPermission]);
+  }, []);
 
-  // Request real GPS on mount when in real_gps mode
+  // Reuse an already granted permission on mount. When permission is still in
+  // the prompt state, the browser request starts only from the user's click.
   useEffect(() => {
     if (simulationMode === 'real_gps') {
       if (typeof window !== 'undefined' && navigator.geolocation) {
+        if (navigator.permissions?.query) {
+          let active = true;
+          navigator.permissions.query({ name: 'geolocation' as PermissionName })
+            .then(permission => {
+              if (!active || modeRef.current !== 'real_gps') return;
+              setGpsPermissionStatus(permission.state === 'denied' ? 'denied' : 'prompt');
+              if (permission.state === 'granted') requestGpsPermission();
+            })
+            .catch(() => { if (active) setGpsPermissionStatus('prompt'); });
+          return () => { active = false; };
+        }
         requestGpsPermission();
-
-        let isMounted = true;
-        const watchId = navigator.geolocation.watchPosition(
-          (pos) => {
-            if (!isMounted) return;
-            setCurrentCoordinates({
-              lat: pos.coords.latitude,
-              lng: pos.coords.longitude,
-              accuracy: pos.coords.accuracy,
-          measuredAt: pos.timestamp,
-            });
-            setHasRealGpsFix(true);
-            setGpsPermissionStatus('granted');
-            setGpsError(null);
-          },
-          (err) => {
-            if (!isMounted) return;
-            if (err.code === 1) {
-              setHasRealGpsFix(false);
-              setGpsPermissionStatus('denied');
-              setGpsError('Доступ к геолокации отклонен');
-            } else if (!hasRealGpsFix) {
-              setGpsError(`GPS: ${err.message}`);
-            }
-          },
-          {
-            enableHighAccuracy: true,
-            timeout: 15000,
-            maximumAge: 10000,
-          }
-        );
-
-        return () => {
-          isMounted = false;
-          navigator.geolocation.clearWatch(watchId);
-        };
       } else {
         setGpsPermissionStatus('unavailable');
         setGpsError('Геолокация не поддерживается в этом браузере');

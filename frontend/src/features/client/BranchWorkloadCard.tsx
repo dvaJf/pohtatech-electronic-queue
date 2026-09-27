@@ -151,26 +151,28 @@ export function BranchWorkloadCard({
     >
       {/* Шапка карточки */}
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
+        <div className="min-w-0 flex-1">
           <h3 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
             Загруженность
           </h3>
-          <div className="flex flex-wrap items-center gap-2 pt-0.5">
+          <div className="space-y-2 pt-0.5">
             <p className="text-xs text-slate-500 font-medium">
               Режим работы: <strong className="text-slate-700">{workHours}</strong>
             </p>
-            {backendWorkload && (
-              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-[#003B73] bg-blue-50 px-2 py-0.5 rounded-full border border-blue-100">
-                <Users className="w-3 h-3 text-[#003B73]" />
-                <span>В очереди сейчас: {backendWorkload.currentWaiting} чел.</span>
-              </span>
-            )}
-            {backendWorkload?.isHistorical && backendWorkload.sampleCount > 0 && (
-              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
-                <BarChart3 className="w-3 h-3 text-slate-400" />
-                <span>По статистике {backendWorkload.sampleCount} талонов</span>
-              </span>
-            )}
+            <div className="flex flex-wrap items-center gap-2">
+              {backendWorkload && (
+                <span className="inline-flex items-center gap-1 text-[11px] font-bold text-[#003B73] bg-blue-50 px-2 py-0.5 rounded-full border border-blue-100">
+                  <Users className="w-3 h-3 text-[#003B73]" />
+                  <span>В очереди сейчас: {backendWorkload.currentWaiting} чел.</span>
+                </span>
+              )}
+              {backendWorkload?.isHistorical && backendWorkload.sampleCount > 0 && (
+                <span className="inline-flex items-center gap-1 text-[10px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+                  <BarChart3 className="w-3 h-3 text-slate-400" />
+                  <span>По статистике {backendWorkload.sampleCount} талонов</span>
+                </span>
+              )}
+            </div>
           </div>
         </div>
 

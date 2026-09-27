@@ -29,6 +29,7 @@ export interface BranchLocation {
   address: string;
   metro: string;
   metroColor: string;
+  landmarkType?: 'metro' | 'landmark';
   lat: number;
   lng: number;
   workHours: string;
@@ -69,6 +70,13 @@ export interface SmartRoutingRecommendation {
 export interface SmartRoutingResult {
   rankedBranches: RankedBranch[];
   recommendation?: SmartRoutingRecommendation;
+}
+
+export const MAX_ROUTE_TRAVEL_MINUTES = 180;
+export const MAX_QUEUE_WAIT_MINUTES = 480;
+
+export function isUsableDurationMinutes(value: unknown, maximum: number): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= maximum;
 }
 
 export const DEFAULT_BRANCH_ID = '11111111-1111-1111-1111-111111111111';
@@ -602,6 +610,7 @@ export const MOSCOW_BRANCHES: BranchLocation[] = [
     address: 'г. Рязань, ул. Почтовая, д. 49',
     metro: 'пл. Ленина',
     metroColor: '#0055A5',
+    landmarkType: 'landmark',
     lat: 54.6291,
     lng: 39.7368,
     workHours: '08:00–22:00',
@@ -801,11 +810,21 @@ export function calculateSmartRouting(
     return { rankedBranches: [] };
   }
 
-  const computedList: RankedBranch[] = branches.map((b) => {
+  if (!Number.isFinite(userLat) || !Number.isFinite(userLng)) {
+    return { rankedBranches: [] };
+  }
+
+  const computedList: RankedBranch[] = branches.flatMap((b) => {
+    if (!Number.isFinite(b.lat) || !Number.isFinite(b.lng)) return [];
     const distanceKm = calculateHaversineDistance(userLat, userLng, b.lat, b.lng);
     const travelMinutes = calculateTravelTimeMinutes(distanceKm);
     const waitMinutes = calculateWaitTime(b, serviceCategory);
     const totalMinutes = calculateTotalTimeMinutes(travelMinutes, waitMinutes);
+    if (!isUsableDurationMinutes(travelMinutes, MAX_ROUTE_TRAVEL_MINUTES)
+        || !isUsableDurationMinutes(waitMinutes, MAX_QUEUE_WAIT_MINUTES)
+        || !isUsableDurationMinutes(totalMinutes, MAX_ROUTE_TRAVEL_MINUTES + MAX_QUEUE_WAIT_MINUTES)) {
+      return [];
+    }
     const projectedArrivalQueue = projectQueueAtArrival(b.activeQueueCount, travelMinutes, b.activeWindows);
     const workload = getBranchWorkload(b.activeQueueCount, b.activeWindows);
 
@@ -821,8 +840,10 @@ export function calculateSmartRouting(
       workloadText: workload.description,
     };
     ranked.branch = ranked;
-    return ranked;
+    return [ranked];
   });
+
+  if (computedList.length === 0) return { rankedBranches: [] };
 
   // Closest branch to user by physical distance
   const closestBranch = [...computedList].sort((a, b) => a.distanceKm - b.distanceKm)[0];
@@ -840,38 +861,21 @@ export function calculateSmartRouting(
     closestInRanked.isClosest = true;
   }
 
-  let recommendation: SmartRoutingRecommendation | undefined;
-  const timeDiff = closestBranch.totalMinutes - fastestBranch.totalMinutes;
-  const timeSavedMinutes = Math.round(timeDiff);
-
-  if (fastestBranch.id !== closestBranch.id && timeSavedMinutes > 0) {
-    // Predictive validation: compute projected wait taking into account the walk
-    const projectedQueue = projectQueueAtArrival(fastestBranch.activeQueueCount, fastestBranch.travelMinutes, fastestBranch.activeWindows);
-    const avgService = getBranchServiceAvgTime(fastestBranch, serviceCategory);
-    const projectedWait = (projectedQueue * avgService) / Math.max(1, fastestBranch.activeWindows);
-    const projectedTotal = fastestBranch.travelMinutes + projectedWait;
-
-    // If projected total is worse or within 2 minutes of staying at closest branch,
-    // advise staying because transit queue eliminates savings
-    if (fastestBranch.serverWaitMinutes === undefined && projectedTotal >= closestBranch.totalMinutes) {
-      recommendation = {
-        currentClosestBranch: closestBranch,
-        fastestBranch,
-        timeSavedMinutes: 0,
-        advice: 'stay',
-        stayReason: `В отделении «${fastestBranch.name}» сейчас свободно, но за время пути (~${Math.round(fastestBranch.travelMinutes)} мин) там сформируется очередь. Оставайтесь здесь.`,
-        bannerText: `Рекомендуем остаться: с учётом дороги до соседнего отделения вы потратите больше времени.`,
-      };
-    } else {
-      recommendation = {
-        currentClosestBranch: closestBranch,
-        fastestBranch,
-        timeSavedMinutes,
-        advice: 'detour',
-        bannerText: `Отделение «${fastestBranch.name}» сэкономит вам ${timeSavedMinutes} мин по оценке дороги и текущей очереди.`,
-      };
-    }
-  }
+  const timeSavedMinutes = Math.max(0, Math.round(closestBranch.totalMinutes - fastestBranch.totalMinutes));
+  const isClosestFastest = fastestBranch.id === closestBranch.id;
+  const total = Math.round(fastestBranch.totalMinutes);
+  const travel = Math.round(fastestBranch.travelMinutes);
+  const wait = Math.round(fastestBranch.waitMinutes);
+  const recommendation: SmartRoutingRecommendation = {
+    currentClosestBranch: closestBranch,
+    fastestBranch,
+    timeSavedMinutes,
+    advice: isClosestFastest ? 'stay' : 'detour',
+    bannerText: isClosestFastest
+      ? `Рекомендуем ближайшее к вам: ${fastestBranch.name} · ~${total} мин`
+      : `Рекомендуем быстрее всего: ${fastestBranch.name} · ~${total} мин`,
+    stayReason: `Суммарно ~${total} мин: ${travel} мин дорога + ${wait} мин очередь`,
+  };
 
   return {
     rankedBranches,

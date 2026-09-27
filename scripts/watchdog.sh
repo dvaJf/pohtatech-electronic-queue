@@ -40,13 +40,13 @@ if ! systemctl is-active --quiet nginx; then
 fi
 
 # 2. Check Backend API
-if ! check_endpoint "http://127.0.0.1:8080/health" 3; then
-    sleep 2
-    if ! check_endpoint "http://127.0.0.1:8080/health" 4; then
+if ! check_endpoint "http://127.0.0.1:8080/health" 10; then
+    sleep 5
+    if ! check_endpoint "http://127.0.0.1:8080/health" 15; then
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] Backend /health failed twice! Restarting backend container..."
         docker restart tsifrovaya-ochered-novogo-pokoleniya-backend-1 || true
-        sleep 3
-        if check_endpoint "http://127.0.0.1:8080/health" 5; then
+        sleep 5
+        if check_endpoint "http://127.0.0.1:8080/health" 15; then
             notify_telegram "⚠️ [Watchdog] Контейнер Backend перестал отвечать на /health, был перезапущен и восстановился."
         else
             notify_telegram "🚨 [Watchdog] ВНИМАНИЕ: Бэкенд не восстановился после перезапуска!"
@@ -55,13 +55,13 @@ if ! check_endpoint "http://127.0.0.1:8080/health" 3; then
 fi
 
 # 3. Check Frontend
-if ! check_endpoint "http://127.0.0.1:5173" 3; then
-    sleep 2
-    if ! check_endpoint "http://127.0.0.1:5173" 4; then
+if ! check_endpoint "http://127.0.0.1:5173" 10; then
+    sleep 5
+    if ! check_endpoint "http://127.0.0.1:5173" 15; then
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] Frontend failed twice! Restarting frontend container..."
         docker restart tsifrovaya-ochered-novogo-pokoleniya-frontend-1 || true
-        sleep 3
-        if check_endpoint "http://127.0.0.1:5173" 5; then
+        sleep 5
+        if check_endpoint "http://127.0.0.1:5173" 15; then
             notify_telegram "⚠️ [Watchdog] Контейнер Frontend был перезапущен сторожевым процессом и восстановился."
         else
             notify_telegram "🚨 [Watchdog] ВНИМАНИЕ: Фронтенд не восстановился после перезапуска!"

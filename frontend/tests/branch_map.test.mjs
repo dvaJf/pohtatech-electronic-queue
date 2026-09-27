@@ -85,12 +85,30 @@ test('Detailed branch card displays photo, address, metro, hours, live wait, ame
   assert.match(fileContent, /DetailedBranchCard/);
   assert.match(fileContent, /Фото входа отделения/);
   assert.match(fileContent, /branch\.photoUrl/);
-  assert.match(fileContent, /branch\.metro/);
+  assert.match(fileContent, /getLandmarkPresentation\(branch\.rawLocation\)/);
   assert.match(fileContent, /branch\.workHours/);
   assert.match(fileContent, /liveWaitMinutes/);
   assert.match(fileContent, /Доступная среда/);
   assert.match(fileContent, /Взять талон/);
   assert.match(fileContent, /Записаться/);
+});
+
+test('photo badges use card-container layout and omit unavailable values', async () => {
+  const modal = await readFile(new URL('../src/features/client/map/BranchMapModal.tsx', import.meta.url), 'utf8');
+  const css = await readFile(new URL('../src/features/client/client.css', import.meta.url), 'utf8');
+  assert.match(modal, /branch\.rating\s*!==\s*null\s*&&/);
+  assert.match(modal, /branch\.liveWaitMinutes\s*!==\s*null\s*&&/);
+  assert.match(modal, /branch-photo-badges/);
+  assert.match(css, /container-type:\s*inline-size/);
+  assert.match(css, /\.branch-photo-badges[\s\S]*display:\s*flex[\s\S]*flex-wrap:\s*wrap[\s\S]*justify-content:\s*space-between/);
+  assert.match(css, /@container\s*\(max-width:\s*340px\)/);
+});
+
+test('map marker remains a compact single-line pill separate from card badges', async () => {
+  const modal = await readFile(new URL('../src/features/client/map/BranchMapModal.tsx', import.meta.url), 'utf8');
+  assert.match(modal, /pvz-pin-marker[\s\S]*display:inline-flex;align-items:center;gap:5px[\s\S]*white-space:nowrap/);
+  assert.match(modal, /★<\/span><span>\$\{ratingText\}<\/span><span style="opacity:\.6;">•/);
+  assert.match(modal, /width:8px;height:8px;transform:rotate\(45deg\)/);
 });
 
 test('Leaflet/Carto/OSM fallback operates seamlessly with required test keywords', async () => {
@@ -131,14 +149,28 @@ test('map shows the client position on Yandex and fallback maps', async () => {
   assert.match(workspace, /userCoordinates=\{hasRealGpsFix \? \[currentCoordinates\.lat, currentCoordinates\.lng\] : null\}/);
   assert.match(modal, /userLocation=\{userLocation\}/);
   assert.match(modal, /data-testid="client-location-marker"/);
-  assert.match(modal, /renderUserLocation\(userLocationRef\.current\)/);
+  assert.match(modal, /updateUserPlacemark\(initialUserLocation\)/);
   assert.doesNotMatch(workspace, /Проверить всплывающее окно · тестовое отделение/);
 });
 
-test('client requests GPS on entry and opens the arrival sheet from a live nearby fix', async () => {
+test('external branch target is consumed by id and blocks automatic GPS recentering', async () => {
+  const modal = await readFile(new URL('../src/features/client/map/BranchMapModal.tsx', import.meta.url), 'utf8');
+  const workspace = await readFile(new URL('../src/features/client/ClientWorkspace.tsx', import.meta.url), 'utf8');
+  assert.match(modal, /selectedBranchId:\s*targetBranchId/);
+  assert.match(modal, /focusBranchOnMap\(targetBranchId/);
+  assert.match(modal, /hasAutoCenteredRef\.current\s*=\s*true/);
+  assert.match(modal, /map\.margin\.addArea\(area\)/);
+  assert.match(modal, /useMapMargin:\s*true/);
+  assert.match(modal, /ResizeObserver/);
+  assert.match(workspace, /selectedBranchId=\{mapTargetBranchId\}/);
+  assert.doesNotMatch(workspace, /selectedBranchId=\{null\}/);
+});
+
+test('client reuses granted GPS on entry without a parallel watch and opens the arrival sheet', async () => {
   const workspace = await readFile(new URL('../src/features/client/ClientWorkspace.tsx', import.meta.url), 'utf8');
   const geofence = await readFile(new URL('../src/features/client/arrival/useGeofencing.ts', import.meta.url), 'utf8');
   assert.match(workspace, /initialMode:\s*'real_gps'/);
   assert.match(workspace, /if \(isInsideGeofence && activeBranchInsideGeofence\)[\s\S]*?setIsArrivalSheetOpen\(true\)/);
-  assert.match(geofence, /if \(simulationMode === 'real_gps'\)[\s\S]*?requestGpsPermission\(\)[\s\S]*?watchPosition/);
+  assert.match(geofence, /permission\.state === 'granted'\) requestGpsPermission\(\)/);
+  assert.doesNotMatch(geofence, /watchPosition/);
 });

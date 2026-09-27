@@ -132,6 +132,7 @@ services:
     restart: always
     environment:
       VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
+      VITE_BACKEND_TARGET: http://backend:8080
       PUBLIC_APP_BASE_URL: ${PUBLIC_APP_BASE_URL:-}
     volumes:
       - ./frontend:/app

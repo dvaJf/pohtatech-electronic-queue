@@ -5,12 +5,37 @@ const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] }
 const branches = [
   {id:'11111111-1111-1111-1111-111111111111',name:'Первое отделение',address:'г. Москва, ул. Мясницкая, д. 26',workHours:'08:00–22:00'},
   {id:'22222222-2222-2222-2222-222222222222',name:'Второе отделение',address:'г. Москва, ул. Рождественка, д. 10/2',workHours:'08:00–20:00'},
+  {id:'33333333-3333-3333-3333-333333333333',name:'Покровка',address:'г. Москва, ул. Покровка, д. 16',workHours:'08:00–20:00'},
+  {id:'44444444-4444-4444-4444-444444444444',name:'Никольская',address:'г. Москва, ул. Никольская, д. 8/1',workHours:'08:00–20:00'},
+  {id:'55555555-5555-5555-5555-555555555555',name:'Тверская',address:'г. Москва, ул. Тверская, д. 9',workHours:'08:00–20:00'},
+  {id:'66666666-6666-6666-6666-666666666666',name:'Новый Арбат',address:'г. Москва, ул. Новый Арбат, д. 2',workHours:'08:00–20:00'},
   {id:'unknown',name:'Без координат',address:'Неизвестный адрес',workHours:'08:00–20:00'},
 ];
 const service = {id:'service-at-destination',code:'PARCELS',name:'Выдача посылок'};
 const ticket = {id:'ticket-created',publicNumber:'Q-123456',branchId:branches[0].id,serviceId:service.id,source:'QR',status:'WAITING',window:null,createdAt:new Date().toISOString(),queueEnteredAt:new Date().toISOString(),calledAt:null,serviceStartedAt:null,completedAt:null};
 async function setup(accuracy, rejectFirst = false) {
  const context = await browser.newContext({viewport:{width:390,height:844},permissions:['geolocation'],geolocation:{latitude:55.761845,longitude:37.638521,accuracy}});
+ await context.addInitScript(() => {
+  window.__geoStats={current:0,watch:0};
+  const browserGeo=navigator.geolocation;
+  const originalCurrent=browserGeo.getCurrentPosition.bind(browserGeo);
+  browserGeo.getCurrentPosition=(...args)=>{window.__geoStats.current++;return originalCurrent(...args)};
+  if(browserGeo.watchPosition){const originalWatch=browserGeo.watchPosition.bind(browserGeo);browserGeo.watchPosition=(...args)=>{window.__geoStats.watch++;return originalWatch(...args)}}
+  class FakeCollection { constructor(){this.items=[]} add(item){this.items.push(item)} removeAll(){this.items=[]} }
+  class FakeClusterer extends FakeCollection {}
+  class FakePlacemark {
+   constructor(coords){this.coords=coords;this.events={add:()=>{}};this.geometry={setCoordinates:value=>{this.coords=value}}}
+  }
+  class FakeMap {
+   constructor(_node,state){this.center=[...state.center];this.zoom=state.zoom;this.destroyed=false;this.geoObjects=new FakeCollection();this.container={fitToViewport:()=>{}};this.margin={areas:[],addArea:area=>{const accessor={area,setArea:value=>{accessor.area=value;return accessor},remove:()=>{this.margin.areas=this.margin.areas.filter(item=>item!==accessor)}};this.margin.areas.push(accessor);return accessor}};window.__queueFakeMaps.push(this)}
+   panTo(coords,options){this.center=[...coords];this.lastPanOptions=options;return Promise.resolve()}
+   getZoom(){return this.zoom}
+   setZoom(zoom){this.zoom=zoom;return Promise.resolve()}
+   destroy(){this.destroyed=true}
+  }
+  window.__queueFakeMaps=[];
+  window.ymaps={Map:FakeMap,Placemark:FakePlacemark,Clusterer:FakeClusterer,ready:callback=>callback(),templateLayoutFactory:{createClass:()=>function(){}}};
+ });
  const page = await context.newPage();
  const errors=[]; const keys=[]; let wait=1800; let unavailable=false; let ticketStatus='WAITING';
  page.on('pageerror',error=>errors.push(error.message));
@@ -73,18 +98,151 @@ try {
  await precise.context.close();
  const coarse=await setup(100);
  await coarse.page.getByText('Умный маршрут',{exact:true}).waitFor();
- assert.equal(await coarse.page.getByRole('dialog',{name:/Похоже вы находитесь/}).count(),0);
+ const initialGeoStats=await coarse.page.evaluate(()=>window.__geoStats);
+ assert.equal(initialGeoStats.current,1,'granted geolocation should issue one initial lookup');
+ assert.equal(initialGeoStats.watch,0,'initial location should not start watchPosition');
+ const coarseArrival=coarse.page.getByRole('dialog',{name:/Похоже вы находитесь/});
+ await coarseArrival.waitFor({timeout:10000}).catch(async error => {
+  console.log('coarse GPS did not open arrival sheet:', coarse.errors);
+  console.log((await coarse.page.locator('body').innerText()).slice(0,2500));
+  await coarse.page.screenshot({path:'/tmp/queue-coarse-gps.png'});
+  throw error;
+ });
+ await coarseArrival.getByRole('button',{name:'Закрыть'}).click();
+ const geoButton=coarse.page.getByRole('button',{name:'Определить местоположение'});
+ const geoStarted=Date.now();
+ await geoButton.click();
+ await coarse.page.waitForFunction(()=>window.__geoStats.current===2);
+ await coarse.page.getByRole('button',{name:'Определить местоположение'}).waitFor();
+ assert(Date.now()-geoStarted<1500,'explicit geolocation should update without a sequential timeout');
+ assert.deepEqual(await coarse.page.evaluate(()=>window.__geoStats),{current:2,watch:0},'one click must create exactly one browser lookup');
+
+ const routeButton=coarse.page.getByRole('button',{name:'Маршрут',exact:true});
+ await routeButton.click();
+ const routeDialog=coarse.page.getByRole('dialog').filter({has:coarse.page.getByRole('button',{name:'Посмотреть на карте'})});
+ await routeDialog.waitFor();
+ assert.equal(await routeDialog.getByText('Отделение выбрано',{exact:true}).count(),0,'obsolete selected-branch pill must be removed');
+ const recommendedName=(await routeDialog.locator('h3').innerText()).trim();
+ const recommendedBranch=branches.find(branch=>branch.name===recommendedName);
+ assert(recommendedBranch,`recommended branch is not from API catalog: ${recommendedName}`);
+ await routeDialog.getByRole('button',{name:'Посмотреть на карте'}).click();
+ const targetedMap=coarse.page.getByRole('dialog',{name:'Карта отделений Почты России'});
+ await targetedMap.waitFor();
+ await coarse.page.waitForFunction(()=>window.__queueFakeMaps.at(-1)?.zoom===16);
+ assert(await targetedMap.getByText(recommendedName,{exact:true}).count()>0,'target branch card must open by branch id');
+ const targetedCenter=await coarse.page.evaluate(()=>window.__queueFakeMaps.at(-1).center);
+ assert.notDeepEqual(targetedCenter,[55.761845,37.638521],'target branch focus must not be replaced by user geolocation');
+ assert(await coarse.page.evaluate(()=>window.__queueFakeMaps.at(-1).margin.areas.length>0),'selected branch overlay must register a measured map margin');
+ assert.equal(await coarse.page.evaluate(()=>window.__queueFakeMaps.at(-1).lastPanOptions?.useMapMargin),true,'branch focus must account for the occupied overlay area');
+ await coarse.page.setViewportSize({width:1440,height:900});
+ const desktopCard=targetedMap.getByTestId('desktop-branch-card-overlay');
+ await desktopCard.waitFor();
+ for(const fontSize of ['100%','125%','150%']) {
+  await coarse.page.evaluate(value=>{document.documentElement.style.fontSize=value},fontSize);
+  await coarse.page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+  const [ratingBox,queueBox]=await Promise.all([
+   desktopCard.locator('.branch-rating-badge').boundingBox(),
+   desktopCard.locator('.branch-queue-badge').boundingBox(),
+  ]);
+  const overlaps=ratingBox&&queueBox&&ratingBox.x<queueBox.x+queueBox.width&&ratingBox.x+ratingBox.width>queueBox.x&&ratingBox.y<queueBox.y+queueBox.height&&ratingBox.y+ratingBox.height>queueBox.y;
+  assert(!overlaps,`rating and queue badges overlap at ${fontSize}`);
+ }
+ await coarse.page.waitForFunction(()=>window.__queueFakeMaps.at(-1).margin.areas.at(-1)?.area?.left>0);
+ const [cardBox,mapBox]=await Promise.all([desktopCard.boundingBox(),targetedMap.getByTestId('branch-map-canvas').boundingBox()]);
+ assert(cardBox&&mapBox&&cardBox.width<=mapBox.width*.36,`desktop branch card is too wide: card=${cardBox?.width}, map=${mapBox?.width}`);
+ assert.equal(await coarse.page.evaluate(()=>window.__queueFakeMaps.at(-1).lastPanOptions?.useMapMargin),true,'resize and 150% text must retain margin-aware focus');
+ await coarse.page.evaluate(()=>{document.documentElement.style.fontSize='' });
+ await coarse.page.setViewportSize({width:390,height:844});
+ await targetedMap.getByRole('button',{name:'Закрыть карту'}).click();
+ await coarse.page.getByRole('button',{name:'Выбрать',exact:true}).first().click();
+ await coarse.page.getByText(service.name,{exact:true}).waitFor().catch(async error=>{
+  console.log((await coarse.page.locator('body').innerText()).slice(0,3500));
+  await coarse.page.screenshot({path:'/tmp/queue-selection-error.png'});
+  throw error;
+ });
+ assert.equal(await coarse.page.evaluate(()=>sessionStorage.getItem('client_selected_branch_id')),recommendedBranch.id,'Choose must preserve the recommended branch id');
+ await coarse.page.getByRole('button',{name:'Назад'}).click();
+ await coarse.page.getByRole('button',{name:'Назад'}).click();
+
+ const a11yButton=coarse.page.getByRole('button',{name:'Настройки доступности',exact:true});
+ await a11yButton.click();
+ assert.equal(await a11yButton.evaluate(node=>getComputedStyle(node).outlineStyle),'none','mouse click must not leave a browser outline');
+ const a11yDialog=coarse.page.getByRole('dialog',{name:'Панель доступности'});
+ await a11yDialog.waitFor();
+ assert.equal(await a11yDialog.getByText('Увеличенный текст').count(),0,'text size must not have a duplicate master switch');
+ await a11yDialog.getByRole('button',{name:'А+ 125%'}).focus();
+ await coarse.page.keyboard.press('Enter');
+ await a11yDialog.getByRole('button',{name:'А++ 150%'}).click();
+ assert.equal(await coarse.page.evaluate(()=>document.documentElement.style.fontSize),'150%');
+ assert(await coarse.page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'header or accessibility panel overflows at 150% on mobile');
+ await coarse.page.screenshot({path:'/tmp/queue-a11y-mobile.png'});
+ await a11yDialog.getByRole('button',{name:'А+ 125%'}).click();
+ await a11yDialog.getByRole('button',{name:/Контрастная/}).focus();
+ await coarse.page.keyboard.press('Enter');
+ assert.equal(await coarse.page.evaluate(()=>document.documentElement.style.fontSize),'125%');
+ assert(await coarse.page.evaluate(()=>document.documentElement.classList.contains('a11y-contrast')));
+ await coarse.page.keyboard.press('Escape');
+ assert(await a11yButton.evaluate(node=>node===document.activeElement),'focus must return to accessibility button');
+ await coarse.page.reload();
+ await coarse.page.getByText('Умный маршрут',{exact:true}).waitFor();
+ const reloadedArrival=coarse.page.getByRole('dialog',{name:/Похоже вы находитесь/});
+ if(await reloadedArrival.isVisible().catch(()=>false)) await reloadedArrival.getByRole('button',{name:'Закрыть'}).click();
+ assert.deepEqual(await coarse.page.evaluate(()=>({scale:localStorage.getItem('pochta_a11y_scale'),contrast:localStorage.getItem('pochta_a11y_contrast'),fontSize:document.documentElement.style.fontSize})),{scale:'125',contrast:'true',fontSize:'125%'},'accessibility settings must survive reload');
+ await coarse.page.getByRole('button',{name:'Настройки доступности',exact:true}).click();
+ await coarse.page.getByRole('dialog',{name:'Панель доступности'}).getByRole('button',{name:'А 100%'}).click();
+ await coarse.page.getByRole('dialog',{name:'Панель доступности'}).getByRole('button',{name:'Стандартная'}).click();
+ await coarse.page.getByRole('dialog',{name:'Панель доступности'}).getByRole('button',{name:'Готово'}).click();
+ await coarse.page.keyboard.press('Tab');
+ const focusedOutline=await coarse.page.evaluate(()=>getComputedStyle(document.activeElement).outlineWidth);
+ assert(parseFloat(focusedOutline)>=3,'keyboard focus-visible ring must remain visible');
+ const bookingButton=coarse.page.getByRole('button').filter({hasText:'Записаться онлайн'}).first();
+ await bookingButton.click();
+ const pageSize=coarse.page.getByLabel('Количество отделений на странице');
+ await pageSize.waitFor();
+ assert.equal(await coarse.page.locator('button.cx-choice').count(),5,'booking must show the default five branches');
+ assert(await coarse.page.locator('img[alt^="Отделение "]').count()>=5,'branch cards must show catalog photos');
+ assert(await coarse.page.locator('[data-landmark-type="metro"]').count()>0,'metro must use structured line-color marker');
+ await pageSize.selectOption('10');
+ assert.equal(await coarse.page.locator('button.cx-choice').count(),7,'booking page size 10 must show all available branches');
+ for (const viewport of [{width:1440,height:900},{width:768,height:900},{width:390,height:844}]) {
+  await coarse.page.setViewportSize(viewport);
+  assert(await coarse.page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),`horizontal overflow at ${viewport.width}px`);
+ }
+ await coarse.page.locator('button.cx-choice').first().click();
+ await coarse.page.getByRole('button',{name:'Назад'}).click();
+ await coarse.page.getByRole('button',{name:'Назад'}).click();
+ await coarse.page.getByRole('button').filter({hasText:'Взять талон'}).first().click();
+ const walkinPageSize=coarse.page.getByLabel('Количество отделений на странице');
+ await walkinPageSize.waitFor();
+ assert.equal(await walkinPageSize.inputValue(),'10','page size is shared by booking and walk-in lists');
+ await walkinPageSize.selectOption('5');
+ assert.equal(await coarse.page.locator('button.cx-choice').count(),5,'walk-in page size selector must paginate independently of search');
+ await coarse.page.locator('button.cx-choice').first().click();
+ const workload=coarse.page.getByRole('region',{name:'Загруженность отделения'});
+ await workload.waitFor();
+ const hoursBox=await workload.getByText(/Режим работы:/).boundingBox();
+ const queueBox=await workload.getByText(/В очереди сейчас:/).boundingBox();
+ assert(hoursBox&&queueBox&&queueBox.y>=hoursBox.y+hoursBox.height,'queue badge must be below work hours');
+ await coarse.page.getByRole('button',{name:'Назад'}).click();
+ await coarse.page.getByRole('button',{name:'Назад'}).click();
  coarse.setWait(0);
- await coarse.page.getByText('Умный маршрут',{exact:true}).waitFor({state:'hidden',timeout:25000});
+ await coarse.page.getByText('Рекомендуем ближайшее к вам',{exact:false}).waitFor({timeout:25000});
  const mapButton=coarse.page.getByRole('button',{name:/Карта отделений/});
  await mapButton.click();
  await coarse.page.getByRole('dialog').waitFor();
- await coarse.page.getByText(/Часть отделений доступна только в списке/).waitFor();
+ const manualViewport=await coarse.page.evaluate(()=>{const map=window.__queueFakeMaps.at(-1);map.center=[55.7,37.5];map.zoom=11;return {instances:window.__queueFakeMaps.length}});
+ await coarse.page.waitForTimeout(2500);
+ const stableViewport=await coarse.page.evaluate(()=>{const map=window.__queueFakeMaps.at(-1);return {instances:window.__queueFakeMaps.length,center:map.center,zoom:map.zoom,destroyed:map.destroyed}});
+ assert.deepEqual(stableViewport,{instances:manualViewport.instances,center:[55.7,37.5],zoom:11,destroyed:false},'data refresh must not recreate or recenter the map');
+ await coarse.page.getByRole('button',{name:'Определить моё местоположение'}).click();
+ await coarse.page.waitForFunction(()=>window.__queueFakeMaps.at(-1)?.zoom===15);
+ const explicitViewport=await coarse.page.evaluate(()=>{const map=window.__queueFakeMaps.at(-1);return {center:map.center,zoom:map.zoom}});
+ assert.deepEqual(explicitViewport,{center:[55.761845,37.638521],zoom:15},'explicit locate button must recenter the map');
  assert(await coarse.page.getByText('4.92',{exact:true}).count() > 0,'branch map should show the catalog rating and a Yandex Maps source link');
- assert.equal(await coarse.page.getByText('Отделение Тверская',{exact:true}).count(),0);
+ assert.equal(await coarse.page.getByText('Без координат',{exact:true}).count(),0);
  await coarse.page.screenshot({path:'/tmp/queue-map-mobile.png'});
  assert.deepEqual(precise.errors,[]);
  assert.deepEqual(coarse.errors,[]);
  await coarse.context.close();
- console.log('PASS: service selection, lost response retry, GPS accuracy, completed-visit rating, live routing, Yandex source link, mobile layout, no runtime errors');
+ console.log('PASS: single fast geolocation, accessibility keyboard/persistence, focus ring, responsive header, branch UI, stable map viewport, explicit locate, no runtime errors');
 } finally {await browser.close();}

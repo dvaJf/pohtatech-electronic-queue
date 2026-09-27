@@ -7,7 +7,7 @@ async function loadTS(path) {
   let source = await readFile(new URL(path, import.meta.url), 'utf8');
   source = source.replace(/import\s+.*?\s+from\s+['"]react['"];?/g, 'const useState = () => [null, () => {}], useEffect = () => {}, useMemo = (f) => f(), useCallback = (f) => f();');
   source = source.replace(/import\s+.*?\s+from\s+['"].*?branchLocations['"];?/g, 'const MOSCOW_BRANCHES = [];');
-  source = source.replace(/import\s+\{\s*getPositionWithFallback\s*\}\s+from\s+['"]..\/map\/geolocation['"];?/, 'const getPositionWithFallback = () => Promise.reject(new Error("unused in unit test"));');
+  source = source.replace(/import\s+\{\s*getCurrentPositionFast\s*\}\s+from\s+['"]..\/map\/geolocation['"];?/, 'const getCurrentPositionFast = () => Promise.reject(new Error("unused in unit test"));');
   const policy = await readFile(new URL('../src/features/client/arrival/arrivalPolicy.ts', import.meta.url), 'utf8');
   const policyJs = ts.transpileModule(policy, { compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 } }).outputText;
   source = source.replace("'./arrivalPolicy'", JSON.stringify('data:text/javascript;base64,' + Buffer.from(policyJs).toString('base64')));

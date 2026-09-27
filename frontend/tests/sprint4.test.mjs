@@ -42,9 +42,10 @@ test('announcement reset cancels pending work without overlapping current speech
 
 test('vite config preserves reverse proxy for /api, /health, /ready and /grafana', async () => {
   const content = await readFile(new URL('../vite.config.ts', import.meta.url), 'utf8');
-  assert.match(content, /'\/api':\s*\{\s*target:\s*'http:\/\/backend:8080'/);
-  assert.match(content, /'\/health':\s*\{\s*target:\s*'http:\/\/backend:8080'/);
-  assert.match(content, /'\/ready':\s*\{\s*target:\s*'http:\/\/backend:8080'/);
+  assert.match(content, /backendTarget = process\.env\.VITE_BACKEND_TARGET \|\| 'http:\/\/localhost:8080'/);
+  assert.match(content, /'\/api':\s*\{\s*target:\s*backendTarget/);
+  assert.match(content, /'\/health':\s*\{\s*target:\s*backendTarget/);
+  assert.match(content, /'\/ready':\s*\{\s*target:\s*backendTarget/);
   assert.match(content, /'\/grafana':\s*\{\s*target:\s*'http:\/\/grafana:3000'/);
 });
 
@@ -78,8 +79,9 @@ test('terminalStatuses includes COMPLETED, CANCELLED, NO_SHOW and excludes activ
 
 test('ClientWorkspace retains or reloads services when re-selecting the same branch', async () => {
   const content = await readFile(new URL('../src/features/client/ClientWorkspace.tsx', import.meta.url), 'utf8');
-  // Check that handleBranchSelect checks `if (id === branchId)` or doesn't wipe services without reload
-  assert.match(content, /if\s*\(\s*id\s*===\s*branchId\s*\)\s*\{\s*fetchServices\(id\);/);
+  // A repeated selection retains loaded services; the screen/step effect performs at most one reload when needed.
+  assert.match(content, /if\s*\(id\s*!==\s*branchId\)\s*\{\s*setServices\(\[\]\);/);
+  assert.match(content, /services\.length\s*===\s*0\s*&&\s*!servicesLoading[\s\S]*?fetchServices\(branchId\)/);
   // Check that repeat ticket button exists on terminal tickets
   assert.match(content, /terminalStatuses\.has\(ticket\.status\)/);
   assert.match(content, /Взять новый талон/);

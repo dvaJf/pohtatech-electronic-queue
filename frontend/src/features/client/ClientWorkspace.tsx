@@ -1544,7 +1544,11 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
 
             <div className="space-y-2 pt-2">
               <a
-                href={`https://yandex.ru/maps/?rtext=~${routeOfferBranch.lat},${routeOfferBranch.lng}&rtt=pd`}
+                href={
+                  hasRealGpsFix && currentCoordinates?.lat && currentCoordinates?.lng
+                    ? `https://yandex.ru/maps/?rtext=${currentCoordinates.lat},${currentCoordinates.lng}~${routeOfferBranch.lat},${routeOfferBranch.lng}&rtt=pd`
+                    : `https://yandex.ru/maps/?rtext=~${routeOfferBranch.lat},${routeOfferBranch.lng}&rtt=pd`
+                }
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={() => setRouteOfferBranch(null)}

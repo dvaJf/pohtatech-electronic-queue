@@ -1017,6 +1017,7 @@ export function BranchMapModal({
                 <DetailedBranchCard
                   branch={selectedBranch}
                   compact
+                  userLocation={userLocation}
                   onClose={() => setSelectedBranchId(null)}
                   onTakeTicket={() => handleTakeTicket(selectedBranch)}
                   onBookAppointment={() => handleBookAppointment(selectedBranch)}
@@ -1114,6 +1115,7 @@ export function BranchMapModal({
                 {selectedBranch ? (
                   <DetailedBranchCard
                     branch={selectedBranch}
+                    userLocation={userLocation}
                     onClose={() => setSelectedBranchId(null)}
                     onTakeTicket={() => handleTakeTicket(selectedBranch)}
                     onBookAppointment={() => handleBookAppointment(selectedBranch)}
@@ -1207,12 +1209,14 @@ export function DetailedBranchCard({
   onBookAppointment,
   onClose,
   compact = false,
+  userLocation,
 }: {
   branch: MapBranch;
   onTakeTicket: () => void;
   onBookAppointment: () => void;
   onClose?: () => void;
   compact?: boolean;
+  userLocation?: [number, number] | null;
 }) {
   const [imgError, setImgError] = useState(false);
   const wait = getWaitBadgeInfo(branch.liveWaitMinutes);
@@ -1362,7 +1366,11 @@ export function DetailedBranchCard({
 
         {/* Кнопка прокладки пешего маршрута в Яндекс.Картах */}
         <a
-          href={`https://yandex.ru/maps/?rtext=~${branch.coordinates[0]},${branch.coordinates[1]}&rtt=pd`}
+          href={
+            userLocation
+              ? `https://yandex.ru/maps/?rtext=${userLocation[0]},${userLocation[1]}~${branch.coordinates[0]},${branch.coordinates[1]}&rtt=pd`
+              : `https://yandex.ru/maps/?rtext=~${branch.coordinates[0]},${branch.coordinates[1]}&rtt=pd`
+          }
           target="_blank"
           rel="noopener noreferrer"
           className="w-full py-2 px-3 rounded-2xl bg-blue-50/70 hover:bg-blue-100/70 border border-blue-200/70 text-[#052F85] text-xs font-bold transition-all flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer"

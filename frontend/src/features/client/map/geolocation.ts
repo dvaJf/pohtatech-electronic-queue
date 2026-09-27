@@ -7,6 +7,14 @@ export type GeolocationLookup = Pick<Geolocation, 'getCurrentPosition'>;
 
 const inFlightLookups = new WeakMap<object, Promise<GeolocationPosition>>();
 
+export function isUsableGeoPosition(position: GeolocationPosition): boolean {
+  const { latitude, longitude, accuracy } = position.coords;
+  return Number.isFinite(latitude) && Math.abs(latitude) <= 90
+    && Number.isFinite(longitude) && Math.abs(longitude) <= 180
+    && Number.isFinite(accuracy) && accuracy >= 0
+    && Number.isFinite(position.timestamp) && position.timestamp >= 0;
+}
+
 /**
  * Resolve a useful location quickly. A cached network/Wi-Fi fix is sufficient
  * for sorting branches and drawing the user marker; arrival validation still

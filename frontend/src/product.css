@@ -13,10 +13,66 @@
   --radius: 6px;
   --radius-lg: 8px;
   --space: 1rem;
-  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font: 'Onest', 'Manrope', 'Golos Text', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --focus-ring-color: #0B63CE;
   --focus-ring-offset: 3px;
+  --client-text-scale: 1;
+  --client-text-xs: calc(0.75rem * var(--client-text-scale));
+  --client-text-sm: calc(0.875rem * var(--client-text-scale));
+  --client-text-base: calc(1rem * var(--client-text-scale));
+  --client-text-lg: calc(1.125rem * var(--client-text-scale));
+  --client-text-xl: calc(1.25rem * var(--client-text-scale));
+  --client-text-2xl: calc(1.5rem * var(--client-text-scale));
+  --client-text-3xl: calc(1.875rem * var(--client-text-scale));
 }
+
+/* Only typography consumes this preference; rem layout and icon units stay fixed. */
+html[data-text-scale="125"] { --client-text-scale: 1.25; }
+html[data-text-scale="150"] { --client-text-scale: 1.5; }
+
+:is(.main-product-header, .cx-client-flow, .client-typography) {
+  font-size: var(--client-text-base);
+}
+:is(.main-product-header, .cx-client-flow, .client-typography) .text-xs { font-size: var(--client-text-xs) !important; }
+:is(.main-product-header, .cx-client-flow, .client-typography) .text-sm { font-size: var(--client-text-sm) !important; }
+:is(.main-product-header, .cx-client-flow, .client-typography) .text-base { font-size: var(--client-text-base) !important; }
+:is(.main-product-header, .cx-client-flow, .client-typography) .text-lg { font-size: var(--client-text-lg) !important; }
+:is(.main-product-header, .cx-client-flow, .client-typography) .text-xl { font-size: var(--client-text-xl) !important; }
+:is(.main-product-header, .cx-client-flow, .client-typography) .text-2xl { font-size: var(--client-text-2xl) !important; }
+:is(.main-product-header, .cx-client-flow, .client-typography) .text-3xl { font-size: var(--client-text-3xl) !important; }
+:is(.main-product-header, .cx-client-flow, .client-typography) [class~="text-[9px]"] { font-size: calc(9px * var(--client-text-scale)) !important; }
+:is(.main-product-header, .cx-client-flow, .client-typography) [class~="text-[10px]"] { font-size: calc(10px * var(--client-text-scale)) !important; }
+:is(.main-product-header, .cx-client-flow, .client-typography) [class~="text-[11px]"]:not(.pvz-pin-marker) { font-size: calc(11px * var(--client-text-scale)) !important; }
+@media (min-width: 640px) {
+  :is(.main-product-header, .cx-client-flow, .client-typography) [class~="sm:text-xs"] { font-size: var(--client-text-xs) !important; }
+  :is(.main-product-header, .cx-client-flow, .client-typography) [class~="sm:text-sm"] { font-size: var(--client-text-sm) !important; }
+  :is(.main-product-header, .cx-client-flow, .client-typography) [class~="sm:text-base"] { font-size: var(--client-text-base) !important; }
+  :is(.main-product-header, .cx-client-flow, .client-typography) [class~="sm:text-lg"] { font-size: var(--client-text-lg) !important; }
+  :is(.main-product-header, .cx-client-flow, .client-typography) [class~="sm:text-xl"] { font-size: var(--client-text-xl) !important; }
+  :is(.main-product-header, .cx-client-flow, .client-typography) [class~="sm:text-3xl"] { font-size: var(--client-text-3xl) !important; }
+  :is(.main-product-header, .cx-client-flow, .client-typography) [class~="sm:text-[10px]"] { font-size: calc(10px * var(--client-text-scale)) !important; }
+  :is(.main-product-header, .cx-client-flow, .client-typography) [class~="sm:text-[11px]"] { font-size: calc(11px * var(--client-text-scale)) !important; }
+}
+@media (min-width: 768px) {
+  .client-typography [class~="md:text-lg"] { font-size: var(--client-text-lg) !important; }
+}
+
+.main-product-header button {
+  min-width: 44px;
+  min-height: 44px;
+  flex-shrink: 0;
+}
+#a11y-settings, #mobile-service-menu {
+  top: calc(100% + 4px);
+  max-height: calc(100dvh - 88px);
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+}
+#a11y-settings button, #mobile-service-menu button {
+  height: auto;
+  line-height: 1.4;
+}
+.main-product-header button > svg { flex-shrink: 0; }
 
 html, body {
   overflow-x: hidden;
@@ -214,8 +270,8 @@ html, body {
 
 @media (max-width: 639px) {
   .product-header-tools {
-    width: 100%;
-    justify-content: space-between;
+    width: auto;
+    justify-content: flex-end;
   }
 
   .product-header-tools > * {
@@ -670,4 +726,3 @@ html[data-reduced-motion] *, html[data-reduced-motion] *::before, html[data-redu
 .scrollbar-thin::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
 }
-

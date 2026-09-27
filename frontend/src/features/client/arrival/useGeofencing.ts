@@ -1,7 +1,7 @@
 import { isReliableArrival } from './arrivalPolicy';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { MOSCOW_BRANCHES, BranchLocation } from '../map/branchLocations';
-import { getCurrentPositionFast } from '../map/geolocation';
+import { getCurrentPositionFast, isUsableGeoPosition } from '../map/geolocation';
 
 export type GeofenceSimulationMode = 'near_101000' | 'home_1500m' | 'real_gps';
 
@@ -84,20 +84,22 @@ export interface UseGeofencingResult {
   thresholdMeters: number;
   gpsError: string | null;
   gpsPermissionStatus: GpsPermissionState;
-  requestGpsPermission: () => void;
+  requestGpsPermission: (options?: { centerMap?: boolean }) => void;
+  locationCenterRequest: number;
+  hasReliableGpsFix: boolean;
 }
 
 /**
  * React hook that determines client coordinates via real device GPS (navigator.geolocation),
  * calculates distance to postal branches using Haversine formula,
- * detects when client is inside branch geofence (radius <= 15-20 meters for instant arrival),
+ * detects nearby branches using the configured entry radius,
  * and exposes permission request mechanism when client denied or ignored prompt.
  */
 export function useGeofencing(options: UseGeofencingOptions = {}): UseGeofencingResult {
   const {
     branches = MOSCOW_BRANCHES,
     initialMode = 'real_gps',
-    thresholdMeters = DEFAULT_ARRIVAL_THRESHOLD_METERS,
+    thresholdMeters = DEFAULT_GEOFENCE_THRESHOLD_METERS,
   } = options;
 
   const [now, setNow] = useState(Date.now());
@@ -108,6 +110,19 @@ export function useGeofencing(options: UseGeofencingOptions = {}): UseGeofencing
   const [gpsPermissionStatus, setGpsPermissionStatus] = useState<GpsPermissionState>('prompt');
   const [gpsError, setGpsError] = useState<string | null>(null);
   const requestInFlightRef = useRef<Promise<GeolocationPosition> | null>(null);
+  const watchRef = useRef<{ geolocation: Geolocation; id: number } | null>(null);
+  const lifecycleRef = useRef({ active: true, generation: 0 });
+  const pendingExplicitRef = useRef(false);
+  const newestMeasurementRef = useRef(-1);
+  const [locationCenterRequest, setLocationCenterRequest] = useState(0);
+  const stopTracking = useCallback(() => {
+    lifecycleRef.current.generation++;
+    requestInFlightRef.current = null;
+    if (watchRef.current) {
+      watchRef.current.geolocation.clearWatch(watchRef.current.id);
+      watchRef.current = null;
+    }
+  }, []);
 
   const [currentCoordinates, setCurrentCoordinates] = useState<GeoCoordinates>(() => {
     if (initialMode === 'home_1500m') return GEOFENCE_PRESETS.home_1500m;
@@ -116,7 +131,15 @@ export function useGeofencing(options: UseGeofencingOptions = {}): UseGeofencing
     return { lat: 55.7558, lng: 37.6173 };
   });
 
-  const requestGpsPermission = useCallback(() => {
+  const requestGpsPermission = useCallback((requestOptions: { centerMap?: boolean } = {}) => {
+    if (requestOptions.centerMap) setLocationCenterRequest(value => value + 1);
+    if (modeRef.current !== 'real_gps') {
+      modeRef.current = 'real_gps';
+      pendingExplicitRef.current = true;
+      setSimulationMode('real_gps');
+      setHasRealGpsFix(false);
+      return;
+    }
     if (typeof window === 'undefined' || !navigator.geolocation) {
       setGpsPermissionStatus('unavailable');
       setGpsError('Геолокация не поддерживается вашим браузером');
@@ -126,35 +149,43 @@ export function useGeofencing(options: UseGeofencingOptions = {}): UseGeofencing
     if (requestInFlightRef.current) return;
     setGpsError(null);
     setGpsPermissionStatus('locating');
+    // Starting a tracking session supersedes any pending mount permission query.
+    if (!watchRef.current) lifecycleRef.current.generation++;
+    const generation = lifecycleRef.current.generation;
+    const isActive = () => lifecycleRef.current.active && lifecycleRef.current.generation === generation && modeRef.current === 'real_gps';
+    const publishPosition = (pos: GeolocationPosition) => {
+      if (!isActive() || !isUsableGeoPosition(pos) || pos.timestamp < newestMeasurementRef.current) return;
+      newestMeasurementRef.current = pos.timestamp;
+      setCurrentCoordinates({ lat: pos.coords.latitude, lng: pos.coords.longitude,
+        accuracy: pos.coords.accuracy, measuredAt: pos.timestamp });
+      setHasRealGpsFix(true);
+      setGpsPermissionStatus('granted');
+      setGpsError(null);
+    };
+    const failPosition = (err: GeolocationPositionError) => {
+      if (!isActive()) return;
+      stopTracking();
+      setHasRealGpsFix(false);
+      setGpsPermissionStatus(err.code === 1 ? 'denied' : 'unavailable');
+      setGpsError(err.code === 1 ? 'Доступ к геолокации отклонен' : `GPS недоступен (${err.message})`);
+    };
+    if (!watchRef.current) {
+      const geolocation = navigator.geolocation;
+      const id = geolocation.watchPosition(publishPosition, failPosition, {
+        enableHighAccuracy: true, maximumAge: 5000, timeout: 15000,
+      });
+      watchRef.current = { geolocation, id };
+    }
     const request = getCurrentPositionFast(navigator.geolocation);
     requestInFlightRef.current = request;
-    request.then((pos) => {
-        if (modeRef.current !== 'real_gps') return;
-        setCurrentCoordinates({
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
-          accuracy: pos.coords.accuracy,
-          measuredAt: pos.timestamp,
-        });
-        setHasRealGpsFix(true);
-        setGpsPermissionStatus('granted');
-        setGpsError(null);
-      }).catch((err: GeolocationPositionError) => {
-        if (modeRef.current !== 'real_gps') return;
-        if (err.code === 1) {
-          setHasRealGpsFix(false);
-          setGpsPermissionStatus('denied');
-          setGpsError('Доступ к геолокации отклонен');
-        } else {
-          setGpsPermissionStatus('unavailable');
-          setGpsError(`GPS недоступен (${err.message})`);
-        }
-      }).finally(() => {
+    request.then(publishPosition).catch(failPosition).finally(() => {
         if (requestInFlightRef.current === request) requestInFlightRef.current = null;
       });
-  }, []);
+  }, [stopTracking]);
 
   const handleSetSimulationMode = useCallback((mode: GeofenceSimulationMode) => {
+    if (modeRef.current === mode) return;
+    stopTracking();
     modeRef.current = mode;
     setSimulationMode(mode);
     if (mode === 'near_101000') {
@@ -168,25 +199,35 @@ export function useGeofencing(options: UseGeofencingOptions = {}): UseGeofencing
     } else if (mode === 'real_gps') {
       setHasRealGpsFix(false);
     }
-  }, []);
+  }, [stopTracking]);
+
+  useEffect(() => {
+    lifecycleRef.current.active = true;
+    return () => { lifecycleRef.current.active = false; stopTracking(); };
+  }, [stopTracking]);
 
   // Reuse an already granted permission on mount. When permission is still in
   // the prompt state, the browser request starts only from the user's click.
   useEffect(() => {
+    let active = true;
     if (simulationMode === 'real_gps') {
       if (typeof window !== 'undefined' && navigator.geolocation) {
-        if (navigator.permissions?.query) {
-          let active = true;
+        if (pendingExplicitRef.current) {
+          pendingExplicitRef.current = false;
+          requestGpsPermission();
+        } else if (navigator.permissions?.query) {
+          const generation = lifecycleRef.current.generation;
+          const isCurrentQuery = () => active && lifecycleRef.current.active
+            && lifecycleRef.current.generation === generation && modeRef.current === 'real_gps';
           navigator.permissions.query({ name: 'geolocation' as PermissionName })
             .then(permission => {
-              if (!active || modeRef.current !== 'real_gps') return;
+              if (!isCurrentQuery()) return;
+              if (watchRef.current) return;
               setGpsPermissionStatus(permission.state === 'denied' ? 'denied' : 'prompt');
               if (permission.state === 'granted') requestGpsPermission();
             })
-            .catch(() => { if (active) setGpsPermissionStatus('prompt'); });
-          return () => { active = false; };
+            .catch(() => { if (isCurrentQuery()) setGpsPermissionStatus('prompt'); });
         }
-        requestGpsPermission();
       } else {
         setGpsPermissionStatus('unavailable');
         setGpsError('Геолокация не поддерживается в этом браузере');
@@ -200,7 +241,11 @@ export function useGeofencing(options: UseGeofencingOptions = {}): UseGeofencing
       setHasRealGpsFix(true);
       setGpsError(null);
     }
-  }, [simulationMode, requestGpsPermission]);
+    return () => { active = false; stopTracking(); };
+  }, [simulationMode, requestGpsPermission, stopTracking]);
+
+  const hasReliableGpsFix = simulationMode !== 'real_gps' || (hasRealGpsFix
+    && isReliableArrival(0, currentCoordinates.accuracy, 0, currentCoordinates.measuredAt ?? 0, now));
 
   // Compute distance to branches and determine geofence status
   const { nearestBranch, distanceToNearestMeters, activeBranchInsideGeofence } = useMemo(() => {
@@ -223,7 +268,7 @@ export function useGeofencing(options: UseGeofencingOptions = {}): UseGeofencing
     }
 
     // Only activate geofence if simulation mode is active OR a real GPS fix has been acquired
-    const canTrigger = simulationMode !== 'real_gps' || (hasRealGpsFix && minDistance !== null && isReliableArrival(minDistance, currentCoordinates.accuracy, thresholdMeters, currentCoordinates.measuredAt ?? 0, now));
+    const canTrigger = hasReliableGpsFix && minDistance !== null && minDistance <= thresholdMeters;
     const isNearby = simulationMode !== 'real_gps'
       ? (minDistance !== null && minDistance <= thresholdMeters)
       : canTrigger;
@@ -234,7 +279,7 @@ export function useGeofencing(options: UseGeofencingOptions = {}): UseGeofencing
       distanceToNearestMeters: minDistance,
       activeBranchInsideGeofence: inside,
     };
-  }, [branches, currentCoordinates.lat, currentCoordinates.lng, thresholdMeters, simulationMode, hasRealGpsFix, currentCoordinates.accuracy, currentCoordinates.measuredAt, now]);
+  }, [branches, currentCoordinates.lat, currentCoordinates.lng, thresholdMeters, simulationMode, hasReliableGpsFix]);
 
   return {
     currentCoordinates,
@@ -249,5 +294,7 @@ export function useGeofencing(options: UseGeofencingOptions = {}): UseGeofencing
     gpsError,
     gpsPermissionStatus,
     requestGpsPermission,
+    locationCenterRequest,
+    hasReliableGpsFix,
   };
 }

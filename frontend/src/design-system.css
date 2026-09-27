@@ -41,7 +41,7 @@
   /* === ТИПОГРАФИКА === */
   
   /* Шрифты */
-  --font-family-base: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 
+  --font-family-base: 'Onest', 'Manrope', 'Golos Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 
                       'Helvetica Neue', Arial, sans-serif, 
                       'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
   --font-family-mono: 'SF Mono', Monaco, 'Cascadia Code', 'Courier New', monospace;

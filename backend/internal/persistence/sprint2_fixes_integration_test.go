@@ -163,7 +163,7 @@ func TestLegacyAssignedAppointmentNormalization(t *testing.T) {
 		t.Fatal(err)
 	}
 	var before, after string
-	const legacyCols = `(to_jsonb(t)-'arrived_at'-'no_show_at'-'checkin_at'-'ready_at'-'due_at'-'source_rank'-'policy_version'-'recall_count'-'client_id'-'management_token_hash'-'requeued_at')::text`
+	const legacyCols = `(to_jsonb(t)-'arrived_at'-'no_show_at'-'checkin_at'-'ready_at'-'due_at'-'source_rank'-'policy_version'-'recall_count'-'client_id'-'management_token_hash'-'requeued_at'-'sms_reminder_sent')::text`
 	if err = p.pool.QueryRow(ctx, `SELECT `+legacyCols+` FROM tickets t WHERE id=$1::uuid`, completed).Scan(&before); err != nil {
 		t.Fatal(err)
 	}

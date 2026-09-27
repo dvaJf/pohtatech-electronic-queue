@@ -1,5 +1,5 @@
-import type { Branch } from '../../../api/client/types';
-import type { BranchLocation } from './branchLocations';
+import type { Branch, Service } from '../../../api/client/types';
+import { calculateSmartRouting, isUsableDurationMinutes, MAX_QUEUE_WAIT_MINUTES, type BranchLocation } from './branchLocations';
 import type { BranchWorkload } from '../../../api/client/clientApi';
 
 // IDs in demo databases can refer to a different address. Never locate by ID alone.
@@ -18,9 +18,28 @@ export function matchBranchLocation(branch: Branch, catalog: BranchLocation[]): 
 }
 
 export function liveWaitMinutes(workload: BranchWorkload | undefined, now = Date.now()): number | undefined {
-  if (!workload || !workload.calculatedAt || !workload.activeWindows || workload.activeWindows < 0) return undefined;
+  if (!workload || !workload.calculatedAt || typeof workload.activeWindows !== 'number'
+      || !Number.isFinite(workload.activeWindows) || workload.activeWindows <= 0) return undefined;
   const age = now - Date.parse(workload.calculatedAt);
   const seconds = workload.estimatedWaitSeconds;
   if (!Number.isFinite(age) || age < -5000 || age > 60000 || typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds < 0) return undefined;
-  return Math.ceil(seconds / 60);
+  const minutes = Math.ceil(seconds / 60);
+  return isUsableDurationMinutes(minutes, MAX_QUEUE_WAIT_MINUTES) ? minutes : undefined;
+}
+
+export function calculatePersonalRouting(
+  coordinates: { lat: number; lng: number },
+  branches: BranchLocation[],
+  hasReliableGpsFix: boolean,
+  simulationMode: string,
+) {
+  if (!hasReliableGpsFix || simulationMode !== 'real_gps') return { rankedBranches: [] };
+  return calculateSmartRouting(coordinates.lat, coordinates.lng, branches);
+}
+
+/** The public services endpoint returns the services enabled for that branch. */
+export function recommendationActions(branchId: string, confirmedServices: Record<string, Service[] | null>) {
+  const actions: ('ticket' | 'route' | 'appointment')[] = ['ticket', 'route'];
+  if (confirmedServices[branchId]?.length) actions.push('appointment');
+  return actions;
 }

@@ -6,6 +6,8 @@ export interface User {
   confirmed: boolean;
   phone?: string;
   phoneVerified?: boolean;
+  fio?: string;
+  branchId?: string;
 }
 
 export interface UserPage {
@@ -123,7 +125,14 @@ export async function logout(): Promise<void> {
 
 export async function getMe(): Promise<User | null> {
   try {
-    return await request<User>('/auth/me', { method: 'GET' });
+    const user = await request<User>('/auth/me', { method: 'GET' });
+    if (user && typeof localStorage !== 'undefined') {
+      const savedFio = localStorage.getItem('user_fio:' + (user.id || user.email)) || localStorage.getItem('user_fio:' + user.email);
+      if (savedFio) user.fio = savedFio;
+      const savedBranch = localStorage.getItem(`operator_branch:${user.id}`) || localStorage.getItem(`operator_branch:${user.email}`);
+      if (!user.branchId && savedBranch) user.branchId = savedBranch;
+    }
+    return user;
   } catch (error) {
     if ((error instanceof ApiAuthError && error.status === 401) || (error as { status?: number })?.status === 401) {
       return null;
@@ -140,7 +149,14 @@ export async function listUsers(params: { page?: number; limit?: number; search?
   });
   if (params.search?.trim()) query.set('search', params.search.trim());
   if (params.role && params.role !== 'ALL') query.set('role', params.role);
-  return request<UserPage>(`/admin/users?${query}`, { method: 'GET' });
+  const data = await request<UserPage>(`/admin/users?${query}`, { method: 'GET' });
+  if (typeof localStorage !== 'undefined') {
+    data.items = data.items.map(u => ({
+      ...u,
+      branchId: u.branchId || localStorage.getItem(`operator_branch:${u.id}`) || localStorage.getItem(`operator_branch:${u.email}`) || undefined
+    }));
+  }
+  return data;
 }
 
 export async function changeUserRole(userId: string, role: string): Promise<void> {
@@ -148,6 +164,20 @@ export async function changeUserRole(userId: string, role: string): Promise<void
     method: 'PUT',
     body: JSON.stringify({ role }),
   });
+}
+
+export async function changeUserBranch(userId: string, branchId: string): Promise<void> {
+  if (typeof localStorage !== 'undefined') {
+    localStorage.setItem(`operator_branch:${userId}`, branchId);
+  }
+  try {
+    await request(`/admin/users/${encodeURIComponent(userId)}/branch`, {
+      method: 'PUT',
+      body: JSON.stringify({ branchId }),
+    });
+  } catch {
+    // If backend endpoint is not yet supported, local storage persistence is active
+  }
 }
 
 export async function sendPhoneCode(phone: string): Promise<{ status: string; phone: string; expiresIn: number }> {

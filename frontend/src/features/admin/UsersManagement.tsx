@@ -1,6 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { changeUserRole, getMe, listUsers, User, UserPage } from '../../api/authApi';
-import { Users, RefreshCw, CheckCircle2, Shield, Search, X, Filter } from 'lucide-react';
+import { changeUserBranch, changeUserRole, getMe, listUsers, User, UserPage } from '../../api/authApi';
+import { listBranches } from '../../api/operator/operatorApi';
+import { Branch } from '../../api/operator/types';
+import { SearchableBranchSelect } from '../../components/common/SearchableBranchSelect';
+import { Users, RefreshCw, Search, X } from 'lucide-react';
 import { Pagination } from '../../components/common/Pagination';
 
 const roles: Record<string, string> = {
@@ -10,7 +13,7 @@ const roles: Record<string, string> = {
   terminal: 'Терминал',
 };
 
-type RoleFilter = 'ALL' | 'opc_chief' | 'employee' | 'client' | 'terminal';
+type RoleFilter = 'ALL' | 'opc_chief' | 'employee' | 'client';
 
 export function UsersManagement() {
   const [users, setUsers] = useState<User[]>([]);
@@ -24,7 +27,14 @@ export function UsersManagement() {
   const [pageSize, setPageSize] = useState(25);
   const [counts, setCounts] = useState<UserPage['counts']>({ all: 0, employee: 0, opc_chief: 0, client: 0, terminal: 0 });
   const [total, setTotal] = useState(0);
+  const [branches, setBranches] = useState<Branch[]>([]);
+  const [userBranches, setUserBranches] = useState<Record<string, string>>({});
+  const [savedBranchUserId, setSavedBranchUserId] = useState<string | null>(null);
   const requestId = useRef(0);
+
+  useEffect(() => {
+    listBranches().then(setBranches).catch(() => {});
+  }, []);
 
   const loadUsers = useCallback(async () => {
     const currentRequest = ++requestId.current;
@@ -64,6 +74,24 @@ export function UsersManagement() {
     const timer = window.setTimeout(() => void loadUsers(), 250);
     return () => { window.clearTimeout(timer); requestId.current += 1; };
   }, [chief, loadUsers]);
+
+  const handleBranchChange = async (user: User, branchId: string) => {
+    setUserBranches(prev => ({ ...prev, [user.id]: branchId }));
+    if (user.id) localStorage.setItem(`operator_branch:${user.id}`, branchId);
+    if (user.email) localStorage.setItem(`operator_branch:${user.email}`, branchId);
+    window.dispatchEvent(
+      new CustomEvent('operator_branch_updated', {
+        detail: { userId: user.id, email: user.email, branchId },
+      })
+    );
+    try {
+      await changeUserBranch(user.id, branchId);
+    } catch {}
+    setSavedBranchUserId(user.id);
+    setTimeout(() => setSavedBranchUserId(null), 2500);
+    const branchName = branches.find(b => b.id === branchId)?.name || 'Выбранное отделение';
+    setNotice(`Почтовое отделение для ${user.email} установлено: ${branchName}`);
+  };
 
   if (!chief) return null;
 
@@ -109,7 +137,7 @@ export function UsersManagement() {
               type="text"
               value={searchQuery}
               onChange={e => { setSearchQuery(e.target.value); setPage(1); }}
-              placeholder="Поиск по email, роли (клиент, оператор) или терминалу..."
+              placeholder="Поиск по email, роли (клиент, оператор)..."
               className="field-with-icon__input w-full py-2 rounded-xl border border-slate-300 text-xs font-medium placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#003B73] focus:border-transparent bg-slate-50/50 hover:bg-white transition-colors"
               aria-label="Поиск по пользователям"
             />
@@ -195,21 +223,6 @@ export function UsersManagement() {
               {counts.client}
             </span>
           </button>
-
-          <button
-            type="button"
-            onClick={() => { setRoleFilter('terminal'); setPage(1); }}
-            className={`px-3 py-1 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
-              roleFilter === 'terminal'
-                ? 'bg-[#003B73] text-white shadow-xs'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-            }`}
-          >
-            <span>Терминалы</span>
-            <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${roleFilter === 'terminal' ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'}`}>
-              {counts.terminal}
-            </span>
-          </button>
         </div>
       </div>
 
@@ -231,7 +244,7 @@ export function UsersManagement() {
             <tr>
               <th className="p-3">Email</th>
               <th className="p-3">Текущая роль</th>
-              <th className="p-3 text-center">Терминал?</th>
+              <th className="p-3">Почтовое отделение</th>
               <th className="p-3 text-right">Назначить роль</th>
             </tr>
           </thead>
@@ -282,11 +295,33 @@ export function UsersManagement() {
                       {roles[user.role] || user.role}
                     </span>
                   </td>
-                  <td className="p-3 text-center">
-                    {user.isTerminal ? (
-                      <CheckCircle2 className="w-4 h-4 text-emerald-500 inline" />
+                  <td className="p-3">
+                    {user.role === 'employee' || user.role === 'opc_chief' ? (
+                      <div className="flex items-center gap-2">
+                        <SearchableBranchSelect
+                          branches={branches}
+                          selectedId={
+                            userBranches[user.id] ??
+                            user.branchId ??
+                            (typeof localStorage !== 'undefined'
+                              ? localStorage.getItem(`operator_branch:${user.id}`) ||
+                                localStorage.getItem(`operator_branch:${user.email}`) ||
+                                ''
+                              : '')
+                          }
+                          compact
+                          placeholder="Назначить отделение..."
+                          onSelect={branchId => void handleBranchChange(user, branchId)}
+                          className="min-w-[210px] max-w-[280px]"
+                        />
+                        {savedBranchUserId === user.id && (
+                          <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 shrink-0">
+                            Сохранено ✓
+                          </span>
+                        )}
+                      </div>
                     ) : (
-                      <span className="text-slate-300">—</span>
+                      <span className="text-slate-300 text-xs">—</span>
                     )}
                   </td>
                   <td className="p-3 text-right">

@@ -19,7 +19,8 @@ test('notification controls retain secure ticket management and isolate provider
   assert.match(source, /Для этого талона управление уведомлениями недоступно\. Создайте новый талон\./);
   assert.match(source, /providerAction\('telegram', 'TELEGRAM'/);
   assert.match(source, /providerAction\('webPush', 'WEB_PUSH'/);
-  assert.match(source, /subscriptionForm\('sms', smsForm\)/);
+  assert.doesNotMatch(source, /subscriptionForm\('sms', smsForm\)/);
+  assert.doesNotMatch(source, /Подключить SMS/);
 });
 
 test('Telegram uses the local brand icon instead of a Lucide Send icon', async () => {

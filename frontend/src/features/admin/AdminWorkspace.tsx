@@ -13,6 +13,7 @@ import { BranchScheduleShiftManager } from './BranchScheduleShiftManager';
 import { LiveQueueView } from './LiveQueueView';
 import { formatMoscowDateTime } from '../../utils/time';
 import { Pagination } from '../../components/common/Pagination';
+import { SearchableBranchSelect } from '../../components/common/SearchableBranchSelect';
 import {
   Activity,
   Sliders,
@@ -167,22 +168,18 @@ export const AdminWorkspace: React.FC = () => {
           </div>
 
           {branches.length > 0 && (
-            <label className="flex flex-col text-xs font-bold text-slate-700">
+            <div className="flex flex-col text-xs font-bold text-slate-700">
               <span className="text-[10px] uppercase font-bold text-slate-400 font-mono mb-1">
                 Отделение
               </span>
-              <select
-                value={selectedBranchId}
-                onChange={(e) => setSelectedBranchId(e.target.value)}
-                className="px-3.5 py-2 rounded-xl border border-slate-300 text-xs font-semibold bg-white text-slate-800 font-sans shadow-sm"
-              >
-                {branches.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+              <SearchableBranchSelect
+                branches={branches}
+                selectedId={selectedBranchId}
+                onSelect={setSelectedBranchId}
+                compact
+                className="min-w-[240px]"
+              />
+            </div>
           )}
         </div>
 

@@ -53,6 +53,7 @@ export type Ticket = {
   completedAt: string | null;
   arrivedAt?: string | null;
   managementToken?: string | null;
+  operatorName?: string | null;
 };
 
 export type Appointment = {

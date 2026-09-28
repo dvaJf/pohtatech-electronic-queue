@@ -310,12 +310,15 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
                   aria-label={`Учётная запись: ${currentUser.email.split('@')[0]}`}
                   className="flex h-11 max-w-[200px] items-center gap-2 rounded-xl border border-white/15 bg-white/[0.045] px-2.5 text-left text-white hover:bg-white/10 xl:max-w-[240px]">
                   <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/10"><UserCircleIcon className="h-5 w-5" /></span>
-                  <span className="min-w-0 truncate text-xs font-semibold">{currentUser.email.split('@')[0]}</span>
+                  <span className="min-w-0 truncate text-xs font-semibold">{currentUser.fio || currentUser.email.split('@')[0]}</span>
                   <AltArrowDownIcon className="h-4 w-4 shrink-0 text-blue-100/70" />
                 </button>
                 {accountMenuOpen && <div ref={accountMenuRef} id="account-menu" role="menu" aria-label="Учётная запись"
                   className="absolute right-0 top-[calc(100%+6px)] z-50 w-56 rounded-xl border border-white/15 bg-[#082E5A] p-1.5 text-white shadow-xl">
-                  <div className="truncate px-3 py-2 text-xs text-blue-100/65" title={currentUser.email}>{currentUser.email}<span className="block">{roleLabel}</span></div>
+                  <div className="truncate px-3 py-2 text-xs text-blue-100/65" title={currentUser.email}>
+                    {currentUser.fio && <span className="block font-bold text-white truncate">{currentUser.fio}</span>}
+                    {currentUser.email}<span className="block">{roleLabel}</span>
+                  </div>
                   <button role="menuitem" type="button" onClick={() => { setAccountMenuOpen(false); setIsProfileOpen(true); }} className="flex min-h-11 w-full items-center rounded-lg border-0 bg-transparent px-3 text-left text-xs text-white hover:bg-white/10">Профиль</button>
                   <button role="menuitem" type="button" onClick={() => { setAccountMenuOpen(false); setA11yOpen(true); }} className="flex min-h-11 w-full items-center rounded-lg border-0 bg-transparent px-3 text-left text-xs text-white hover:bg-white/10">Настройки</button>
                   <button role="menuitem" type="button" onClick={handleLogout} className="flex min-h-11 w-full items-center rounded-lg border-0 bg-transparent px-3 text-left text-xs text-white hover:bg-white/10">Выйти</button>
@@ -351,10 +354,10 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
                   <button
                     type="button"
                     onClick={closeA11y}
-                    className="p-1 text-white/70 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+                    className="flex h-10 w-10 min-h-10 min-w-10 items-center justify-center rounded-xl border border-white/20 bg-transparent p-0 text-white/80 transition-colors hover:bg-white/10 hover:text-white shrink-0"
                     aria-label="Закрыть настройки доступности"
                   >
-                    <CloseCircleIcon className="w-4 h-4" />
+                    <CloseCircleIcon size={20} className="shrink-0" />
                   </button>
                 </div>
 

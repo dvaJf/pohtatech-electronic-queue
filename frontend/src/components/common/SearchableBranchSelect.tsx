@@ -170,28 +170,47 @@ export const SearchableBranchSelect: React.FC<SearchableBranchSelectProps> = ({
       {isOpen && !disabled && (
         <div
           role="listbox"
-          className="absolute left-0 top-full mt-1.5 w-full min-w-[280px] max-w-[420px] bg-white rounded-2xl border border-slate-200 shadow-xl z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-100"
+          className="absolute left-0 top-full mt-1.5 w-full min-w-[280px] max-w-[420px] bg-white rounded-2xl border border-slate-200 shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-100"
+          style={{ zIndex: 100 }}
         >
           {/* Search Input Box */}
-          <div className="p-2 border-b border-slate-100 bg-slate-50/60">
-            <div className="relative flex items-center">
-              <Search className="absolute left-2.5 w-3.5 h-3.5 text-slate-400" aria-hidden="true" />
+          <div className="p-2 border-b border-slate-100 bg-slate-50/80">
+            <div
+              className="flex items-center gap-2 px-2.5 py-1.5 bg-white rounded-xl border border-slate-200 focus-within:border-[#003B73] focus-within:ring-2 focus-within:ring-[#003B73]/20 transition-all"
+              style={{ display: 'flex', alignItems: 'center' }}
+            >
+              <Search
+                className="w-3.5 h-3.5 text-slate-400 shrink-0"
+                aria-hidden="true"
+                style={{ minWidth: '14px', width: '14px', height: '14px' }}
+              />
               <input
                 ref={inputRef}
                 type="text"
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
                 placeholder="Поиск отделения по названию..."
-                className="w-full pl-8 pr-7 py-1.5 text-xs bg-white rounded-xl border border-slate-200 placeholder:text-slate-400 text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#003B73]/20 focus:border-[#003B73] transition-all"
+                className="w-full bg-transparent text-xs text-slate-800 placeholder:text-slate-400 outline-none"
+                style={{
+                  border: 'none',
+                  outline: 'none',
+                  boxShadow: 'none',
+                  padding: 0,
+                  margin: 0,
+                  height: '24px',
+                  lineHeight: '24px',
+                  background: 'transparent',
+                }}
                 aria-label="Поиск отделения"
               />
               {searchQuery && (
                 <button
                   type="button"
                   onClick={() => setSearchQuery('')}
-                  className="absolute right-2 p-0.5 text-slate-400 hover:text-slate-600 rounded-md transition-colors"
+                  className="p-0.5 text-slate-400 hover:text-slate-600 rounded-md transition-colors shrink-0"
                   title="Очистить"
                   aria-label="Очистить поиск"
+                  style={{ display: 'flex', alignItems: 'center' }}
                 >
                   <X className="w-3 h-3" />
                 </button>
@@ -204,10 +223,11 @@ export const SearchableBranchSelect: React.FC<SearchableBranchSelectProps> = ({
             )}
           </div>
 
-          {/* Branch List */}
+          {/* Branch List (Exactly 5 items visible, remainder with scrollbar) */}
           <ul
             ref={listRef}
-            className="max-h-60 overflow-y-auto py-1 scrollbar-thin divide-y divide-slate-50"
+            style={{ maxHeight: '230px', overflowY: 'auto' }}
+            className="overflow-y-auto py-1 scrollbar-thin divide-y divide-slate-50"
           >
             {filteredBranches.length === 0 ? (
               <li className="px-3 py-6 text-center text-xs text-slate-400">

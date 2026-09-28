@@ -238,7 +238,7 @@ export function UsersManagement() {
         </div>
       )}
 
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto min-h-[320px]">
         <table className="w-full text-left text-xs font-mono">
           <thead className="bg-slate-50 text-slate-600 font-bold uppercase text-[11px] rounded-t-xl">
             <tr>

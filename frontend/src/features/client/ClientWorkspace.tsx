@@ -421,147 +421,146 @@ function BranchCard({
           />
         )}
         <div className="min-w-0 flex-1">
-      {/* Бейджи статуса: Рекомендуем (минимальное общее время) или Ближайшее */}
-      <div className="flex flex-wrap items-center gap-1.5 mb-1.5 w-full">
-        {isClosed ? (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-slate-200 text-slate-700">
-            <Clock size={11} className="text-slate-500" />
-            <span>Закрыто</span>
-          </span>
-        ) : (
-          <>
-            {isFastest && (
-              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-xs">
-                <Zap size={11} className="fill-emerald-600 text-emerald-600" />
-                <span>Рекомендуем: быстрее всего</span>
-                {typeof totalMinutes === 'number' && <span className="opacity-80">· ~{totalMinutes} мин</span>}
-              </span>
-            )}
-            {isFastest && typeof timeSavedMinutes === 'number' && timeSavedMinutes > 0 && (
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
-                Экономия ~{timeSavedMinutes} мин vs ближайшего
-              </span>
-            )}
-            {isClosest && !isFastest && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200">
-                <Navigation size={10} />
-                <span>Ближайшее к вам</span>
-              </span>
-            )}
-          </>
-        )}
-        {location?.rating && location.rating > 0 ? (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-800" title="Рейтинг Яндекс Карт">
-            <YandexIcon size={11} className="shrink-0" />
-            <span>{location.rating.toFixed(1)} · Яндекс Карты</span>
-          </span>
-        ) : null}
-        {ratingAverage !== null && typeof ratingAverage === 'number' ? (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700">
-            <Star size={10} className="fill-amber-400 text-amber-400" />
-            <span>{ratingAverage.toFixed(1)} · {ratingCount ?? 0} оценок</span>
-          </span>
-        ) : <span className="text-[10px] font-semibold text-slate-500">Нет оценок</span>}
-      </div>
-
-      <div className="flex items-start justify-between gap-2 w-full">
-        <div className="flex-1 min-w-0">
-          <span className="cx-choice-title text-sm sm:text-base font-extrabold">{branch.name}</span>
-
-          {isClosed && (
-            <div className="my-1.5 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-rose-50 border border-rose-200 text-xs font-bold text-rose-700">
-              <Clock size={12} className="shrink-0 text-rose-500" />
-              <span>Отделение закрыто {scheduleStatus.closedUntilText}</span>
+          {/* Верхняя строка: Рейтинг и бейджи слева, статус закрытия в правом верхнем углу */}
+          <div className="flex items-center justify-between gap-1.5 mb-1.5 w-full flex-wrap">
+            <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+              {!isClosed && (
+                <>
+                  {isFastest && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-xs">
+                      <Zap size={11} className="fill-emerald-600 text-emerald-600" />
+                      <span>Рекомендуем: быстрее всего</span>
+                      {typeof totalMinutes === 'number' && <span className="opacity-80">· ~{totalMinutes} мин</span>}
+                    </span>
+                  )}
+                  {isFastest && typeof timeSavedMinutes === 'number' && timeSavedMinutes > 0 && (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                      Экономия ~{timeSavedMinutes} мин vs ближайшего
+                    </span>
+                  )}
+                  {isClosest && !isFastest && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200">
+                      <Navigation size={10} />
+                      <span>Ближайшее к вам</span>
+                    </span>
+                  )}
+                </>
+              )}
+              {location?.rating && location.rating > 0 ? (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-800" title="Рейтинг Яндекс Карт">
+                  <YandexIcon size={11} className="shrink-0" />
+                  <span>{location.rating.toFixed(1)} · Яндекс Карты</span>
+                </span>
+              ) : null}
+              {ratingAverage !== null && typeof ratingAverage === 'number' ? (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700">
+                  <Star size={10} className="fill-amber-400 text-amber-400" />
+                  <span>{ratingAverage.toFixed(1)} · {ratingCount ?? 0} оценок</span>
+                </span>
+              ) : <span className="text-[10px] font-semibold text-slate-500">Нет оценок</span>}
             </div>
-          )}
 
-          {/* Расстояние, время в пути и общее расчетное время T = T_travel + T_wait */}
-          {(distText || typeof totalMinutes === 'number') && (
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-600 my-1 font-medium">
-              {distText && (
-                <span className="inline-flex items-center gap-1 text-[#052F85] font-bold">
-                  <Navigation size={12} className="shrink-0" />
-                  <span>{distText} ({travelMinutes ?? Math.round((distanceMeters! / 1000) * 12)} мин пешком)</span>
-                </span>
-              )}
-              {typeof waitMinutes === 'number' && !isClosed && (
-                <span className="text-slate-500">
-                  Очередь: ~<strong>{waitMinutes} мин</strong>
-                </span>
-              )}
-              {typeof totalMinutes === 'number' && !isClosed && (
-                <span className="text-slate-700 font-semibold">
-                  Дорога + очередь: <strong>~{totalMinutes} мин</strong>
-                </span>
-              )}
-            </div>
-          )}
-
-          {landmark && (
-            <span className="cx-choice-meta text-xs" data-landmark-type={landmark.isMetro ? 'metro' : 'landmark'} aria-label={landmark.isMetro ? `Метро ${landmark.label}` : landmark.label}>
-              {landmark.isMetro ? (
-                <span className="inline-block w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: landmark.color }} aria-hidden />
-              ) : (
-                <Navigation size={13} aria-hidden className="shrink-0 text-slate-400" />
-              )}
-              <span>{landmark.label}</span>
-            </span>
-          )}
-
-          {branch.address ? (
-            <span className="cx-choice-meta text-xs">
-              <MapPin size={13} aria-hidden className="shrink-0 text-slate-400" />
-              <span className="cx-message-text">{branch.address}</span>
-            </span>
-          ) : null}
-
-          {branch.workHours ? (
-            <span className="cx-choice-meta text-xs">
-              <Clock size={13} aria-hidden className="shrink-0 text-slate-400" />
-              <span>{branch.workHours}</span>
-            </span>
-          ) : null}
-
-          {/* Кнопка просмотра официального расписания на всю неделю */}
-          <div
-            role="button"
-            tabIndex={0}
-            onClick={(e) => {
-              e.stopPropagation();
-              setShowWeeklySchedule(prev => !prev);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                e.stopPropagation();
-                setShowWeeklySchedule(prev => !prev);
-              }
-            }}
-            className="mt-2 pt-2 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-[#052F85] hover:text-[#031E56] cursor-pointer"
-          >
-            <span className="inline-flex items-center gap-1.5 hover:underline">
-              <Calendar size={13} />
-              <span>{showWeeklySchedule ? 'Скрыть расписание на неделю' : 'Расписание на всю неделю'}</span>
-              <ChevronDown size={13} className={`transition-transform duration-200 ${showWeeklySchedule ? 'rotate-180' : ''}`} />
-            </span>
-            <span className="text-[10px] text-slate-400 font-medium">Яндекс Карты</span>
+            {/* Правый верхний угол: бейдж "Отделение закрыто до ..." */}
+            {isClosed && (
+              <span className="shrink-0 inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-50 border border-rose-200 text-rose-700 ml-auto shadow-2xs">
+                <Clock size={11} className="text-rose-500 shrink-0" />
+                <span>Отделение закрыто {scheduleStatus.closedUntilText}</span>
+              </span>
+            )}
           </div>
 
-          {showWeeklySchedule && (
-            <div className="mt-2.5 w-full cursor-default" onClick={(e) => e.stopPropagation()}>
-              <WeeklyScheduleView schedule={scheduleStatus.weeklySchedule} />
+          <div className="flex items-start justify-between gap-2 w-full">
+            <div className="flex-1 min-w-0">
+              <span className="cx-choice-title text-sm sm:text-base font-extrabold">{branch.name}</span>
+
+              {/* Расстояние, время в пути и общее расчетное время T = T_travel + T_wait */}
+              {(distText || typeof totalMinutes === 'number') && (
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-600 my-1 font-medium">
+                  {distText && (
+                    <span className="inline-flex items-center gap-1 text-[#052F85] font-bold">
+                      <Navigation size={12} className="shrink-0" />
+                      <span>{distText} ({travelMinutes ?? Math.round((distanceMeters! / 1000) * 12)} мин пешком)</span>
+                    </span>
+                  )}
+                  {typeof waitMinutes === 'number' && !isClosed && (
+                    <span className="text-slate-500">
+                      Очередь: ~<strong>{waitMinutes} мин</strong>
+                    </span>
+                  )}
+                  {typeof totalMinutes === 'number' && !isClosed && (
+                    <span className="text-slate-700 font-semibold">
+                      Дорога + очередь: <strong>~{totalMinutes} мин</strong>
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {landmark && (
+                <span className="cx-choice-meta text-xs" data-landmark-type={landmark.isMetro ? 'metro' : 'landmark'} aria-label={landmark.isMetro ? `Метро ${landmark.label}` : landmark.label}>
+                  {landmark.isMetro ? (
+                    <span className="inline-block w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: landmark.color }} aria-hidden />
+                  ) : (
+                    <Navigation size={13} aria-hidden className="shrink-0 text-slate-400" />
+                  )}
+                  <span>{landmark.label}</span>
+                </span>
+              )}
+
+              {branch.address ? (
+                <span className="cx-choice-meta text-xs">
+                  <MapPin size={13} aria-hidden className="shrink-0 text-slate-400" />
+                  <span className="cx-message-text">{branch.address}</span>
+                </span>
+              ) : null}
+
+              {branch.workHours ? (
+                <span className="cx-choice-meta text-xs">
+                  <Clock size={13} aria-hidden className="shrink-0 text-slate-400" />
+                  <span>{branch.workHours}</span>
+                </span>
+              ) : null}
+
+              {/* Кнопка просмотра официального расписания на всю неделю */}
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowWeeklySchedule(prev => !prev);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setShowWeeklySchedule(prev => !prev);
+                  }
+                }}
+                className="mt-2 pt-2 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-[#052F85] hover:text-[#031E56] cursor-pointer"
+              >
+                <span className="inline-flex items-center gap-1.5 hover:underline">
+                  <Calendar size={13} />
+                  <span>{showWeeklySchedule ? 'Скрыть расписание на неделю' : 'Расписание на всю неделю'}</span>
+                  <ChevronDown size={13} className={`transition-transform duration-200 ${showWeeklySchedule ? 'rotate-180' : ''}`} />
+                </span>
+              </div>
+
+              {showWeeklySchedule && (
+                <div className="mt-2.5 w-full cursor-default" onClick={(e) => e.stopPropagation()}>
+                  <WeeklyScheduleView schedule={scheduleStatus.weeklySchedule} />
+                </div>
+              )}
             </div>
-          )}
-        </div>
-        <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 border-2 transition-all mt-0.5 ${selected ? 'bg-[#003B73] border-[#003B73] text-white' : 'border-slate-300 bg-white'}`}>
-          {selected && <Check size={12} strokeWidth={3} />}
-        </div>
-      </div>
+            <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 border-2 transition-all mt-0.5 ${selected ? 'bg-[#003B73] border-[#003B73] text-white' : 'border-slate-300 bg-white'}`}>
+              {selected && <Check size={12} strokeWidth={3} />}
+            </div>
+          </div>
         </div>
       </div>
-      <div className="pt-1 w-full">
-        <BranchWorkloadCard branch={branch} compact />
-      </div>
+      {!isClosed && (
+        <div className="pt-1 w-full">
+          <BranchWorkloadCard branch={branch} compact />
+        </div>
+      )}
     </button>
   );
 }

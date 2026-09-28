@@ -612,13 +612,32 @@ export function BranchMapModal({
         }
       }
 
+      const shortName = b.name
+        .replace(/^Демо\s*[·•-]\s*/i, '')
+        .replace(/^Почтовое отделение\s+/i, 'ОПС ')
+        .trim();
+      const closedText = `Закрыто ${scheduleStatus.closedUntilText || ''}`.trim();
+
       const pinLayout = ymaps.templateLayoutFactory.createClass(
-        `<div class="pvz-pin-marker ${isClosed ? 'opacity-80' : 'cursor-pointer'} select-none group" style="display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-100%);${pointerStyles}">
-          <div style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:9999px;background-color:${pinBg};border:${border};color:#FFFFFF;font-family:'Manrope',sans-serif;font-size:11px;font-weight:800;white-space:nowrap;line-height:1.2;box-shadow:${boxShadow};">
-            ${content}
-          </div>
-          <div style="width:8px;height:8px;transform:rotate(45deg);margin-top:-4px;background-color:${pinBg};border-right:${border};border-bottom:${border};"></div>
-        </div>`
+        isClosed
+          ? `<div class="pvz-pin-marker select-none" style="display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-100%);${pointerStyles}">
+              <div style="background:#FFFFFF;border-radius:8px;padding:4px 9px;box-shadow:0 2px 10px rgba(0,0,0,0.18);border:1px solid #CBD5E1;text-align:center;white-space:nowrap;font-family:'Manrope',sans-serif;line-height:1.25;">
+                <div style="display:flex;align-items:center;justify-content:center;gap:4px;font-size:12px;font-weight:700;color:#0F172A;">
+                  <span>${shortName.length > 20 ? shortName.slice(0, 19) + '…' : shortName}</span>
+                  ${hasRating ? `<span style="color:#475569;font-size:11px;">★</span><span style="color:#334155;font-weight:700;">${ratingText}</span>` : ''}
+                </div>
+                <div style="color:#EF4444;font-size:11px;font-weight:700;margin-top:2px;">
+                  ${closedText}
+                </div>
+              </div>
+              <div style="width:8px;height:8px;transform:rotate(45deg);margin-top:-4px;background:#FFFFFF;border-right:1px solid #CBD5E1;border-bottom:1px solid #CBD5E1;"></div>
+            </div>`
+          : `<div class="pvz-pin-marker cursor-pointer select-none group" style="display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-100%);">
+              <div style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:9999px;background-color:${pinBg};border:${border};color:#FFFFFF;font-family:'Manrope',sans-serif;font-size:11px;font-weight:800;white-space:nowrap;line-height:1.2;box-shadow:${boxShadow};">
+                ${content}
+              </div>
+              <div style="width:8px;height:8px;transform:rotate(45deg);margin-top:-4px;background-color:${pinBg};border-right:${border};border-bottom:${border};"></div>
+            </div>`
       );
       const placemark = new ymaps.Placemark(b.coordinates, {
         name: b.name,
@@ -961,30 +980,29 @@ export function BranchMapModal({
                         )}
                         <div className="min-w-0 flex-1">
                         <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="text-xs font-extrabold text-[#031E56] leading-snug">
-                            {branch.name}
-                          </div>
-                          <div className="text-[11px] text-slate-500 mt-0.5 line-clamp-1">
-                            {branch.address}
-                          </div>
-                          {isClosed && (
-                            <div className="mt-1.5 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-rose-50 border border-rose-200/80 text-[10px] font-bold text-rose-700">
-                              <Clock size={11} className="shrink-0 text-rose-500" />
-                              <span>Отделение закрыто {scheduleStatus.closedUntilText}</span>
+                          <div className="min-w-0">
+                            <div className="text-xs font-extrabold text-[#031E56] leading-snug">
+                              {branch.name}
                             </div>
+                            <div className="text-[11px] text-slate-500 mt-0.5 line-clamp-1">
+                              {branch.address}
+                            </div>
+                          </div>
+
+                          {/* Бейдж ожидания (ПВЗ стиль) или статус закрытия в правом верхнем углу */}
+                          {isClosed ? (
+                            <span className="shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-50 border border-rose-200 text-[10px] font-bold text-rose-700 shadow-2xs">
+                              <Clock size={10} className="shrink-0 text-rose-500" />
+                              <span>Отделение закрыто {scheduleStatus.closedUntilText}</span>
+                            </span>
+                          ) : (
+                            <span
+                              className={`shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold text-white shadow-xs ${wait.colorClass}`}
+                            >
+                              {wait.label}
+                            </span>
                           )}
                         </div>
-
-                        {/* Бейдж ожидания (ПВЗ стиль) или Закрыто */}
-                        <div
-                          className={`shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold text-white shadow-xs ${
-                            isClosed ? 'bg-slate-400' : wait.colorClass
-                          }`}
-                        >
-                          {isClosed ? 'Закрыто' : wait.label}
-                        </div>
-                      </div>
 
                       {/* Метро и рейтинг */}
                       <div className="mt-2.5 flex items-center justify-between text-[11px] text-slate-500 pt-2 border-t border-slate-100">
@@ -1273,14 +1291,24 @@ export function BranchMapModal({
                             className="h-14 w-16 rounded-xl object-cover shrink-0 bg-slate-100" />
                         )}
                         <div className="min-w-0 flex-1">
-                          <div className="text-xs font-bold text-[#031E56] break-words">{b.name}</div>
-                          <div className="text-[11px] text-slate-500 mt-0.5 break-words">{b.address}</div>
-                          {isClosed && (
-                            <div className="mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-rose-50 border border-rose-200/80 text-[9px] font-bold text-rose-700">
-                              <Clock size={10} className="shrink-0 text-rose-500" />
-                              <span>Отделение закрыто {scheduleStatus.closedUntilText}</span>
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="text-xs font-bold text-[#031E56] break-words">{b.name}</div>
+                              <div className="text-[11px] text-slate-500 mt-0.5 break-words">{b.address}</div>
                             </div>
-                          )}
+                            {isClosed ? (
+                              <span className="shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-50 border border-rose-200 text-[10px] font-bold text-rose-700 shadow-2xs">
+                                <Clock size={10} className="shrink-0 text-rose-500" />
+                                <span>Отделение закрыто {scheduleStatus.closedUntilText}</span>
+                              </span>
+                            ) : (
+                              <span
+                                className={`shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold text-white shadow-xs ${getWaitBadgeInfo(b.liveWaitMinutes).colorClass}`}
+                              >
+                                {getWaitBadgeInfo(b.liveWaitMinutes).label}
+                              </span>
+                            )}
+                          </div>
                           <div className="flex items-center gap-2 mt-1 text-[10px] text-slate-500 font-semibold">
                             {(() => {
                               const yRating = b.yandexRating ?? (b.rawLocation?.rating && b.rawLocation.rating > 0 ? b.rawLocation.rating : null);
@@ -1306,13 +1334,6 @@ export function BranchMapModal({
                               <span className="truncate">{landmark?.label || 'Рядом с остановкой'}</span>
                             </span>
                           </div>
-                        </div>
-                        <div
-                          className={`shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold text-white shadow-xs ${
-                            isClosed ? 'bg-slate-400' : getWaitBadgeInfo(b.liveWaitMinutes).colorClass
-                          }`}
-                        >
-                          {isClosed ? 'Закрыто' : getWaitBadgeInfo(b.liveWaitMinutes).label}
                         </div>
                       </button>
                     );})}
@@ -1430,7 +1451,7 @@ export function DetailedBranchCard({
                 <span>{branch.rating.toFixed(2)}</span>
               </div>
             )}
-            {branch.liveWaitMinutes !== null && (
+            {branch.liveWaitMinutes !== null && !scheduleStatus.isClosed && (
               <div className={`branch-queue-badge px-2.5 py-1 rounded-full text-white text-[11px] font-bold shadow-md ${wait.colorClass}`}>
                 <span>{wait.label}</span><span className="branch-queue-suffix"> в очереди</span>
               </div>
@@ -1517,7 +1538,7 @@ export function DetailedBranchCard({
               </div>
             )}
           </div>
-          {(() => {
+          {!scheduleStatus.isClosed && (() => {
             const workload = branch.liveWaitMinutes === null
               ? { colorClass: 'border-slate-200 text-slate-500', label: 'Нет оценки' }
               : { colorClass: wait.textClass, label: wait.label };
@@ -1753,37 +1774,46 @@ export function LeafletCartoOsmFallbackMap({
                   : 'hover:scale-105 cursor-pointer'
               }`}
             >
-              {/* ПВЗ-бейдж: Компактный горизонтальный маркер [ ★ 4.94 • ~0 мин ] или Закрыто */}
-              <div
-                className={`pvz-pin-marker shadow-lg px-2.5 py-1 rounded-full text-white text-[11px] font-extrabold flex items-center gap-1.5 whitespace-nowrap leading-none ${
-                  isClosed
-                    ? 'bg-slate-500 border-2 border-slate-300'
-                    : isSelected
-                    ? `border-[3px] border-[#FACC15] ring-4 ring-yellow-400/25 ${wait.colorClass}`
-                    : `border-2 border-white ${wait.colorClass}`
-                }`}
-              >
-                {isClosed ? (
-                  <span>✕ Закрыто</span>
-                ) : (
-                  <>
+              {isClosed ? (
+                <div className="flex flex-col items-center">
+                  <div className="bg-white rounded-lg px-2.5 py-1 shadow-md border border-slate-300 text-center whitespace-nowrap leading-tight font-['Manrope']">
+                    <div className="flex items-center justify-center gap-1 text-[11px] font-bold text-slate-900">
+                      <span>{b.name.replace(/^Демо\s*[·•-]\s*/i, '').slice(0, 18)}</span>
+                      {b.rating !== null && (
+                        <>
+                          <span className="text-slate-600 text-[10px]">★</span>
+                          <span className="text-slate-700">{b.rating.toFixed(1)}</span>
+                        </>
+                      )}
+                    </div>
+                    <div className="text-red-500 text-[11px] font-bold mt-0.5">
+                      Закрыто {scheduleStatus.closedUntilText || ''}
+                    </div>
+                  </div>
+                  <div className="w-1.5 h-1.5 rotate-45 -mt-1 bg-white border-r border-b border-slate-300" />
+                </div>
+              ) : (
+                <>
+                  <div
+                    className={`pvz-pin-marker shadow-lg px-2.5 py-1 rounded-full text-white text-[11px] font-extrabold flex items-center gap-1.5 whitespace-nowrap leading-none ${
+                      isSelected
+                        ? `border-[3px] border-[#FACC15] ring-4 ring-yellow-400/25 ${wait.colorClass}`
+                        : `border-2 border-white ${wait.colorClass}`
+                    }`}
+                  >
                     {b.rating !== null && <span className="text-yellow-200">★</span>}
                     {b.rating !== null && <span>{b.rating.toFixed(2)}</span>}
                     {b.rating !== null && b.liveWaitMinutes !== null && <span className="opacity-60">•</span>}
                     {b.liveWaitMinutes !== null && <span>{wait.label}</span>}
                     {b.rating === null && b.liveWaitMinutes === null && <span>Почта</span>}
-                  </>
-                )}
-              </div>
-              <div
-                className={`w-2 h-2 rotate-45 mx-auto -mt-1 border-r-2 border-b-2 ${
-                  isClosed
-                    ? 'bg-slate-500 border-slate-300'
-                    : isSelected
-                    ? `border-[#FACC15] ${wait.colorClass}`
-                    : `border-white ${wait.colorClass}`
-                }`}
-              />
+                  </div>
+                  <div
+                    className={`w-2 h-2 rotate-45 mx-auto -mt-1 border-r-2 border-b-2 ${
+                      isSelected ? 'bg-yellow-400 border-yellow-300' : 'bg-[#052F85] border-white'
+                    }`}
+                  />
+                </>
+              )}
             </button>
           );
         })}

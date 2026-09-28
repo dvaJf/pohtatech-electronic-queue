@@ -13,6 +13,7 @@ export interface SearchableBranchSelectProps {
   className?: string;
   id?: string;
   'aria-label'?: string;
+  dropdownAlign?: 'left' | 'right';
 }
 
 export const SearchableBranchSelect: React.FC<SearchableBranchSelectProps> = ({
@@ -26,6 +27,7 @@ export const SearchableBranchSelect: React.FC<SearchableBranchSelectProps> = ({
   className = '',
   id,
   'aria-label': ariaLabel,
+  dropdownAlign = 'left',
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -43,9 +45,13 @@ export const SearchableBranchSelect: React.FC<SearchableBranchSelectProps> = ({
     const q = searchQuery.trim().toLowerCase();
     if (!q) return branches;
     return branches.filter(b => {
+      const anyB = b as { address?: string; code?: string; postalCode?: string; index?: string };
       const nameMatch = b.name.toLowerCase().includes(q);
-      const addressMatch = (b as { address?: string }).address?.toLowerCase().includes(q);
-      return nameMatch || addressMatch;
+      const addressMatch = anyB.address?.toLowerCase().includes(q);
+      const codeMatch = anyB.code?.toLowerCase().includes(q);
+      const postalCodeMatch = anyB.postalCode?.toLowerCase().includes(q);
+      const indexMatch = anyB.index?.toLowerCase().includes(q);
+      return Boolean(nameMatch || addressMatch || codeMatch || postalCodeMatch || indexMatch);
     });
   }, [branches, searchQuery]);
 
@@ -170,27 +176,27 @@ export const SearchableBranchSelect: React.FC<SearchableBranchSelectProps> = ({
       {isOpen && !disabled && (
         <div
           role="listbox"
-          className="absolute left-0 top-full mt-1.5 w-full min-w-[280px] max-w-[420px] bg-white rounded-2xl border border-slate-200 shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-100"
+          className={`absolute ${dropdownAlign === 'right' ? 'right-0' : 'left-0'} top-full mt-1.5 w-full min-w-[300px] max-w-[360px] bg-white rounded-2xl border border-slate-200 shadow-2xl overflow-hidden font-sans`}
           style={{ zIndex: 100 }}
         >
           {/* Search Input Box */}
           <div className="p-2 border-b border-slate-100 bg-slate-50/80">
             <div
-              className="flex items-center gap-2 px-2.5 py-1.5 bg-white rounded-xl border border-slate-200 focus-within:border-[#003B73] focus-within:ring-2 focus-within:ring-[#003B73]/20 transition-all"
+              className="flex items-center gap-1.5 px-2 py-1.5 bg-white rounded-xl border border-slate-200 focus-within:border-[#003B73] focus-within:ring-2 focus-within:ring-[#003B73]/20 transition-all"
               style={{ display: 'flex', alignItems: 'center' }}
             >
               <Search
                 className="w-3.5 h-3.5 text-slate-400 shrink-0"
                 aria-hidden="true"
-                style={{ minWidth: '14px', width: '14px', height: '14px' }}
+                style={{ minWidth: '13px', width: '13px', height: '13px' }}
               />
               <input
                 ref={inputRef}
                 type="text"
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
-                placeholder="Поиск отделения по названию..."
-                className="w-full bg-transparent text-xs text-slate-800 placeholder:text-slate-400 outline-none"
+                placeholder="Поиск отделения по названию, адресу или индексу..."
+                className="w-full bg-transparent text-[11px] text-slate-800 placeholder:text-slate-400 placeholder:text-[10px] outline-none"
                 style={{
                   border: 'none',
                   outline: 'none',
@@ -199,6 +205,7 @@ export const SearchableBranchSelect: React.FC<SearchableBranchSelectProps> = ({
                   margin: 0,
                   height: '24px',
                   lineHeight: '24px',
+                  fontSize: '11px',
                   background: 'transparent',
                 }}
                 aria-label="Поиск отделения"
@@ -226,8 +233,8 @@ export const SearchableBranchSelect: React.FC<SearchableBranchSelectProps> = ({
           {/* Branch List (Exactly 5 items visible, remainder with scrollbar) */}
           <ul
             ref={listRef}
-            style={{ maxHeight: '230px', overflowY: 'auto' }}
-            className="overflow-y-auto py-1 scrollbar-thin divide-y divide-slate-50"
+            style={{ maxHeight: '230px', overflowY: 'auto', overscrollBehavior: 'contain' }}
+            className="overflow-y-auto py-1 scrollbar-thin divide-y divide-slate-50 overscroll-contain"
           >
             {filteredBranches.length === 0 ? (
               <li className="px-3 py-6 text-center text-xs text-slate-400">
@@ -238,6 +245,8 @@ export const SearchableBranchSelect: React.FC<SearchableBranchSelectProps> = ({
               filteredBranches.map((branch, idx) => {
                 const isSelected = branch.id === selectedId;
                 const isHighlighted = idx === highlightedIndex;
+                const anyB = branch as { address?: string; code?: string; postalCode?: string; index?: string };
+                const extraInfo = [anyB.code || anyB.postalCode || anyB.index, anyB.address].filter(Boolean).join(' · ');
 
                 return (
                   <li
@@ -256,9 +265,9 @@ export const SearchableBranchSelect: React.FC<SearchableBranchSelectProps> = ({
                   >
                     <div className="flex flex-col min-w-0 flex-1">
                       <span className="truncate">{branch.name}</span>
-                      {(branch as { address?: string }).address && (
+                      {extraInfo && (
                         <span className="text-[10px] text-slate-400 font-normal truncate">
-                          {(branch as { address?: string }).address}
+                          {extraInfo}
                         </span>
                       )}
                     </div>

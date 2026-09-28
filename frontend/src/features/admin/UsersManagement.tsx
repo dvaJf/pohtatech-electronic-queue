@@ -1,9 +1,9 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { changeUserBranch, changeUserRole, getMe, listUsers, User, UserPage } from '../../api/authApi';
 import { listBranches } from '../../api/operator/operatorApi';
 import { Branch } from '../../api/operator/types';
 import { SearchableBranchSelect } from '../../components/common/SearchableBranchSelect';
-import { Users, RefreshCw, Search, X } from 'lucide-react';
+import { Users, RefreshCw, Search, X, Building2, Pencil, Plus, Check } from 'lucide-react';
 import { Pagination } from '../../components/common/Pagination';
 
 const roles: Record<string, string> = {
@@ -30,6 +30,7 @@ export function UsersManagement() {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [userBranches, setUserBranches] = useState<Record<string, string>>({});
   const [savedBranchUserId, setSavedBranchUserId] = useState<string | null>(null);
+  const [assigningUser, setAssigningUser] = useState<User | null>(null);
   const requestId = useRef(0);
 
   useEffect(() => {
@@ -76,21 +77,39 @@ export function UsersManagement() {
   }, [chief, loadUsers]);
 
   const handleBranchChange = async (user: User, branchId: string) => {
-    setUserBranches(prev => ({ ...prev, [user.id]: branchId }));
-    if (user.id) localStorage.setItem(`operator_branch:${user.id}`, branchId);
-    if (user.email) localStorage.setItem(`operator_branch:${user.email}`, branchId);
+    setUserBranches(prev => {
+      const next = { ...prev };
+      if (!branchId) {
+        delete next[user.id];
+      } else {
+        next[user.id] = branchId;
+      }
+      return next;
+    });
+    if (user.id) {
+      if (!branchId) localStorage.removeItem(`operator_branch:${user.id}`);
+      else localStorage.setItem(`operator_branch:${user.id}`, branchId);
+    }
+    if (user.email) {
+      if (!branchId) localStorage.removeItem(`operator_branch:${user.email}`);
+      else localStorage.setItem(`operator_branch:${user.email}`, branchId);
+    }
     window.dispatchEvent(
       new CustomEvent('operator_branch_updated', {
-        detail: { userId: user.id, email: user.email, branchId },
+        detail: { userId: user.id, email: user.email, branchId: branchId || '' },
       })
     );
     try {
-      await changeUserBranch(user.id, branchId);
+      await changeUserBranch(user.id, branchId || '');
     } catch {}
     setSavedBranchUserId(user.id);
     setTimeout(() => setSavedBranchUserId(null), 2500);
-    const branchName = branches.find(b => b.id === branchId)?.name || 'Выбранное отделение';
-    setNotice(`Почтовое отделение для ${user.email} установлено: ${branchName}`);
+    if (!branchId) {
+      setNotice(`Привязка к отделению для ${user.email} снята`);
+    } else {
+      const branchName = branches.find(b => b.id === branchId)?.name || 'Выбранное отделение';
+      setNotice(`Почтовое отделение для ${user.email} установлено: ${branchName}`);
+    }
   };
 
   if (!chief) return null;
@@ -298,24 +317,46 @@ export function UsersManagement() {
                   <td className="p-3">
                     {user.role === 'employee' || user.role === 'opc_chief' ? (
                       <div className="flex items-center gap-2">
-                        <SearchableBranchSelect
-                          branches={branches}
-                          selectedId={
+                        {(() => {
+                          const assignedId =
                             userBranches[user.id] ??
                             user.branchId ??
                             (typeof localStorage !== 'undefined'
                               ? localStorage.getItem(`operator_branch:${user.id}`) ||
                                 localStorage.getItem(`operator_branch:${user.email}`) ||
                                 ''
-                              : '')
+                              : '');
+                          const branch = branches.find(b => b.id === assignedId);
+
+                          if (branch) {
+                            return (
+                              <button
+                                type="button"
+                                onClick={() => setAssigningUser(user)}
+                                className="group inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-blue-200 bg-blue-50/80 hover:bg-blue-100/90 text-[#003B73] text-xs font-sans font-medium transition-all max-w-[240px] shadow-xs cursor-pointer"
+                                title="Нажмите, чтобы изменить привязанное отделение"
+                              >
+                                <Building2 className="w-3.5 h-3.5 text-[#003B73] shrink-0" />
+                                <span className="truncate font-sans font-semibold">{branch.name}</span>
+                                <Pencil className="w-3 h-3 text-blue-400 group-hover:text-[#003B73] shrink-0 ml-1" />
+                              </button>
+                            );
                           }
-                          compact
-                          placeholder="Назначить отделение..."
-                          onSelect={branchId => void handleBranchChange(user, branchId)}
-                          className="min-w-[210px] max-w-[280px]"
-                        />
+
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => setAssigningUser(user)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-dashed border-slate-300 hover:border-[#003B73] hover:bg-blue-50/50 text-slate-500 hover:text-[#003B73] text-xs font-sans font-medium transition-all cursor-pointer"
+                              title="Нажмите, чтобы прикрепить оператора к отделению"
+                            >
+                              <Plus className="w-3.5 h-3.5 shrink-0" />
+                              <span className="font-sans">Назначить отделение...</span>
+                            </button>
+                          );
+                        })()}
                         {savedBranchUserId === user.id && (
-                          <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 shrink-0">
+                          <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 shrink-0 font-sans">
                             Сохранено ✓
                           </span>
                         )}
@@ -372,6 +413,255 @@ export function UsersManagement() {
       </div>
       <Pagination page={page} total={total} pageSize={pageSize} disabled={pending}
         onPageChange={setPage} onPageSizeChange={size => { setPageSize(size); setPage(1); }} itemLabel="пользователям" />
+
+      {/* Модальное окно выбора отделения (поверх разметки таблицы) */}
+      {assigningUser && (
+        <AssignBranchModal
+          user={assigningUser}
+          branches={branches}
+          currentBranchId={userBranches[assigningUser.id] || assigningUser.branchId || ''}
+          onClose={() => setAssigningUser(null)}
+          onSave={async (branchId) => {
+            await handleBranchChange(assigningUser, branchId);
+            setAssigningUser(null);
+          }}
+        />
+      )}
     </section>
+  );
+}
+
+interface AssignBranchModalProps {
+  user: User;
+  branches: Branch[];
+  currentBranchId: string;
+  onClose: () => void;
+  onSave: (branchId: string) => Promise<void> | void;
+}
+
+function AssignBranchModal({
+  user,
+  branches,
+  currentBranchId,
+  onClose,
+  onSave,
+}: AssignBranchModalProps) {
+  const [selectedId, setSelectedId] = useState(currentBranchId);
+  const [searchQuery, setSearchQuery] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const timer = setTimeout(() => inputRef.current?.focus(), 50);
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Prevent background page scrolling when modal is open
+  useEffect(() => {
+    const originalBodyOverflow = document.body.style.overflow;
+    const originalHtmlOverflow = document.documentElement.style.overflow;
+    document.body.style.overflow = 'hidden';
+    document.documentElement.style.overflow = 'hidden';
+
+    const preventBackdropScroll = (e: TouchEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target?.closest('.modal-scrollable-content')) {
+        e.preventDefault();
+      }
+    };
+    document.addEventListener('touchmove', preventBackdropScroll, { passive: false });
+
+    return () => {
+      document.body.style.overflow = originalBodyOverflow;
+      document.documentElement.style.overflow = originalHtmlOverflow;
+      document.removeEventListener('touchmove', preventBackdropScroll);
+    };
+  }, []);
+
+  const filteredBranches = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return branches;
+    return branches.filter(b => {
+      const anyB = b as { address?: string; code?: string; postalCode?: string; index?: string };
+      const nameMatch = b.name.toLowerCase().includes(q);
+      const addressMatch = anyB.address?.toLowerCase().includes(q);
+      const codeMatch = anyB.code?.toLowerCase().includes(q);
+      const postalCodeMatch = anyB.postalCode?.toLowerCase().includes(q);
+      const indexMatch = anyB.index?.toLowerCase().includes(q);
+      return Boolean(nameMatch || addressMatch || codeMatch || postalCodeMatch || indexMatch);
+    });
+  }, [branches, searchQuery]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4 animate-in fade-in duration-150 font-sans overscroll-contain"
+      onClick={e => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      onWheel={e => {
+        if (e.target === e.currentTarget) {
+          e.preventDefault();
+        }
+      }}
+    >
+      <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
+        {/* Modal Header */}
+        <div className="flex items-center justify-between p-5 border-b border-slate-100">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-blue-50 text-[#003B73] flex items-center justify-center shrink-0">
+              <Building2 className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-base font-black text-slate-900 tracking-tight">
+                Назначение почтового отделения
+              </h3>
+              <p className="text-xs text-slate-500">
+                Сотрудник: <span className="font-semibold text-slate-800">{user.fio || user.email}</span>
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-2 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 transition-colors"
+            aria-label="Закрыть"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Modal Body */}
+        <div className="p-5 space-y-3 overflow-hidden flex flex-col">
+          {/* Search Box */}
+          <div
+            className="flex items-center gap-2 px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 focus-within:bg-white focus-within:border-[#003B73] focus-within:ring-2 focus-within:ring-[#003B73]/20 transition-all"
+            style={{ display: 'flex', alignItems: 'center' }}
+          >
+            <Search className="w-4 h-4 text-slate-400 shrink-0" aria-hidden="true" style={{ minWidth: '16px', width: '16px', height: '16px' }} />
+            <input
+              ref={inputRef}
+              type="text"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="Поиск отделения по названию, адресу или индексу..."
+              className="w-full bg-transparent text-xs text-slate-800 placeholder:text-slate-400 outline-none"
+              style={{
+                border: 'none',
+                outline: 'none',
+                boxShadow: 'none',
+                padding: 0,
+                margin: 0,
+                background: 'transparent',
+              }}
+              aria-label="Поиск отделения"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="p-0.5 text-slate-400 hover:text-slate-600 rounded-md transition-colors shrink-0"
+                title="Очистить поиск"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+
+          {searchQuery && (
+            <div className="text-[11px] text-slate-400 px-1 font-mono">
+              Найдено отделений: {filteredBranches.length}
+            </div>
+          )}
+
+          {/* List of branches (strictly 5 items visible, rest scrollable) */}
+          <div
+            style={{ maxHeight: '270px', overflowY: 'auto', overscrollBehavior: 'contain' }}
+            className="modal-scrollable-content border border-slate-100 rounded-2xl overflow-y-auto divide-y divide-slate-100 scrollbar-thin overscroll-contain"
+          >
+            {filteredBranches.length === 0 ? (
+              <div className="py-6 px-4 text-center text-xs text-slate-400">
+                <Search className="w-5 h-5 mx-auto mb-1 text-slate-300" />
+                <span>Отделения не найдены</span>
+              </div>
+            ) : (
+              filteredBranches.map((branch: Branch) => {
+                const isSelected = branch.id === selectedId;
+                const anyB = branch as { address?: string; code?: string; postalCode?: string; index?: string };
+                const extraInfo = [anyB.code || anyB.postalCode || anyB.index, anyB.address].filter(Boolean).join(' · ');
+
+                return (
+                  <div
+                    key={branch.id}
+                    onClick={() => setSelectedId(branch.id)}
+                    className={`p-3 text-xs cursor-pointer flex items-center justify-between gap-3 transition-colors ${
+                      isSelected
+                        ? 'bg-blue-50 text-[#003B73]'
+                        : 'hover:bg-slate-50 text-slate-700'
+                    }`}
+                  >
+                    <div className="flex flex-col min-w-0 flex-1">
+                      <span className={`truncate font-medium text-xs ${isSelected ? 'font-bold text-[#003B73]' : 'text-slate-900'}`}>
+                        {branch.name}
+                      </span>
+                      {extraInfo && (
+                        <span className="text-[11px] text-slate-400 truncate mt-0.5">
+                          {extraInfo}
+                        </span>
+                      )}
+                    </div>
+                    {isSelected && (
+                      <div className="w-5 h-5 rounded-full bg-[#003B73] text-white flex items-center justify-center shrink-0 shadow-xs">
+                        <Check className="w-3 h-3" />
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+
+        {/* Modal Footer */}
+        <div className="flex items-center justify-between p-4 px-5 border-t border-slate-100 bg-slate-50/60">
+          <div>
+            {currentBranchId && (
+              <button
+                type="button"
+                onClick={() => onSave('')}
+                className="text-xs text-red-600 hover:text-red-700 font-semibold hover:underline cursor-pointer"
+              >
+                Снять привязку
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-white hover:border-slate-300 transition-colors cursor-pointer"
+            >
+              Отмена
+            </button>
+            <button
+              type="button"
+              onClick={() => onSave(selectedId)}
+              disabled={!selectedId}
+              className="px-4 py-2 rounded-xl bg-[#003B73] hover:bg-[#054FA6] text-white text-xs font-bold transition-colors disabled:opacity-40 shadow-xs cursor-pointer"
+            >
+              Сохранить отделение
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }

@@ -16,6 +16,8 @@ import {
   LogOut,
   Info
 } from 'lucide-react';
+import { WeeklyScheduleView } from '../client/map/WeeklyScheduleView';
+import { getBranchWeeklySchedule } from '../client/map/branchSchedule';
 
 interface BranchScheduleShiftManagerProps {
   branch: Branch;
@@ -319,6 +321,11 @@ export const BranchScheduleShiftManager: React.FC<BranchScheduleShiftManagerProp
             )}
             <span>Сохранить режим работы отделения</span>
           </button>
+        </div>
+
+        {/* Официальное расписание на всю неделю (Яндекс Карты) */}
+        <div className="pt-2">
+          <WeeklyScheduleView schedule={getBranchWeeklySchedule(branch.id, branch.name, workHours)} />
         </div>
       </section>
 

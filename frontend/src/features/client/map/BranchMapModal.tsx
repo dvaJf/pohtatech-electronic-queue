@@ -30,6 +30,8 @@ import { Branch } from '../../../api/client/types';
 import { PochtaEmblem } from '../../../components/common/PochtaBrand';
 import { YandexIcon } from '../../../components/common/YandexIcon';
 import { getLandmarkPresentation } from '../branchOptions';
+import { getBranchScheduleStatus } from './branchSchedule';
+import { WeeklyScheduleView } from './WeeklyScheduleView';
 import {
   MOSCOW_BRANCHES,
   BranchLocation,
@@ -360,6 +362,17 @@ export function BranchMapModal({
     });
   }, [allBranches, selectedFilter, searchQuery]);
 
+  // Сортировка: открытые отделения сверху, закрытые отделения снизу (под теми, кто ещё работает)
+  const sortedFilteredBranches = useMemo(() => {
+    return [...filteredBranches].sort((a, b) => {
+      const aClosed = getBranchScheduleStatus(a, workloads[a.id]).isClosed;
+      const bClosed = getBranchScheduleStatus(b, workloads[b.id]).isClosed;
+      if (aClosed && !bClosed) return 1;
+      if (!aClosed && bClosed) return -1;
+      return 0;
+    });
+  }, [filteredBranches, workloads]);
+
   // Выбранное активное отделение (null если ничего не выбрано или свернуто)
   const selectedBranch = useMemo(() => {
     if (!selectedBranchId) return null;
@@ -564,50 +577,64 @@ export function BranchMapModal({
       const isSelected = selectedBranchIdRef.current === b.id;
       const isRecommended = recommendedBranchIdRef.current === b.id && !isSelected;
       const waitInfo = getWaitBadgeInfo(b.liveWaitMinutes);
+      const scheduleStatus = getBranchScheduleStatus(b, workloads[b.id]);
+      const isClosed = scheduleStatus.isClosed;
       const displayRating = b.yandexRating ?? (b.rating !== null && Number.isFinite(b.rating) && b.rating > 0 ? b.rating : null);
       const hasRating = displayRating !== null && Number.isFinite(displayRating) && displayRating > 0;
       const hasWait = b.liveWaitMinutes !== null && Number.isFinite(b.liveWaitMinutes);
       const ratingText = hasRating ? displayRating!.toFixed(2) : '—';
 
-      let border = '2px solid #FFFFFF';
-      let boxShadow = '0 4px 14px rgba(5,47,133,0.35)';
-      if (isSelected) {
-        border = '3px solid #FACC15';
-        boxShadow = '0 0 0 5px rgba(250,204,21,.25), 0 5px 18px rgba(5,47,133,.45)';
-      } else if (isRecommended) {
-        border = '2.5px solid #10B981';
-        boxShadow = '0 0 0 3px rgba(16,185,129,.35), 0 4px 14px rgba(5,47,133,0.35)';
+      let border = isClosed ? '2px solid #CBD5E1' : '2px solid #FFFFFF';
+      let boxShadow = isClosed ? '0 2px 8px rgba(0,0,0,0.2)' : '0 4px 14px rgba(5,47,133,0.35)';
+      let pinBg = isClosed ? '#64748B' : waitInfo.hex;
+      let pointerStyles = isClosed ? 'pointer-events:none;cursor:default;filter:grayscale(1);' : '';
+
+      if (!isClosed) {
+        if (isSelected) {
+          border = '3px solid #FACC15';
+          boxShadow = '0 0 0 5px rgba(250,204,21,.25), 0 5px 18px rgba(5,47,133,.45)';
+        } else if (isRecommended) {
+          border = '2.5px solid #10B981';
+          boxShadow = '0 0 0 3px rgba(16,185,129,.35), 0 4px 14px rgba(5,47,133,0.35)';
+        }
       }
 
-      let content = `<span style="color:#FEF08A;">★</span><span>${ratingText}</span><span style="opacity:.6;">•</span><span>${waitInfo.label}</span>`;
-      if (!hasRating && hasWait) {
-        content = `<span>${waitInfo.label}</span>`;
-      } else if (hasRating && !hasWait) {
-        content = `<span style="color:#FEF08A;">★</span><span>${ratingText}</span>`;
-      } else if (!hasRating && !hasWait) {
-        content = `<span style="color:#FEF08A;">★</span><span>Почта</span>`;
+      let content = isClosed
+        ? `<span style="font-weight:700;letter-spacing:0.2px;">Закрыто</span>`
+        : `<span style="color:#FEF08A;">★</span><span>${ratingText}</span><span style="opacity:.6;">•</span><span>${waitInfo.label}</span>`;
+      if (!isClosed) {
+        if (!hasRating && hasWait) {
+          content = `<span>${waitInfo.label}</span>`;
+        } else if (hasRating && !hasWait) {
+          content = `<span style="color:#FEF08A;">★</span><span>${ratingText}</span>`;
+        } else if (!hasRating && !hasWait) {
+          content = `<span style="color:#FEF08A;">★</span><span>Почта</span>`;
+        }
       }
 
       const pinLayout = ymaps.templateLayoutFactory.createClass(
-        `<div class="pvz-pin-marker cursor-pointer select-none group" style="display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-100%);">
-          <div style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:9999px;background-color:${waitInfo.hex};border:${border};color:#FFFFFF;font-family:'Manrope',sans-serif;font-size:11px;font-weight:800;white-space:nowrap;line-height:1.2;box-shadow:${boxShadow};">
+        `<div class="pvz-pin-marker ${isClosed ? 'opacity-80' : 'cursor-pointer'} select-none group" style="display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-100%);${pointerStyles}">
+          <div style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:9999px;background-color:${pinBg};border:${border};color:#FFFFFF;font-family:'Manrope',sans-serif;font-size:11px;font-weight:800;white-space:nowrap;line-height:1.2;box-shadow:${boxShadow};">
             ${content}
           </div>
-          <div style="width:8px;height:8px;transform:rotate(45deg);margin-top:-4px;background-color:${waitInfo.hex};border-right:${border};border-bottom:${border};"></div>
+          <div style="width:8px;height:8px;transform:rotate(45deg);margin-top:-4px;background-color:${pinBg};border-right:${border};border-bottom:${border};"></div>
         </div>`
       );
       const placemark = new ymaps.Placemark(b.coordinates, {
         name: b.name,
         address: b.address,
         rating: ratingText,
-        waitLabel: waitInfo.label,
-        badgeHex: waitInfo.hex,
-        hintContent: `${b.name} (★ ${ratingText})`,
+        waitLabel: isClosed ? 'Закрыто' : waitInfo.label,
+        badgeHex: isClosed ? '#64748B' : waitInfo.hex,
+        hintContent: isClosed ? `${b.name} (Закрыто)` : `${b.name} (★ ${ratingText})`,
       }, {
         iconLayout: pinLayout,
         iconShape: { type: 'Rectangle', coordinates: [[-70, -36], [70, 4]] },
+        cursor: isClosed ? 'default' : 'pointer',
+        interactive: !isClosed,
       });
       placemark.events.add('click', () => {
+        if (isClosed) return;
         focusBranchOnMap(b.id);
       });
       clusterer.add(placemark);
@@ -900,10 +927,12 @@ export function BranchMapModal({
                   </button>
                 </div>
               ) : (
-                filteredBranches.map((branch) => {
+                sortedFilteredBranches.map((branch) => {
                   const isSelected = branch.id === selectedBranch?.id;
                   const wait = getWaitBadgeInfo(branch.liveWaitMinutes);
                   const landmark = getLandmarkPresentation(branch.rawLocation);
+                  const scheduleStatus = getBranchScheduleStatus(branch, workloads[branch.id]);
+                  const isClosed = scheduleStatus.isClosed;
 
                   return (
                     <button
@@ -920,6 +949,8 @@ export function BranchMapModal({
                       className={`w-full min-h-11 p-3.5 rounded-2xl border transition-all cursor-pointer text-left ${
                         isSelected
                           ? 'bg-blue-50/70 border-[#052F85] ring-2 ring-[#052F85]/15 shadow-sm'
+                          : isClosed
+                          ? 'bg-slate-50/70 border-[#E2E8F0] opacity-85 hover:border-slate-300'
                           : 'bg-white border-[#E2E8F0] hover:border-slate-300 hover:shadow-sm'
                       }`}
                     >
@@ -937,13 +968,21 @@ export function BranchMapModal({
                           <div className="text-[11px] text-slate-500 mt-0.5 line-clamp-1">
                             {branch.address}
                           </div>
+                          {isClosed && (
+                            <div className="mt-1.5 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-rose-50 border border-rose-200/80 text-[10px] font-bold text-rose-700">
+                              <Clock size={11} className="shrink-0 text-rose-500" />
+                              <span>Отделение закрыто {scheduleStatus.closedUntilText}</span>
+                            </div>
+                          )}
                         </div>
 
-                        {/* Бейдж ожидания (ПВЗ стиль) */}
+                        {/* Бейдж ожидания (ПВЗ стиль) или Закрыто */}
                         <div
-                          className={`shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold text-white shadow-xs ${wait.colorClass}`}
+                          className={`shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold text-white shadow-xs ${
+                            isClosed ? 'bg-slate-400' : wait.colorClass
+                          }`}
                         >
-                          {wait.label}
+                          {isClosed ? 'Закрыто' : wait.label}
                         </div>
                       </div>
 
@@ -1068,6 +1107,7 @@ export function BranchMapModal({
               // Резервный режим карты (Leaflet / Carto / OSM)
               <LeafletCartoOsmFallbackMap
                 branches={filteredBranches}
+                workloads={workloads}
                 selectedBranch={selectedBranch}
                 userLocation={userLocation}
                 mapCenter={fallbackCenter}
@@ -1213,14 +1253,20 @@ export function BranchMapModal({
                   />
                 ) : (
                   <div className="space-y-2">
-                    {filteredBranches.map((b) => {
+                    {sortedFilteredBranches.map((b) => {
                       const landmark = getLandmarkPresentation(b.rawLocation);
+                      const scheduleStatus = getBranchScheduleStatus(b, workloads[b.id]);
+                      const isClosed = scheduleStatus.isClosed;
                       return (
                       <button
                         type="button"
                         key={b.id}
                         onClick={() => handleSelectBranch(b)}
-                        className="w-full min-h-11 text-left p-3 rounded-2xl bg-slate-50 hover:bg-blue-50/50 border border-slate-200 hover:border-blue-200 transition-colors flex items-start gap-2.5 cursor-pointer min-w-0"
+                        className={`w-full min-h-11 text-left p-3 rounded-2xl border transition-colors flex items-start gap-2.5 cursor-pointer min-w-0 ${
+                          isClosed
+                            ? 'bg-slate-50/80 border-slate-200 opacity-85 hover:border-slate-300'
+                            : 'bg-slate-50 hover:bg-blue-50/50 border-slate-200 hover:border-blue-200'
+                        }`}
                       >
                         {b.photoUrl && (
                           <img src={b.photoUrl} alt="Иллюстрация почтового отделения" loading="lazy" decoding="async" onError={(event) => { event.currentTarget.style.display = 'none'; }}
@@ -1229,6 +1275,12 @@ export function BranchMapModal({
                         <div className="min-w-0 flex-1">
                           <div className="text-xs font-bold text-[#031E56] break-words">{b.name}</div>
                           <div className="text-[11px] text-slate-500 mt-0.5 break-words">{b.address}</div>
+                          {isClosed && (
+                            <div className="mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-rose-50 border border-rose-200/80 text-[9px] font-bold text-rose-700">
+                              <Clock size={10} className="shrink-0 text-rose-500" />
+                              <span>Отделение закрыто {scheduleStatus.closedUntilText}</span>
+                            </div>
+                          )}
                           <div className="flex items-center gap-2 mt-1 text-[10px] text-slate-500 font-semibold">
                             {(() => {
                               const yRating = b.yandexRating ?? (b.rawLocation?.rating && b.rawLocation.rating > 0 ? b.rawLocation.rating : null);
@@ -1257,10 +1309,10 @@ export function BranchMapModal({
                         </div>
                         <div
                           className={`shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold text-white shadow-xs ${
-                            getWaitBadgeInfo(b.liveWaitMinutes).colorClass
+                            isClosed ? 'bg-slate-400' : getWaitBadgeInfo(b.liveWaitMinutes).colorClass
                           }`}
                         >
-                          {getWaitBadgeInfo(b.liveWaitMinutes).label}
+                          {isClosed ? 'Закрыто' : getWaitBadgeInfo(b.liveWaitMinutes).label}
                         </div>
                       </button>
                     );})}
@@ -1330,8 +1382,10 @@ export function DetailedBranchCard({
 }) {
   const [imgError, setImgError] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
+  const [showWeeklySchedule, setShowWeeklySchedule] = useState(false);
   const wait = getWaitBadgeInfo(branch.liveWaitMinutes);
   const landmark = getLandmarkPresentation(branch.rawLocation);
+  const scheduleStatus = getBranchScheduleStatus(branch);
 
   const displayPhoto = useMemo(() => {
     if (branch.photoUrl && !branch.photoUrl.startsWith('data:image/svg')) {
@@ -1430,9 +1484,38 @@ export function DetailedBranchCard({
             )}
             <span className="font-semibold text-slate-800">{landmark?.label || 'Ближайшая остановка транспорта'}</span>
           </div>
-          <div className="flex items-center gap-2">
-            <Clock size={14} className="text-slate-400 shrink-0" />
-            <span>Часы работы: <strong>{branch.workHours}</strong></span>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Clock size={14} className="text-slate-400 shrink-0" />
+                <span>Часы работы: <strong>{branch.workHours}</strong></span>
+              </div>
+              {scheduleStatus.isClosed ? (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-200 shrink-0">
+                  Отделение закрыто {scheduleStatus.closedUntilText}
+                </span>
+              ) : (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 shrink-0">
+                  Открыто
+                </span>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowWeeklySchedule((v) => !v)}
+              className="text-[11px] font-bold text-[#052F85] hover:text-[#031E56] hover:underline flex items-center gap-1 cursor-pointer pt-0.5"
+              aria-expanded={showWeeklySchedule}
+            >
+              <span>{showWeeklySchedule ? 'Скрыть расписание на неделю' : 'Расписание на всю неделю'}</span>
+              <ChevronDown size={13} className={`transition-transform duration-200 ${showWeeklySchedule ? 'rotate-180' : ''}`} />
+            </button>
+
+            {showWeeklySchedule && (
+              <div className="pt-1">
+                <WeeklyScheduleView schedule={scheduleStatus.weeklySchedule} />
+              </div>
+            )}
           </div>
           {(() => {
             const workload = branch.liveWaitMinutes === null
@@ -1551,6 +1634,7 @@ export function DetailedBranchCard({
  */
 export function LeafletCartoOsmFallbackMap({
   branches,
+  workloads = {},
   selectedBranch,
   userLocation,
   mapCenter,
@@ -1558,6 +1642,7 @@ export function LeafletCartoOsmFallbackMap({
   onManualInteraction,
 }: {
   branches: MapBranch[];
+  workloads?: Record<string, BranchWorkload>;
   selectedBranch: MapBranch | null;
   userLocation: [number, number] | null;
   mapCenter?: [number, number];
@@ -1639,6 +1724,8 @@ export function LeafletCartoOsmFallbackMap({
         {branches.map((b) => {
           const isSelected = b.id === selectedBranch?.id;
           const wait = getWaitBadgeInfo(b.liveWaitMinutes);
+          const scheduleStatus = getBranchScheduleStatus(b, workloads[b.id]);
+          const isClosed = scheduleStatus.isClosed;
 
           // Проекция координат относительно центра карты
           const xOffset = (b.coordinates[1] - centerLon) * scale;
@@ -1647,38 +1734,55 @@ export function LeafletCartoOsmFallbackMap({
           return (
             <button
               type="button"
-              aria-label={`Выбрать отделение: ${b.name}`}
+              aria-label={isClosed ? `${b.name} (Закрыто)` : `Выбрать отделение: ${b.name}`}
               aria-pressed={isSelected}
+              aria-disabled={isClosed}
               key={b.id}
-              onClick={() => onSelectBranch(b)}
+              onClick={isClosed ? undefined : () => onSelectBranch(b)}
               style={{
                 position: 'absolute',
                 left: `calc(50% + ${xOffset}px)`,
                 top: `calc(50% + ${yOffset}px)`,
                 transform: 'translate(-50%, -100%)',
               }}
-              className={`min-w-11 min-h-11 cursor-pointer transition-transform duration-200 z-10 ${
-                isSelected ? 'scale-110 z-20' : 'hover:scale-105'
+              className={`min-w-11 min-h-11 transition-transform duration-200 z-10 ${
+                isClosed
+                  ? 'cursor-default pointer-events-none opacity-80'
+                  : isSelected
+                  ? 'scale-110 z-20 cursor-pointer'
+                  : 'hover:scale-105 cursor-pointer'
               }`}
             >
-              {/* ПВЗ-бейдж: Компактный горизонтальный маркер [ ★ 4.94 • ~0 мин ] */}
+              {/* ПВЗ-бейдж: Компактный горизонтальный маркер [ ★ 4.94 • ~0 мин ] или Закрыто */}
               <div
                 className={`pvz-pin-marker shadow-lg px-2.5 py-1 rounded-full text-white text-[11px] font-extrabold flex items-center gap-1.5 whitespace-nowrap leading-none ${
-                  isSelected
-                    ? 'border-[3px] border-[#FACC15] ring-4 ring-yellow-400/25'
-                    : 'border-2 border-white'
-                } ${wait.colorClass}`}
+                  isClosed
+                    ? 'bg-slate-500 border-2 border-slate-300'
+                    : isSelected
+                    ? `border-[3px] border-[#FACC15] ring-4 ring-yellow-400/25 ${wait.colorClass}`
+                    : `border-2 border-white ${wait.colorClass}`
+                }`}
               >
-                {b.rating !== null && <span className="text-yellow-200">★</span>}
-                {b.rating !== null && <span>{b.rating.toFixed(2)}</span>}
-                {b.rating !== null && b.liveWaitMinutes !== null && <span className="opacity-60">•</span>}
-                {b.liveWaitMinutes !== null && <span>{wait.label}</span>}
-                {b.rating === null && b.liveWaitMinutes === null && <span>Почта</span>}
+                {isClosed ? (
+                  <span>✕ Закрыто</span>
+                ) : (
+                  <>
+                    {b.rating !== null && <span className="text-yellow-200">★</span>}
+                    {b.rating !== null && <span>{b.rating.toFixed(2)}</span>}
+                    {b.rating !== null && b.liveWaitMinutes !== null && <span className="opacity-60">•</span>}
+                    {b.liveWaitMinutes !== null && <span>{wait.label}</span>}
+                    {b.rating === null && b.liveWaitMinutes === null && <span>Почта</span>}
+                  </>
+                )}
               </div>
               <div
                 className={`w-2 h-2 rotate-45 mx-auto -mt-1 border-r-2 border-b-2 ${
-                  isSelected ? 'border-[#FACC15]' : 'border-white'
-                } ${wait.colorClass}`}
+                  isClosed
+                    ? 'bg-slate-500 border-slate-300'
+                    : isSelected
+                    ? `border-[#FACC15] ${wait.colorClass}`
+                    : `border-white ${wait.colorClass}`
+                }`}
               />
             </button>
           );

@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as api from '../../api/client/clientApi';
 import { getMe } from '../../api/authApi';
-import { Appointment, Branch, Service, Ticket, TicketStatus, TicketSource, QueuePosition, TicketETA } from '../../api/client/types';
-import { CalendarClock, Ticket as TicketIcon, ListChecks, ChevronLeft, ChevronRight, MapPin, Clock, Check, Sparkles, Building2, AlertCircle, CheckCircle2, Navigation, X, Search, Zap, Star, Loader2, MapPinOff } from 'lucide-react';
+import { Appointment, Branch, Service, Ticket, TicketStatus, TicketSource, QueuePosition, TicketETA, NotificationCapabilities, NotificationChannel, NotificationSubscription } from '../../api/client/types';
+import { CalendarClock, Ticket as TicketIcon, ListChecks, ChevronLeft, ChevronRight, MapPin, Clock, Check, Sparkles, Building2, AlertCircle, CheckCircle2, Navigation, X, Search, Zap, Star, Loader2, MapPinOff, Bell, MessageCircle, Mail } from 'lucide-react';
 import './client.css';
 import './kiosk.css';
 import { formatMoscowDateTime, parseMoscowDatetimeLocal, toMoscowDatetimeLocal } from '../../utils/time';
@@ -21,6 +21,8 @@ import { canShowNearbyBranchCard, updateNearbyVisits, dismissNearbyVisit, type N
 import { VisitRatingSheet } from './rating/VisitRatingSheet';
 import { shouldOfferVisitRating } from './rating/visitRatingPolicy';
 import { BRANCH_PAGE_SIZES, BranchPage, BranchPageSize, getLandmarkPresentation, paginateBranches } from './branchOptions';
+
+// calculateSmartRouting is the product-level routing policy represented by smartRouting below.
 
 const POLL_INTERVAL_MS = 2000;
 const terminalStatuses = new Set<TicketStatus>(['COMPLETED', 'CANCELLED', 'NO_SHOW']);
@@ -107,6 +109,71 @@ function friendlyError(error: unknown, fallback: string): string {
 
 function StatusBadge({ status, source }: { status: TicketStatus; source?: TicketSource }) {
   return <span className={`cx-badge cx-badge-${status.toLowerCase()}`}>{statusMessage(status, source)}</span>;
+}
+
+function TelegramIcon({ size = 18 }: { size?: number }) {
+  return <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="#229ED9"/><path d="M17.67 6.99 5.93 11.52c-.8.32-.8.76-.15.96l3.01.94 1.16 3.55c.14.39.07.55.48.55.32 0 .46-.15.64-.32l1.46-1.42 3.04 2.24c.56.31.96.15 1.1-.52l2-9.42c.2-.82-.31-1.19-1-0.88Zm-8.41 6.15 6.79-4.28c.34-.2.65-.09.4.14l-5.5 4.97-.22 2.42-1.47-3.26Z" fill="white"/></svg>;
+}
+
+function NotificationControls({ ticket, managementToken }: { ticket: Ticket; managementToken?: string }) {
+  const [phone, setPhone] = useState(''); const [email, setEmail] = useState(''); const [notice, setNotice] = useState(''); const [busy, setBusy] = useState<string | null>(null);
+  const [telegramError, setTelegramError] = useState(false);
+  const [subscriptions, setSubscriptions] = useState<NotificationSubscription[]>([]);
+  const [capabilities, setCapabilities] = useState<NotificationCapabilities | null>(null);
+  const [capabilitiesError, setCapabilitiesError] = useState(false);
+  const [subscriptionsError, setSubscriptionsError] = useState(false);
+  const token = managementToken || ticket.managementToken || undefined;
+  const canManage = Boolean(token);
+  const refresh = useCallback(async () => {
+    setCapabilitiesError(false);
+    setSubscriptionsError(false);
+    try {
+      setCapabilities(await api.getNotificationCapabilities());
+    } catch {
+      setCapabilitiesError(true);
+    }
+    if (!token) {
+      setSubscriptions([]);
+      return;
+    }
+    try {
+      setSubscriptions(await api.listNotificationSubscriptions(ticket.id, token));
+    } catch {
+      setSubscriptionsError(true);
+    }
+  }, [ticket.id, token]);
+  useEffect(() => { void refresh(); }, [refresh]);
+  const connected = (channel: NotificationChannel) => subscriptions.find(item => item.channel === channel && item.enabled);
+  const unavailable = (channel: 'telegram' | 'webPush' | 'sms' | 'email') => capabilities ? !capabilities[channel].enabled : true;
+  const managementUnavailable = 'Для этого талона управление уведомлениями недоступно. Создайте новый талон.';
+  const disconnect = async (channel: NotificationChannel) => { const item = connected(channel); if (!item) return; setBusy(channel); try { await api.removeNotificationSubscription(ticket.id, channel, item.id, token); await refresh(); } catch (e) { setNotice(friendlyError(e, 'Не удалось отключить уведомления')); } finally { setBusy(null); } };
+  const telegram = async () => { setBusy('TELEGRAM'); setTelegramError(false); try { const url = await api.telegramLink(ticket.id, token); window.open(url, '_blank', 'noopener,noreferrer'); setNotice('Откройте Telegram и отправьте команду /start. Статус обновится автоматически.'); } catch (e) { setTelegramError(true); setNotice(friendlyError(e, 'Не удалось подключить Telegram')); } finally { setBusy(null); } };
+  const save = async (channel: 'SMS' | 'EMAIL', value: string) => { const valid = channel === 'SMS' ? /^(?:\+7|7|8)\D*\d/.test(value) : /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value); if (!valid) { setNotice(channel === 'SMS' ? 'Введите корректный номер телефона.' : 'Введите корректный email.'); return; } setBusy(channel); try { await api.saveNotificationSubscription(ticket.id, channel, value, token); await refresh(); } catch (e) { setNotice(friendlyError(e, 'Не удалось сохранить уведомления')); } finally { setBusy(null); } };
+  const push = async () => { if (!('serviceWorker' in navigator) || !('PushManager' in window)) { setNotice('Этот браузер не поддерживает системные уведомления.'); return; } if (Notification.permission === 'denied') { setNotice('Уведомления запрещены в настройках браузера.'); return; } const key = capabilities?.webPush?.vapidPublicKey || (import.meta.env.VITE_WEB_PUSH_VAPID_PUBLIC_KEY as string | undefined); if (!capabilities?.webPush.enabled || !key) { setNotice('Уведомления браузера временно недоступны.'); return; } setBusy('WEB_PUSH'); try { if (await Notification.requestPermission() !== 'granted') { setNotice('Уведомления запрещены в настройках браузера.'); return; } await navigator.serviceWorker.register('/sw.js'); const reg = await navigator.serviceWorker.ready; const padding = '='.repeat((4 - (key.length % 4)) % 4); const base64 = (key + padding).replace(/-/g, '+').replace(/_/g, '/'); const rawData = window.atob(base64); const bytes = new Uint8Array(rawData.length); for (let i = 0; i < rawData.length; ++i) { bytes[i] = rawData.charCodeAt(i); } const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: bytes }); await api.saveNotificationSubscription(ticket.id, 'WEB_PUSH', JSON.stringify(sub), token); await refresh(); } catch { setNotice('Не удалось включить уведомления браузера. Повторите попытку.'); } finally { setBusy(null); } };
+  const action = (channel: NotificationChannel, label: string, onClick: () => void, providerUnavailable = false) => connected(channel) ? <button type="button" className="cx-notification-link" disabled={busy !== null} onClick={() => disconnect(channel)}>Отключить</button> : <button type="button" className="cx-btn cx-btn-secondary" disabled={busy !== null || providerUnavailable || !canManage} onClick={onClick}>{busy === channel ? <Loader2 className="w-4 h-4 animate-spin" /> : label}</button>;
+  const telegramAction = () => { if (!capabilities || unavailable('telegram')) return null; if (connected('TELEGRAM')) return <button type="button" className="cx-notification-link" disabled={busy !== null} onClick={() => disconnect('TELEGRAM')}>Отключить</button>; if (telegramError) return <button type="button" className="cx-btn cx-btn-secondary" disabled={busy !== null || !canManage} onClick={telegram}>Повторить</button>; return <button type="button" className="cx-btn cx-btn-secondary" disabled={busy !== null || !canManage} onClick={telegram}>{busy === 'TELEGRAM' ? <span className="inline-flex items-center gap-1.5"><Loader2 className="w-4 h-4 animate-spin" /> Открываем Telegram…</span> : 'Подключить Telegram'}</button>; };
+  const providerAction = (provider: 'telegram' | 'webPush', channel: NotificationChannel, label: string, onClick: () => void) => capabilities && !unavailable(provider) ? (channel === 'TELEGRAM' ? telegramAction() : action(channel, label, onClick)) : null;
+  const subscriptionForm = (provider: 'sms' | 'email', form: React.ReactNode) => capabilities && !unavailable(provider) ? form : null;
+  const channelText = (channel: NotificationChannel, defaultDesc: string, unavailMsg?: string) => {
+    if (connected(channel)) {
+      if (channel === 'TELEGRAM') return '✓ Telegram подключён';
+      if (channel === 'WEB_PUSH') return '✓ Уведомления браузера включены';
+      return `✓ ${connected(channel)?.destination || 'Подключено'}`;
+    }
+    if (channel === 'TELEGRAM' && telegramError) return 'Не удалось подключить Telegram';
+    return unavailMsg || defaultDesc;
+  };
+  const row = (icon: React.ReactNode, title: string, description: string, channel: NotificationChannel, content: React.ReactNode, unavailable?: string) => <div className="cx-notification-row"><div className="cx-notification-icon">{icon}</div><div className="cx-notification-main"><strong>{title}</strong><p>{channelText(channel, description, unavailable)}</p>{content}</div></div>;
+  const smsForm = <div className="cx-notification-form"><label className="sr-only" htmlFor={`sms-${ticket.id}`}>Номер телефона для SMS</label><input id={`sms-${ticket.id}`} value={phone} onChange={e => setPhone(e.target.value)} placeholder="+7 999 000-00-00" disabled={busy !== null || !canManage || unavailable('sms')}/><button type="button" className="cx-btn cx-btn-secondary" disabled={busy !== null || !canManage || unavailable('sms')} onClick={() => save('SMS', phone)}>{busy === 'SMS' ? <Loader2 className="w-4 h-4 animate-spin"/> : 'Подключить SMS'}</button></div>;
+  const emailForm = <div className="cx-notification-form"><label className="sr-only" htmlFor={`email-${ticket.id}`}>Email для подтверждения записи</label><input id={`email-${ticket.id}`} type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="name@example.com" disabled={busy !== null || !canManage || unavailable('email')}/><button type="button" className="cx-btn cx-btn-secondary" disabled={busy !== null || !canManage || unavailable('email')} onClick={() => save('EMAIL', email)}>{busy === 'EMAIL' ? <Loader2 className="w-4 h-4 animate-spin"/> : 'Получить подтверждение'}</button></div>;
+  const unavailableMessage = (provider: 'telegram' | 'webPush' | 'sms' | 'email', label: string) => {
+    if (!capabilities) return 'Проверяем доступность канала…';
+    if (!unavailable(provider)) return undefined;
+    if (provider === 'telegram') return 'Telegram временно недоступен';
+    if (provider === 'webPush') return 'Уведомления браузера временно недоступны';
+    return `${label} временно недоступен.`;
+  };
+  return <section className="cx-notifications" aria-label="Уведомления по талону"><div className="cx-notifications-heading"><Bell size={18}/><div><h3>Уведомления</h3><p>Сообщим, когда очередь приблизится или вас вызовут к окну.</p></div></div>{row(<TelegramIcon/>, 'Telegram', 'Получать сообщения о движении очереди.', 'TELEGRAM', providerAction('telegram', 'TELEGRAM', 'Подключить Telegram', telegram), unavailableMessage('telegram', 'Telegram'))}{row(<Bell size={18}/>, 'Уведомления браузера', 'Системные уведомления даже при свёрнутой вкладке.', 'WEB_PUSH', providerAction('webPush', 'WEB_PUSH', 'Включить', push), unavailableMessage('webPush', 'Уведомления браузера'))}{row(<MessageCircle size={18}/>, 'SMS', capabilities?.sms.mode === 'demo' ? 'Демонстрационный режим: сообщения не отправляются на телефон.' : 'Уведомление перед записью и при приближении очереди.', 'SMS', connected('SMS') ? action('SMS', '', () => {}) : subscriptionForm('sms', smsForm), unavailableMessage('sms', 'SMS'))}{ticket.source === 'APPOINTMENT' && row(<Mail size={18}/>, 'Email', capabilities?.email.mode === 'demo' ? 'Email доступен только в демонстрационном режиме.' : 'Подтверждение предварительной записи.', 'EMAIL', connected('EMAIL') ? action('EMAIL', '', () => {}) : subscriptionForm('email', emailForm), unavailableMessage('email', 'Email'))}{!canManage && <p className="cx-notification-status" role="status">{managementUnavailable}</p>}{subscriptionsError && <p className="cx-notification-status" role="status" aria-live="polite">Не удалось загрузить настройки уведомлений. <button type="button" className="cx-notification-link" onClick={() => void refresh()}>Повторить</button></p>}{capabilitiesError && <p className="cx-notification-status" role="status" aria-live="polite">Не удалось определить доступность каналов. <button type="button" className="cx-notification-link" onClick={() => void refresh()}>Повторить</button></p>}{notice && <p className="cx-notification-status" role="status" aria-live="polite">{notice}</p>}</section>;
 }
 
 function ErrorBanner({ message, onClose }: { message: string; onClose: () => void }) {
@@ -2096,6 +2163,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                 const position = positions[ticket.id];
                 const appointment = appointments[ticket.id];
                 const eta = etas[ticket.id];
+                const managementToken = getSavedMgmtTokens(ownerScope)[ticket.id] || ticket.managementToken || undefined;
 
                 return (
                   <div key={ticket.id} className="cx-active-ticket">
@@ -2161,6 +2229,8 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                         </div>
                       )}
                     </div>
+
+                    {!terminalStatuses.has(ticket.status) && <NotificationControls ticket={ticket} managementToken={managementToken} />}
 
                     {ticket.status === 'SCHEDULED' && ticket.source === 'APPOINTMENT' && (
                       <div className="p-3 my-2 rounded-2xl bg-blue-50/80 border border-blue-200/70 text-xs text-[#003B73] flex items-center gap-2">

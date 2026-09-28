@@ -5,6 +5,9 @@ import {
   ServiceListResponse,
   Ticket,
   Appointment,
+  NotificationSubscription,
+  NotificationChannel,
+  NotificationCapabilities,
 } from './types';
 
 export class ClientApiError extends Error {
@@ -156,6 +159,7 @@ async function request<T>(path: string, init?: RequestInit, parser?: (value: unk
     }
   }
 
+  if (response.status === 204) return undefined as T;
   const body: unknown = await response.json();
   return parser ? parser(body) : body as T;
 }
@@ -196,6 +200,20 @@ export async function createQrTicket(branchId: string, serviceId: string, idempo
 export async function getTicket(ticketId: string, signal?: AbortSignal): Promise<Ticket> {
   return request(`/tickets/${encodeURIComponent(ticketId)}`, { signal }, parseTicket);
 }
+
+function managementHeaders(token?: string): Record<string, string> { return token ? { 'X-Ticket-Manage-Token': token } : {}; }
+export async function telegramLink(ticketId: string, token?: string): Promise<string> {
+  const result = await request<{ url: string }>(`/tickets/${encodeURIComponent(ticketId)}/notifications/telegram/link`, { method: 'POST', headers: managementHeaders(token) });
+  return result.url;
+}
+export async function saveNotificationSubscription(ticketId: string, channel: Exclude<NotificationChannel, 'TELEGRAM'>, destination: string, token?: string): Promise<NotificationSubscription> {
+  return request(`/tickets/${encodeURIComponent(ticketId)}/notifications/${channel}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', ...managementHeaders(token) }, body: JSON.stringify({ destination }) });
+}
+export async function removeNotificationSubscription(ticketId: string, channel: NotificationChannel, subscriptionId: string, token?: string): Promise<void> {
+  await request(`/tickets/${encodeURIComponent(ticketId)}/notifications/${channel}/${encodeURIComponent(subscriptionId)}`, { method: 'DELETE', headers: managementHeaders(token) }, () => undefined);
+}
+export async function getNotificationCapabilities(): Promise<NotificationCapabilities> { return request('/notification-capabilities'); }
+export async function listNotificationSubscriptions(ticketId: string, token?: string): Promise<NotificationSubscription[]> { const data = await request<{ items: NotificationSubscription[] }>(`/tickets/${encodeURIComponent(ticketId)}/notifications`, { headers: managementHeaders(token) }); return Array.isArray(data.items) ? data.items : []; }
 
 export async function createAppointment(
   branchId: string,

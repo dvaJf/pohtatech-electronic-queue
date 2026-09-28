@@ -61,6 +61,10 @@ export type Appointment = {
   managementToken?: string | null;
 };
 
+export type NotificationChannel = 'TELEGRAM' | 'WEB_PUSH' | 'SMS' | 'EMAIL';
+export type NotificationSubscription = { id: string; ticketId: string; channel: NotificationChannel; destination?: string; enabled: boolean };
+export type NotificationCapabilities = Record<'telegram' | 'webPush' | 'sms' | 'email', { enabled: boolean; mode: 'real' | 'demo' | 'smtp'; vapidPublicKey?: string }>;
+
 export type QueuePositionReason = 'AVAILABLE' | 'NOT_ELIGIBLE_YET' | 'NO_OPEN_COMPATIBLE_WINDOW' | 'NOT_QUEUED';
 export type QueuePosition = {
   ticketId: string;

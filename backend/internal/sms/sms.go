@@ -88,7 +88,7 @@ func (c *Client) Send(ctx context.Context, phone, message string) error {
 	if c.androidURL != "" {
 		err := c.sendAndroidGateway(ctx, normalized, message)
 		if err == nil {
-			c.logger.Info("SMS delivered via Android Gateway (0 RUB)", "phone", normalized)
+			c.logger.Info("SMS delivered via Android Gateway (0 RUB)", "channel", "sms")
 			return nil
 		}
 		c.logger.Warn("Android Gateway send failed, trying next provider", "error", err)
@@ -98,7 +98,7 @@ func (c *Client) Send(ctx context.Context, phone, message string) error {
 	if c.aeroEmail != "" && c.aeroKey != "" {
 		err := c.sendSMSAero(ctx, normalized, message)
 		if err == nil {
-			c.logger.Info("SMS delivered via SMS Aero", "phone", normalized)
+			c.logger.Info("SMS delivered via SMS Aero", "channel", "sms")
 			return nil
 		}
 		c.logger.Warn("SMS Aero send failed, trying fallback", "error", err)
@@ -108,14 +108,14 @@ func (c *Client) Send(ctx context.Context, phone, message string) error {
 	if c.smsRuKey != "" {
 		err := c.sendSMSRu(ctx, normalized, message)
 		if err == nil {
-			c.logger.Info("SMS delivered via SMS.ru", "phone", normalized)
+			c.logger.Info("SMS delivered via SMS.ru", "channel", "sms")
 			return nil
 		}
 		c.logger.Warn("SMS.ru send failed", "error", err)
 	}
 
 	// 4. Fallback / Dev Mock
-	c.logger.Info("[DEV/DEMO SMS]", "to", normalized, "message", message)
+	c.logger.Info("[DEV/DEMO SMS]", "channel", "sms")
 	return nil
 }
 

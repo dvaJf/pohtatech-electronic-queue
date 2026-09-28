@@ -91,6 +91,14 @@ test('A dismissal cannot suppress entry into B, and unreliable fixes hide withou
   assert.equal(updateNearbyVisits(stale, [{ id: 'A', distanceMeters: 15 }]).activeBranchId, null);
 });
 
+test('nearby card gate opens only after ticket loading confirms there is no active ticket', async () => {
+  const { canShowNearbyBranchCard } = await loadPolicy();
+  assert.equal(canShowNearbyBranchCard(true, false), false);
+  assert.equal(canShowNearbyBranchCard(true, true), false);
+  assert.equal(canShowNearbyBranchCard(false, true), false);
+  assert.equal(canShowNearbyBranchCard(false, false), true);
+});
+
 test('useGeofencing exports presets, 75m threshold and calculates accurate meters', async () => {
   const {
     calculateHaversineDistanceMeters,
@@ -173,7 +181,7 @@ test('ClientWorkspace integrates shared geolocation, nearby card and branch map'
   assert.match(content, /useGeofencing/);
   assert.match(content, /NearbyBranchCard/);
   assert.match(content, /BranchMapModal/);
-  assert.match(content, /calculateSmartRouting/);
+  assert.match(content, /calculatePersonalRouting/);
   assert.match(content, /smartRouting\.recommendation/);
   assert.match(content, /Умный маршрут/);
   assert.match(content, /Карта отделений/);

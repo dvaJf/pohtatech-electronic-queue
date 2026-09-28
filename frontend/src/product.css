@@ -1,19 +1,49 @@
 /* === ПЕРЕМЕННЫЕ ДИЗАЙН-СИСТЕМЫ ПОЧТЫ РОССИИ === */
 :root {
-  --brand-primary: #003B73;
-  --brand-accent: #0055A5;
+  /* Canonical semantic layer. Legacy aliases below remain while client, map
+     and back-office surfaces migrate component-by-component. */
+  --surface-page: #F6F8FB;
+  --surface-card: #FFFFFF;
+  --surface-muted: #F1F5F9;
+  --surface-elevated: #FFFFFF;
+  --text-primary: #102238;
+  --text-secondary: #536578;
+  --text-muted: #6B7A8D;
+  --color-primary: #003B73;
+  --color-primary-hover: #00519B;
+  --color-primary-active: #002C57;
+  --color-primary-soft: #EAF2FB;
+  --color-success: #187344;
+  --color-success-soft: #E9F6EE;
+  --color-warning: #9A6500;
+  --color-warning-soft: #FFF3D6;
+  --color-danger: #B62936;
+  --color-danger-soft: #FDECEF;
+  --border-subtle: #DBE3EB;
+  --border-strong: #B8C7D6;
+  --focus-ring: #0B63CE;
+  --radius-control: 8px;
+  --radius-card: 16px;
+  --radius-overlay: 20px;
+  --shadow-sm: 0 1px 2px rgb(13 37 61 / 6%);
+  --shadow-md: 0 10px 30px rgb(13 37 61 / 12%);
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --space-6: 24px; --space-8: 32px; --space-12: 48px;
+
+  /* Temporary aliases, intentionally removed only after each surface moves. */
+  --brand-primary: var(--color-primary);
+  --brand-accent: var(--color-primary-hover);
   --brand-orange: #FF6B00;
-  --text: #0A1929;
-  --text-secondary: #3E5060;
-  --muted: #6B7A8D;
-  --surface: #FFFFFF;
-  --background: #F5F7FA;
-  --border: #E3E8EF;
-  --border-medium: #D0D7E2;
+  --text: var(--text-primary);
+  --muted: var(--text-muted);
+  --surface: var(--surface-card);
+  --background: var(--surface-page);
+  --border: var(--border-subtle);
+  --border-medium: var(--border-strong);
   --radius: 6px;
   --radius-lg: 8px;
   --space: 1rem;
-  --font: 'Onest', 'Manrope', 'Golos Text', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font: 'Onest Variable', 'Onest', system-ui, -apple-system, "Segoe UI", sans-serif;
   --focus-ring-color: #0B63CE;
   --focus-ring-offset: 3px;
   --client-text-scale: 1;

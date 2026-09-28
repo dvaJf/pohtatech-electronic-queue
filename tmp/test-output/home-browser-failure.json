@@ -1,0 +1,44 @@
+{
+  "error": {
+    "name": "TimeoutError",
+    "message": "locator.waitFor: Timeout 5000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByText('Тестовое отделение').first() to be visible\u001b[22m\n",
+    "stack": "locator.waitFor: Timeout 5000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByText('Тестовое отделение').first() to be visible\u001b[22m\n\n    at mountHome (/home/vacuum/Desktop/tsifrovaya-ochered-novogo-pokoleniya/frontend/tests/reliability.test.mjs:203:56)\n    at async TestContext.<anonymous> (/home/vacuum/Desktop/tsifrovaya-ochered-novogo-pokoleniya/frontend/tests/reliability.test.mjs:231:20)"
+  },
+  "page": {
+    "url": "http://127.0.0.1:5173/__home_test",
+    "readyState": "complete",
+    "bodyText": "Цифровая очередь\n\nПолучите талон без ожидания в общей очереди\n\nОпределяем ваше местоположение…\n\nПодберём ближайшее отделение после GPS fix.\n\nПоиск гео…\nВзять талон\nСЕЙЧАС\n\nПолучите электронный номерок прямо сейчас\n\nЗаписаться онлайн\n\nК точному времени визита\n\nКарта отделений\n\n26 отделений и маршруты\n\nМои талоны"
+  },
+  "console": [
+    {
+      "type": "error",
+      "text": "WebSocket connection to 'ws://127.0.0.1:5173/?token=tmXzvOF6j8NK' failed: Error in connection establishment: net::ERR_BLOCKED_BY_LOCAL_NETWORK_ACCESS_CHECKS"
+    },
+    {
+      "type": "error",
+      "text": "WebSocket connection to 'ws://localhost:5173/?token=tmXzvOF6j8NK' failed: Error in connection establishment: net::ERR_BLOCKED_BY_LOCAL_NETWORK_ACCESS_CHECKS"
+    },
+    {
+      "type": "error",
+      "text": "[vite] failed to connect to websocket.\nyour current setup:\n  (browser) 127.0.0.1:5173/ <--[HTTP]--> localhost:5173/ (server)\n  (browser) 127.0.0.1:5173/ <--[WebSocket (failing)]--> localhost:5173/ (server)\nCheck out your Vite / network configuration and https://vite.dev/config/server-options.html#server-hmr ."
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    }
+  ],
+  "pageErrors": [],
+  "failedRequests": [],
+  "errorResponses": [
+    {
+      "status": 401,
+      "url": "http://127.0.0.1:5173/api/v1/auth/me"
+    }
+  ],
+  "steps": [
+    "vite modules reachable",
+    "fixture document loaded",
+    "root app mounted",
+    "ClientWorkspace visible"
+  ]
+}

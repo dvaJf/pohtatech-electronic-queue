@@ -1,0 +1,48 @@
+{
+  "error": {
+    "name": "Error",
+    "message": "page.evaluate: TypeError: Failed to fetch dynamically imported module: http://127.0.0.1:5173/src/features/client/ClientWorkspace.tsx",
+    "stack": "page.evaluate: TypeError: Failed to fetch dynamically imported module: http://127.0.0.1:5173/src/features/client/ClientWorkspace.tsx\n    at mountHome (/home/vacuum/Desktop/tsifrovaya-ochered-novogo-pokoleniya/frontend/tests/reliability.test.mjs:192:16)\n    at async TestContext.<anonymous> (/home/vacuum/Desktop/tsifrovaya-ochered-novogo-pokoleniya/frontend/tests/reliability.test.mjs:242:16)"
+  },
+  "page": {
+    "url": "http://127.0.0.1:5173/__home_test",
+    "readyState": "complete",
+    "bodyText": ""
+  },
+  "console": [
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 504 (Outdated Optimize Dep)"
+    },
+    {
+      "type": "error",
+      "text": "WebSocket connection to 'ws://127.0.0.1:5173/?token=Xa3t8l2C78Sq' failed: Error in connection establishment: net::ERR_BLOCKED_BY_LOCAL_NETWORK_ACCESS_CHECKS"
+    },
+    {
+      "type": "error",
+      "text": "WebSocket connection to 'ws://localhost:5173/?token=Xa3t8l2C78Sq' failed: Error in connection establishment: net::ERR_BLOCKED_BY_LOCAL_NETWORK_ACCESS_CHECKS"
+    },
+    {
+      "type": "error",
+      "text": "[vite] failed to connect to websocket.\nyour current setup:\n  (browser) 127.0.0.1:5173/ <--[HTTP]--> localhost:5173/ (server)\n  (browser) 127.0.0.1:5173/ <--[WebSocket (failing)]--> localhost:5173/ (server)\nCheck out your Vite / network configuration and https://vite.dev/config/server-options.html#server-hmr ."
+    }
+  ],
+  "pageErrors": [],
+  "failedRequests": [
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:5173/node_modules/.vite/deps/@solar-icons_react.js",
+      "failure": "net::ERR_ABORTED"
+    }
+  ],
+  "errorResponses": [
+    {
+      "status": 504,
+      "url": "http://127.0.0.1:5173/node_modules/.vite/deps/@solar-icons_react.js"
+    }
+  ],
+  "steps": [
+    "vite modules reachable",
+    "fixture document loaded"
+  ]
+}

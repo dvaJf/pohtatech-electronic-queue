@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { browserEnabled, mountMap } from './mapBrowserHarness.mjs';
 
@@ -120,8 +120,99 @@ test('photo badges use card-container layout and omit unavailable values', async
   assert.match(modal, /branch\.liveWaitMinutes\s*!==\s*null\s*&&/);
   assert.match(modal, /branch-photo-badges/);
   assert.match(css, /container-type:\s*inline-size/);
-  assert.match(css, /\.branch-photo-badges[\s\S]*display:\s*flex[\s\S]*flex-wrap:\s*wrap[\s\S]*justify-content:\s*space-between/);
+  assert.match(css, /\.branch-photo-badges[\s\S]*display:\s*flex[\s\S]*flex-direction:\s*column[\s\S]*justify-content:\s*flex-start/);
   assert.match(css, /@container\s*\(max-width:\s*340px\)/);
+});
+
+test('detailed card stacks queue below rating and keeps both clear of the close control', { skip: !browserEnabled }, async t => {
+  const { page, open } = await mountMap(t, { width: 1024, height: 768 });
+  await open({
+    selectedBranchId: 'A',
+    workloads: {
+      A: {
+        branchId: 'A', activeWindows: 2, estimatedWaitSeconds: 120,
+        calculatedAt: new Date().toISOString(), currentHour: 12,
+        currentWaiting: 1, sampleCount: 1, isHistorical: false, hourly: [],
+      },
+    },
+  });
+
+  const card = page.getByTestId('desktop-branch-card-overlay');
+  const rating = card.locator('.branch-rating-badge');
+  const queue = card.locator('.branch-queue-badge');
+  const close = card.getByRole('button', { name: 'Свернуть карточку отделения' });
+  await rating.waitFor();
+  await queue.waitFor();
+
+  const [ratingBox, queueBox, closeBox] = await Promise.all([
+    rating.boundingBox(),
+    queue.boundingBox(),
+    close.boundingBox(),
+  ]);
+  assert(ratingBox && queueBox && closeBox, 'all photo controls have measurable bounds');
+  assert(queueBox.y >= ratingBox.y + ratingBox.height + 6, 'queue badge is a separate row below rating');
+  assert(ratingBox.x + ratingBox.width <= closeBox.x - 6, 'rating does not overlap the close control');
+  assert(queueBox.x + queueBox.width <= closeBox.x - 6, 'queue does not overlap the close control');
+});
+
+test('desktop keeps ticket actions in the left selected block and makes the map overlay informational', { skip: !browserEnabled }, async t => {
+  const { page, open } = await mountMap(t, { width: 1280, height: 800 });
+  await open({
+    selectedBranchId: 'A',
+    workloads: {
+      A: {
+        branchId: 'A', activeWindows: 2, estimatedWaitSeconds: 120,
+        calculatedAt: new Date().toISOString(), currentHour: 12,
+        currentWaiting: 1, sampleCount: 1, isHistorical: false, hourly: [],
+      },
+    },
+  });
+
+  const overlay = page.getByTestId('desktop-branch-card-overlay');
+  await overlay.waitFor();
+  assert.equal(await overlay.getByRole('button', { name: /Взять талон/ }).count(), 0);
+  assert.equal(await overlay.getByRole('button', { name: /Записаться/ }).count(), 0);
+  assert.equal(await overlay.getByText(/Свернуть отделение и показать все/).count(), 0);
+
+  const sidebar = page.locator('aside');
+  assert.equal(await sidebar.getByRole('button', { name: /Взять талон/ }).count(), 1);
+  assert.equal(await sidebar.getByRole('button', { name: /Записаться/ }).count(), 1);
+  if (process.env.MAP_SCREENSHOTS) {
+    await mkdir('tmp/test-output', { recursive: true });
+    await page.screenshot({ path: 'tmp/test-output/map-ui-after-desktop-1280x800.png', fullPage: true });
+  }
+});
+
+test('map header is compact and does not repeat explanatory monitoring copy', { skip: !browserEnabled }, async t => {
+  const { page, open } = await mountMap(t);
+  await open();
+  const header = page.getByRole('dialog').locator('header');
+  assert.equal(await header.getByText('Карта отделений', { exact: true }).count(), 1);
+  assert.equal(await header.getByText(/отделений на карте/).count(), 0);
+  assert.equal(await header.getByText(/Мониторинг очередей онлайн/).count(), 0);
+  assert.equal(await page.getByRole('status').count(), 0, 'desktop explanatory status row is removed');
+});
+
+test('mobile selected bottom sheet retains ticket actions without a branch count label', { skip: !browserEnabled }, async t => {
+  const { page, open } = await mountMap(t, { width: 390, height: 844 });
+  await open({
+    selectedBranchId: 'A',
+    workloads: {
+      A: {
+        branchId: 'A', activeWindows: 2, estimatedWaitSeconds: 120,
+        calculatedAt: new Date().toISOString(), currentHour: 12,
+        currentWaiting: 1, sampleCount: 1, isHistorical: false, hourly: [],
+      },
+    },
+  });
+  const sheet = page.getByTestId('mobile-branch-bottom-sheet');
+  assert.equal(await sheet.getByText(/\d+ отделений/).count(), 0);
+  assert.equal(await sheet.getByRole('button', { name: /Взять талон/ }).count(), 1);
+  assert.equal(await sheet.getByRole('button', { name: /Записаться/ }).count(), 1);
+  if (process.env.MAP_SCREENSHOTS) {
+    await mkdir('tmp/test-output', { recursive: true });
+    await page.screenshot({ path: 'tmp/test-output/map-ui-after-mobile-390x844.png', fullPage: true });
+  }
 });
 
 test('map marker remains a compact single-line pill separate from card badges', async () => {

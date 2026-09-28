@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState, useRef } from 'react';
-import { BarChart3, CheckCircle2, ChevronRight, Clock, Eye, Loader2, MapPin, MoreHorizontal, RotateCcw, Smartphone, UserPlus, UserX, Volume2, VolumeX, X } from 'lucide-react';
+import { AccessibilityIcon, AltArrowDownIcon, AltArrowRightIcon, ChartIcon, CheckCircleIcon, ClockCircleIcon, CloseCircleIcon, LogoutIcon, MapPointIcon, MenuDotsVerticalIcon, RestartIcon, UserCircleIcon, VolumeCrossIcon, VolumeIcon } from '@solar-icons/react/linear';
 import { PochtaEmblem, PochtaWordmark } from './PochtaBrand';
 import { getMe, logout, User } from '../../api/authApi';
 import { ClientAuthModal } from '../../features/auth/ClientAuthModal';
@@ -27,6 +27,7 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
   });
   const [a11yOpen, setA11yOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [contrast, setContrast] = useState(() => {
     try { return localStorage.getItem('pochta_a11y_contrast') === 'true'; } catch { return false; }
   });
@@ -38,6 +39,8 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
   const a11yButtonRef = useRef<HTMLButtonElement>(null);
   const mobileMenuRef = useRef<HTMLDivElement>(null);
   const mobileMenuButtonRef = useRef<HTMLButtonElement>(null);
+  const accountMenuRef = useRef<HTMLDivElement>(null);
+  const accountButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (typeof navigator !== 'undefined' && navigator.permissions && navigator.permissions.query) {
@@ -66,7 +69,10 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
 
   const closeA11y = useCallback(() => {
     setA11yOpen(false);
-    window.requestAnimationFrame(() => a11yButtonRef.current?.focus());
+    window.requestAnimationFrame(() => {
+      if (window.matchMedia('(min-width: 768px)').matches) a11yButtonRef.current?.focus();
+      else mobileMenuButtonRef.current?.focus();
+    });
   }, []);
 
   useEffect(() => {
@@ -138,6 +144,27 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [mobileMenuOpen]);
+
+  useEffect(() => {
+    if (!accountMenuOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setAccountMenuOpen(false);
+        window.requestAnimationFrame(() => accountButtonRef.current?.focus());
+      }
+    };
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!accountMenuRef.current?.contains(event.target as Node)
+          && !accountButtonRef.current?.contains(event.target as Node)) setAccountMenuOpen(false);
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [accountMenuOpen]);
 
   const handleResetA11y = () => {
     setScale(100);
@@ -212,6 +239,8 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
   }, []);
 
   const handleLogout = async () => {
+    setAccountMenuOpen(false);
+    setMobileMenuOpen(false);
     try {
       await logout();
       setCurrentUser(null);
@@ -226,93 +255,83 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
   };
 
   const isStaffArea = currentPath.startsWith('/operator') || currentPath.startsWith('/admin');
+  const roleLabel = currentUser?.role === 'opc_chief' ? 'Начальник' : currentUser?.role === 'employee' ? 'Оператор' : 'Клиент';
 
   return (
     <>
       <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:bg-[#FFE600] focus:text-black focus:px-4 focus:py-2">К содержимому</a>
-      <header className="main-product-header bg-[#003B73] text-white shadow-lg sticky top-0 z-40">
-        {/* Top Status & Brand Line */}
-        <div className="product-header-row max-w-7xl mx-auto px-3 sm:px-4 py-2 sm:py-2.5 flex items-center justify-between gap-2 border-b border-white/10">
-          {/* Brand Block */}
-          <a href="/" className="flex items-center gap-2 sm:gap-3 select-none group transition-transform shrink-0 min-w-0">
-            <PochtaEmblem className="w-7 h-7 sm:w-9 sm:h-9 shrink-0 drop-shadow-md transition-transform group-hover:scale-105" bg="#003B73" fg="#FFFFFF" />
-            <div className="flex flex-col min-w-0">
-              <PochtaWordmark className="h-3.5 sm:h-5 w-auto" color="#FFFFFF" />
-              <div className="text-[10px] sm:text-[11px] text-blue-200 hidden xs:flex items-center gap-1.5 mt-0.5 font-medium truncate">
-                <span className="font-mono">Электронная очередь</span>
-              </div>
-            </div>
+      <header className="main-product-header relative sticky top-0 z-40 bg-[#082E5A] text-white shadow-[0_2px_12px_rgba(4,29,59,0.16)]">
+        <div className="product-header-row mx-auto flex max-w-7xl items-center justify-between gap-2 px-3 py-2 md:gap-4 md:px-5 md:py-2.5">
+          <a href="/" className="group flex min-w-0 shrink-0 items-center gap-2.5 select-none md:gap-3" aria-label="Почта России — на главную">
+            <PochtaEmblem className="h-8 w-8 shrink-0 md:h-9 md:w-9" bg="#082E5A" fg="#FFFFFF" />
+            <span className="hidden min-w-0 flex-col sm:flex">
+              <PochtaWordmark className="h-4 w-auto md:h-5" color="#FFFFFF" />
+              <span className="mt-0.5 text-[10px] leading-none tracking-[0.08em] text-blue-100/70">Электронная очередь</span>
+            </span>
           </a>
 
-          {/* Quick Tools Panel */}
-          <div className="product-header-tools flex min-w-0 items-center gap-1 sm:gap-2 text-xs font-mono shrink-0">
-            {/* 1. Звук (Audio Toggle) - visible on md+ */}
-            <button
-              type="button"
-              onClick={() => toggleSound()}
-              aria-pressed={soundEnabled}
-              aria-label={soundEnabled ? 'Выключить звук' : 'Включить звук'}
-              className="cx-header-btn h-8 w-8 sm:w-auto sm:min-w-[104px] sm:px-2.5 sm:gap-1.5 hidden md:flex items-center"
-              title="Звуковое оповещение"
-            >
-              {soundEnabled ? <Volume2 className="w-3.5 h-3.5 text-[#86BBFF]" /> : <VolumeX className="w-3.5 h-3.5 text-slate-400" />}
-              <span className="font-bold text-white hidden sm:inline whitespace-nowrap">{soundEnabled ? 'Звук: ВКЛ' : 'Звук: ВЫКЛ'}</span>
-            </button>
+          <div className="product-header-tools flex shrink-0 items-center gap-1 text-xs md:gap-2">
+            <div className="hidden items-center gap-1 rounded-xl border border-white/15 bg-white/[0.035] p-0.5 md:flex">
+              <button type="button" onClick={() => toggleSound()} aria-pressed={soundEnabled}
+                aria-label="Звуковое оповещение" title={soundEnabled ? 'Выключить звук' : 'Включить звук'}
+                className="flex h-11 w-11 items-center justify-center rounded-lg border-0 bg-transparent p-0 text-blue-100/80 hover:bg-white/10 hover:text-white">
+                {soundEnabled ? <VolumeIcon className="h-5 w-5" /> : <VolumeCrossIcon className="h-5 w-5" />}
+              </button>
+            </div>
 
-            {/* 2. Гео (Geo Location Permission Button in Header) */}
-            <button
-              type="button"
-              onClick={handleRequestGeo}
-              disabled={geoStatus === 'locating'}
-              aria-busy={geoStatus === 'locating'}
+            <button type="button" onClick={handleRequestGeo} disabled={geoStatus === 'locating'}
+              aria-busy={geoStatus === 'locating'} aria-pressed={geoStatus === 'granted'}
               aria-label={geoStatus === 'locating' ? 'Определяем местоположение' : 'Определить местоположение'}
-              className={`cx-header-btn h-8 w-8 sm:w-auto px-0 sm:px-2.5 gap-1.5 flex items-center justify-center transition-all cursor-pointer ${
-                geoStatus === 'granted' ? '!bg-white/20 !border-white/40 text-emerald-300' : ''
-              }`}
-              title={geoStatus === 'granted' ? 'Геолокация активна (определение отделений)' : 'Разрешить геолокацию для точного поиска отделений'}
-            >
-              {geoStatus === 'locating' ? <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-200" /> : <MapPin className={`w-3.5 h-3.5 ${geoStatus === 'granted' ? 'text-emerald-400' : 'text-[#86BBFF]'}`} />}
-              <span className="font-bold text-white text-[11px] sm:text-xs whitespace-nowrap hidden sm:inline">
-                {geoStatus === 'locating' ? 'Определяем…' : geoStatus === 'granted' ? 'Гео: ВКЛ' : 'Гео'}
-              </span>
+              title={geoStatus === 'granted' ? 'Геолокация активна' : 'Определить местоположение'}
+              className={`inline-flex h-11 min-w-[92px] items-center justify-center gap-1.5 rounded-xl border px-2.5 text-xs font-semibold text-white transition-colors md:min-w-[104px] md:px-3 ${geoStatus === 'granted' ? 'border-emerald-300/45 bg-emerald-300/15' : 'border-white/25 bg-white/10 hover:bg-white/15'}`}>
+              {geoStatus === 'locating' ? <RestartIcon className="h-5 w-5 animate-spin" /> : <MapPointIcon className="h-5 w-5" />}
+              <span>{geoStatus === 'locating' ? 'Поиск…' : 'Гео'}</span>
+              <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${geoStatus === 'granted' ? 'bg-emerald-300' : 'bg-white/45'}`} />
             </button>
 
-            {/* 3. Доступность (Accessibility Button & Popup) */}
-            <button
-              ref={a11yButtonRef}
-              type="button"
-              onClick={() => setA11yOpen((prev: boolean) => !prev)}
-              aria-pressed={accessibilityActive}
-              aria-expanded={a11yOpen}
-              aria-controls="a11y-settings"
-              aria-label="Настройки доступности"
-              className={`cx-header-btn h-8 w-8 sm:w-auto sm:min-w-[104px] px-0 sm:px-2.5 sm:gap-1.5 flex items-center justify-center cursor-pointer ${
-                accessibilityActive ? '!bg-[#0B4DA2] !text-white !border-blue-400 font-bold shadow-md' : ''
-              }`}
-              title="Настройки доступности (версия для слабовидящих)"
-            >
-              <Eye className="w-3.5 h-3.5" />
-              <span className="font-bold hidden sm:inline whitespace-nowrap">
-                {accessibilityActive ? 'Доступность: ВКЛ' : 'Доступность'}
-              </span>
-            </button>
+            <div className="hidden items-center gap-1 rounded-xl border border-white/15 bg-white/[0.035] p-0.5 md:flex">
+              <button ref={a11yButtonRef} type="button" onClick={() => setA11yOpen(value => !value)}
+                aria-pressed={accessibilityActive} aria-expanded={a11yOpen} aria-controls="a11y-settings"
+                aria-label="Настройки доступности" title="Настройки доступности"
+                className={`flex h-11 w-11 items-center justify-center rounded-lg border-0 bg-transparent p-0 hover:bg-white/10 ${accessibilityActive ? 'text-emerald-300' : 'text-blue-100/80 hover:text-white'}`}>
+                <AccessibilityIcon className="h-5 w-5" />
+              </button>
+            </div>
 
-            {/* 4. Mobile More (⋯) Menu Button */}
-            <button
-              ref={mobileMenuButtonRef}
-              type="button"
-              onClick={() => setMobileMenuOpen((prev) => !prev)}
-              aria-expanded={mobileMenuOpen}
-              aria-controls="mobile-service-menu"
-              aria-label="Дополнительное меню"
-              className={`sm:hidden h-8 w-8 rounded-lg border flex items-center justify-center transition-all cursor-pointer ${
-                mobileMenuOpen
-                  ? 'bg-white/25 border-white/40 text-white'
-                  : 'bg-white/10 border-white/20 text-white hover:bg-white/20'
-              }`}
-              title="Меню"
-            >
-              <MoreHorizontal className="w-4 h-4" />
+            <div className="hidden items-center gap-1.5 whitespace-nowrap px-1 text-xs font-medium tabular-nums text-blue-100/70 lg:flex" title="Московское время (Europe/Moscow)">
+              <ClockCircleIcon className="h-[18px] w-[18px]" />
+              <span>{timeStr || 'МСК'}</span>
+            </div>
+
+            {currentUser ? (
+              <div className="relative hidden md:block">
+                <button ref={accountButtonRef} type="button" onClick={() => setAccountMenuOpen(value => !value)}
+                  aria-expanded={accountMenuOpen} aria-controls="account-menu" aria-haspopup="menu"
+                  aria-label={`Учётная запись: ${currentUser.email.split('@')[0]}`}
+                  className="flex h-11 max-w-[200px] items-center gap-2 rounded-xl border border-white/15 bg-white/[0.045] px-2.5 text-left text-white hover:bg-white/10 xl:max-w-[240px]">
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/10"><UserCircleIcon className="h-5 w-5" /></span>
+                  <span className="min-w-0 truncate text-xs font-semibold">{currentUser.email.split('@')[0]}</span>
+                  <AltArrowDownIcon className="h-4 w-4 shrink-0 text-blue-100/70" />
+                </button>
+                {accountMenuOpen && <div ref={accountMenuRef} id="account-menu" role="menu" aria-label="Учётная запись"
+                  className="absolute right-0 top-[calc(100%+6px)] z-50 w-56 rounded-xl border border-white/15 bg-[#082E5A] p-1.5 text-white shadow-xl">
+                  <div className="truncate px-3 py-2 text-xs text-blue-100/65" title={currentUser.email}>{currentUser.email}<span className="block">{roleLabel}</span></div>
+                  <button role="menuitem" type="button" onClick={() => { setAccountMenuOpen(false); setIsProfileOpen(true); }} className="flex min-h-11 w-full items-center rounded-lg border-0 bg-transparent px-3 text-left text-xs text-white hover:bg-white/10">Профиль</button>
+                  <button role="menuitem" type="button" onClick={() => { setAccountMenuOpen(false); setA11yOpen(true); }} className="flex min-h-11 w-full items-center rounded-lg border-0 bg-transparent px-3 text-left text-xs text-white hover:bg-white/10">Настройки</button>
+                  <button role="menuitem" type="button" onClick={handleLogout} className="flex min-h-11 w-full items-center rounded-lg border-0 bg-transparent px-3 text-left text-xs text-white hover:bg-white/10">Выйти</button>
+                </div>}
+              </div>
+            ) : !isStaffArea ? (
+              <button type="button" onClick={() => setIsAuthModalOpen(true)}
+                className="hidden h-11 items-center gap-2 rounded-xl border border-white/15 bg-white/[0.045] px-3 text-xs font-semibold text-white hover:bg-white/10 md:flex">
+                <UserCircleIcon className="h-5 w-5" /><span>Личный кабинет</span>
+              </button>
+            ) : null}
+
+            <button ref={mobileMenuButtonRef} type="button" onClick={() => setMobileMenuOpen(value => !value)}
+              aria-expanded={mobileMenuOpen} aria-controls="mobile-service-menu" aria-label="Дополнительное меню" title="Меню"
+              className="flex h-11 w-11 items-center justify-center rounded-xl border border-white/15 bg-transparent text-white hover:bg-white/10 md:hidden">
+              <MenuDotsVerticalIcon className="h-5 w-5" />
             </button>
 
             {a11yOpen && (
@@ -326,7 +345,7 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
                 {/* Header */}
                 <div className="flex items-center justify-between pb-2.5 border-b border-white/15 mb-3">
                   <div className="flex items-center gap-2">
-                    <Eye className="w-4 h-4 text-blue-300" />
+                    <AccessibilityIcon className="w-4 h-4 text-blue-300" />
                     <span id="a11y-settings-title" className="font-bold text-sm text-white">Панель доступности</span>
                   </div>
                   <button
@@ -335,7 +354,7 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
                     className="p-1 text-white/70 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
                     aria-label="Закрыть настройки доступности"
                   >
-                    <X className="w-4 h-4" />
+                    <CloseCircleIcon className="w-4 h-4" />
                   </button>
                 </div>
 
@@ -403,7 +422,7 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
                     onClick={handleResetA11y}
                     className="header-reset-button text-[11px] text-blue-200 hover:text-white flex items-center gap-1 transition-colors"
                   >
-                    <RotateCcw className="w-3 h-3" />
+                    <RestartIcon className="w-3 h-3" />
                     <span>Сбросить</span>
                   </button>
                   <button
@@ -417,56 +436,6 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
               </div>
             )}
 
-            {/* 4. Время (Moscow Clock: HH:mm without seconds) */}
-            <div className="hidden md:flex items-center justify-center gap-1.5 h-8 px-2 sm:px-2.5 sm:min-w-[72px] rounded-lg border transition-all bg-white/15 border-white/30 text-white hover:bg-white/25 select-none" title="Московское время (Europe/Moscow)">
-              <Clock className="w-3.5 h-3.5 text-[#86BBFF] shrink-0" />
-              <span className="font-bold text-white tabular-nums text-xs leading-none whitespace-nowrap">{timeStr || 'МСК'}</span>
-            </div>
-
-            {/* Auth / Account Area */}
-            <div className="hidden sm:flex items-center gap-1.5 sm:gap-2 border-l border-white/20 pl-1.5 sm:pl-2 ml-0.5">
-              {currentUser ? (
-                <div className="flex items-center gap-1.5 sm:gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setIsProfileOpen(true)}
-                    className="flex flex-col items-end hover:bg-white/10 px-1.5 py-0.5 rounded-lg transition-colors text-left"
-                    title="Открыть профиль и управление СМС-напоминаниями"
-                  >
-                    <div className="flex items-center gap-1">
-                      <span className="text-[11px] font-bold text-white max-w-[70px] sm:max-w-[120px] truncate">{currentUser.email.split('@')[0]}</span>
-                      {currentUser.phoneVerified ? (
-                        <CheckCircle2 className="w-3 h-3 text-emerald-300 shrink-0" />
-                      ) : (
-                        <Smartphone className="w-3 h-3 text-blue-200 shrink-0" />
-                      )}
-                    </div>
-                    <span className="text-[9px] text-blue-200 font-mono uppercase hidden xs:inline">
-                      {currentUser.role === 'opc_chief' ? 'Начальник' : currentUser.role === 'employee' ? 'Оператор' : 'Клиент'}
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleLogout}
-                    className="p-1.5 hover:bg-white/20 rounded-lg text-blue-100 transition-colors"
-                    title="Выйти из учётной записи"
-                  >
-                    <UserX className="w-4 h-4" />
-                  </button>
-                </div>
-              ) : !isStaffArea ? (
-                <button
-                  type="button"
-                  onClick={() => setIsAuthModalOpen(true)}
-                  className="cx-auth-btn h-8 px-2 sm:px-3 text-xs shadow-sm whitespace-nowrap"
-                  title="Войти в личный кабинет клиента"
-                >
-                  <UserPlus className="w-3.5 h-3.5 text-[#003B73] shrink-0" />
-                  <span className="text-[#003B73] font-bold hidden sm:inline">Личный кабинет</span>
-                  <span className="text-[#003B73] font-bold sm:hidden text-[11px]">Войти</span>
-                </button>
-              ) : null}
-            </div>
           </div>
         </div>
 
@@ -475,13 +444,13 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
           <div
             ref={mobileMenuRef}
             id="mobile-service-menu"
-            className="sm:hidden absolute right-2.5 top-[3.25rem] z-50 w-72 max-w-[calc(100vw-1.25rem)] rounded-2xl border border-white/20 bg-[#002B55] p-3 text-white shadow-2xl backdrop-blur-md space-y-2.5 animate-in fade-in"
+            className="absolute right-2.5 top-[calc(100%+4px)] z-50 w-72 max-w-[calc(100vw-1.25rem)] rounded-2xl border border-white/20 bg-[#002B55] p-3 text-white shadow-2xl backdrop-blur-md space-y-2.5 animate-in fade-in md:hidden"
           >
             {/* Header info */}
             <div className="flex items-center justify-between pb-2 border-b border-white/15 text-xs text-blue-200">
               <span className="font-bold text-white">Меню сервиса</span>
               <div className="flex items-center gap-1 text-[11px] font-mono">
-                <Clock className="w-3 h-3 text-[#86BBFF]" />
+                <ClockCircleIcon className="w-3 h-3 text-[#86BBFF]" />
                 <span>{timeStr || 'МСК'}</span>
               </div>
             </div>
@@ -494,7 +463,7 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
               className="w-full h-10 px-3 rounded-xl bg-white/10 hover:bg-white/15 border border-white/15 flex items-center justify-between text-xs font-bold text-white transition-colors cursor-pointer"
             >
               <div className="flex items-center gap-2">
-                {soundEnabled ? <Volume2 className="w-4 h-4 text-[#86BBFF]" /> : <VolumeX className="w-4 h-4 text-slate-400" />}
+                {soundEnabled ? <VolumeIcon className="w-4 h-4 text-[#86BBFF]" /> : <VolumeCrossIcon className="w-4 h-4 text-slate-400" />}
                 <span>Звуковое оповещение</span>
               </div>
               <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full ${soundEnabled ? 'bg-emerald-500/20 text-emerald-300' : 'bg-white/10 text-white/60'}`}>
@@ -508,7 +477,7 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1.5 min-w-0">
                     <span className="text-xs font-bold text-white truncate max-w-[150px]">{currentUser.email}</span>
-                    {currentUser.phoneVerified && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-300 shrink-0" />}
+                    {currentUser.phoneVerified && <CheckCircleIcon className="w-3.5 h-3.5 text-emerald-300 shrink-0" />}
                   </div>
                   <span className="text-[9px] font-mono text-blue-200 uppercase bg-blue-900/60 px-1.5 py-0.5 rounded">
                     {currentUser.role === 'opc_chief' ? 'Начальник' : currentUser.role === 'employee' ? 'Оператор' : 'Клиент'}
@@ -527,7 +496,7 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
                     onClick={() => { setMobileMenuOpen(false); handleLogout(); }}
                     className="py-1.5 px-2.5 bg-white/10 hover:bg-white/20 rounded-lg text-xs font-bold text-red-200 flex items-center justify-center gap-1 cursor-pointer"
                   >
-                    <UserX className="w-3.5 h-3.5" />
+                    <LogoutIcon className="w-3.5 h-3.5" />
                     <span>Выйти</span>
                   </button>
                 </div>
@@ -538,7 +507,7 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
                 onClick={() => { setMobileMenuOpen(false); setIsAuthModalOpen(true); }}
                 className="w-full h-10 px-3 rounded-xl bg-[#003B73] hover:bg-[#002B55] active:scale-95 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-sm transition-all border border-blue-400/30 cursor-pointer"
               >
-                <UserPlus className="w-4 h-4 text-blue-200" />
+                <UserCircleIcon className="w-4 h-4 text-blue-200" />
                 <span>Войти в личный кабинет</span>
               </button>
             ) : null}
@@ -572,10 +541,10 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
                 className="w-full py-2 px-2.5 rounded-xl bg-white/10 hover:bg-white/15 border border-white/15 text-xs text-blue-100 flex items-center justify-between transition-colors cursor-pointer"
               >
                 <div className="flex items-center gap-2">
-                  <Eye className="w-3.5 h-3.5 text-blue-300" />
+                  <AccessibilityIcon className="w-3.5 h-3.5 text-blue-300" />
                   <span>Все настройки доступности</span>
                 </div>
-                <ChevronRight className="w-3.5 h-3.5 text-blue-300" />
+                <AltArrowRightIcon className="w-3.5 h-3.5 text-blue-300" />
               </button>
             </div>
           </div>
@@ -611,7 +580,7 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
               className="flex items-center gap-1.5 text-blue-200 hover:text-white transition-colors font-semibold"
               title="Перейти в систему мониторинга Grafana (Метрики, Логи, Алерты)"
             >
-              <BarChart3 className="w-3.5 h-3.5 text-amber-400" />
+              <ChartIcon className="w-3.5 h-3.5 text-amber-400" />
               <span>Grafana (Метрики & Логи) ↗</span>
             </a>
           </div>

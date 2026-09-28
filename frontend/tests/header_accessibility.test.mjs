@@ -3,9 +3,9 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { browserEnabled, mountMap } from './mapBrowserHarness.mjs';
 
-async function mountHeader(t, width = 390) {
+async function mountHeader(t, width = 390, user = null) {
   const mounted = await mountMap(t, { width, height: 900 });
-  await mounted.page.route('**/api/v1/auth/me', route => route.fulfill({ status: 401, json: {} }));
+  await mounted.page.route('**/api/v1/auth/me', route => route.fulfill(user ? { json: user } : { status: 401, json: {} }));
   await mounted.page.evaluate(async () => {
     const [{ default: React }, { default: ReactDOM }, { ProductHeader }] = await Promise.all([
       import('/node_modules/.vite/deps/react.js'), import('/node_modules/.vite/deps/react-dom_client.js'),
@@ -16,9 +16,85 @@ async function mountHeader(t, width = 390) {
     document.body.prepend(node);
     ReactDOM.createRoot(node).render(React.createElement(ProductHeader, { currentPath: '/' }));
   });
-  await mounted.page.getByRole('button', { name: 'Настройки доступности', exact: true }).waitFor();
+  await mounted.page.locator('.main-product-header').waitFor();
   return mounted;
 }
+
+async function openA11yPanel(page) {
+  const direct = page.getByRole('button', { name: 'Настройки доступности', exact: true });
+  if (!await direct.isVisible()) {
+    await page.getByRole('button', { name: 'Дополнительное меню' }).click();
+    await page.getByRole('button', { name: 'Все настройки доступности' }).click();
+  } else {
+    await direct.click();
+  }
+  await page.getByRole('dialog', { name: 'Панель доступности' }).waitFor();
+}
+
+test('header keeps only brand, prominent Geo and overflow visible on mobile; desktop has one account cluster', { skip: !browserEnabled }, async t => {
+  const user = { id: 'test-user', email: 'very-long-post-office-operator-name@example.com', role: 'employee', isTerminal: false, confirmed: true, phoneVerified: true };
+  const { page } = await mountHeader(t, 390, user);
+  for (const width of [320, 360, 390, 430, 1440]) {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+    for (const scale of [100, 125, 150]) {
+      if (scale !== 100) {
+        await openA11yPanel(page);
+        await page.getByRole('dialog', { name: 'Панель доступности' }).getByRole('button', { name: new RegExp(`${scale}%$`) }).click();
+        await page.getByRole('dialog', { name: 'Панель доступности' }).getByRole('button', { name: 'Готово' }).click();
+      }
+      const header = page.locator('.main-product-header');
+      const geo = header.getByRole('button', { name: 'Определить местоположение' });
+      assert.equal(await geo.count(), 1);
+      assert.equal(await geo.getAttribute('aria-pressed'), 'false');
+      const visibleButtons = await header.locator('.product-header-row button').evaluateAll(nodes => nodes.filter(node => node.getClientRects().length).map(node => node.getAttribute('aria-label') || node.textContent.trim()));
+      if (width < 768) {
+        assert.deepEqual(visibleButtons, ['Определить местоположение', 'Дополнительное меню']);
+      } else {
+        assert(visibleButtons.includes('Настройки доступности'));
+        assert(visibleButtons.includes('Звуковое оповещение'));
+        assert(visibleButtons.some(name => name.includes('very-long-post-office-operator-name')));
+        assert(!visibleButtons.includes('Дополнительное меню'));
+      }
+      const undersized = await header.locator('.product-header-row button').evaluateAll(nodes => nodes.filter(node => node.getClientRects().length).filter(node => { const { width, height } = node.getBoundingClientRect(); return width < 44 || height < 44; }).map(node => node.getAttribute('aria-label') || node.textContent.trim()));
+      assert.deepEqual(undersized, [], `44px targets at ${width}px and ${scale}%`);
+      assert(await header.evaluate(node => node.scrollWidth <= innerWidth + 1), `header overflow at ${width}px and ${scale}%`);
+      if (process.env.HEADER_SCREENSHOTS && scale === 100 && (width === 390 || width === 1440)) {
+        await page.screenshot({ path: width === 390 ? '/tmp/header-phase-after-mobile-390x844.png' : '/tmp/header-phase-after-desktop-1440x900.png' });
+      }
+      if (width === 390 && scale === 100) {
+        await page.getByRole('button', { name: 'Дополнительное меню' }).click();
+        const menu = page.locator('#mobile-service-menu');
+        assert.equal(await menu.getByRole('button', { name: 'Профиль' }).count(), 1);
+        assert.equal(await menu.getByRole('button', { name: 'Выйти' }).count(), 1);
+        await page.keyboard.press('Escape');
+        await menu.waitFor({ state: 'hidden' });
+      }
+    }
+  }
+  await page.getByRole('button', { name: /very-long-post-office-operator-name/ }).click();
+  const account = page.getByRole('menu', { name: 'Учётная запись' });
+  await account.waitFor();
+  assert.equal(await account.getByRole('menuitem', { name: 'Профиль' }).count(), 1);
+  assert.equal(await account.getByRole('menuitem', { name: 'Настройки' }).count(), 1);
+  assert.equal(await account.getByRole('menuitem', { name: 'Выйти' }).count(), 1);
+  await page.keyboard.press('Escape');
+  await account.waitFor({ state: 'hidden' });
+  assert(await page.getByRole('button', { name: /very-long-post-office-operator-name/ }).evaluate(node => node === document.activeElement));
+});
+
+test('Geo control announces status and delegates one request to the location stream', { skip: !browserEnabled }, async t => {
+  const { page } = await mountHeader(t, 390);
+  const geo = page.getByRole('button', { name: 'Определить местоположение' });
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('pochta:geo-status', { detail: { status: 'granted' } })));
+  await page.waitForFunction(() => document.querySelector('button[aria-label="Определить местоположение"]')?.getAttribute('aria-pressed') === 'true');
+  await page.evaluate(() => {
+    window.__headerGeoRequests = 0;
+    window.addEventListener('pochta:request-geo', () => window.__headerGeoRequests++);
+  });
+  await geo.click();
+  assert.equal(await page.evaluate(() => window.__headerGeoRequests), 1);
+  assert.equal(await page.getByRole('button', { name: 'Определяем местоположение' }).getAttribute('aria-busy'), 'true');
+});
 
 test('mobile disclosure connects its content, announces toggles and returns keyboard focus on Escape', { skip: !browserEnabled }, async t => {
   const { page } = await mountHeader(t, 320);
@@ -45,7 +121,7 @@ test('mobile disclosure connects its content, announces toggles and returns keyb
 
 test('text scale enlarges client text without changing root rem, marker, icon or control geometry across widths', { skip: !browserEnabled }, async t => {
   const { page, open, render } = await mountHeader(t);
-  await page.getByRole('button', { name: 'Настройки доступности', exact: true }).click();
+  await openA11yPanel(page);
   await page.getByRole('dialog', { name: 'Панель доступности' }).getByRole('button', { name: 'А+ 125%' }).click();
   assert.equal(await page.evaluate(() => document.documentElement.style.fontSize), '', 'text preference must not mutate root font-size');
   await page.getByRole('dialog', { name: 'Панель доступности' }).getByRole('button', { name: 'Готово' }).click();
@@ -60,7 +136,7 @@ test('text scale enlarges client text without changing root rem, marker, icon or
     let geometry;
     let textSize;
     for (const scale of [100, 125, 150]) {
-      await page.getByRole('button', { name: 'Настройки доступности', exact: true }).click();
+      await openA11yPanel(page);
       const settings = page.getByRole('dialog', { name: 'Панель доступности' });
       await settings.getByRole('button', { name: new RegExp(`${scale}%$`) }).click();
       assert.equal(await page.evaluate(() => document.documentElement.style.fontSize), '', 'root inline font-size must remain untouched');
@@ -100,7 +176,7 @@ test('map controls retain their hit geometry when header text preference increas
   await open();
   const baseline = await page.getByRole('button', { name: 'Закрыть карту' }).boundingBox();
   await render({ isOpen: false });
-  await page.getByRole('button', { name: 'Настройки доступности', exact: true }).click();
+  await openA11yPanel(page);
   await page.getByRole('dialog', { name: 'Панель доступности' }).getByRole('button', { name: 'А++ 150%' }).click();
   await page.getByRole('dialog', { name: 'Панель доступности' }).getByRole('button', { name: 'Готово' }).click();
   await open();

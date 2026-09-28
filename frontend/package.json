@@ -10,6 +10,8 @@
     "build": "npm run typecheck && vite build"
   },
   "dependencies": {
+    "@fontsource-variable/onest": "^5.3.1",
+    "@solar-icons/react": "^2.3.2",
     "lucide-react": "^1.47.0",
     "qrcode": "^1.5.4",
     "react": "19.1.1",

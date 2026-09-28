@@ -14,6 +14,10 @@ test('SearchableBranchSelect provides search by name and disabled locked state',
   assert.match(content, /disabled/);
   assert.match(content, /cursor-not-allowed/);
   assert.match(content, /Lock/);
+
+  // Verify height constrained to ~5 items with scrollbar
+  assert.match(content, /maxHeight:\s*['"]230px['"]/);
+  assert.match(content, /overflowY:\s*['"]auto['"]/);
 });
 
 test('UsersManagement supports assigning postal branches with searchable select', async () => {

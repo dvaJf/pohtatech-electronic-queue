@@ -612,25 +612,40 @@ export function BranchMapModal({
         }
       }
 
-      const shortName = b.name
+      const streetName = b.name
         .replace(/^Демо\s*[·•-]\s*/i, '')
-        .replace(/^Почтовое отделение\s+/i, 'ОПС ')
-        .trim();
+        .replace(/^Почтовое отделение\s+/i, '')
+        .replace(/^Отделение\s+/i, '')
+        .replace(/^ОПС\s*\d*\s*[·•-]?\s*/i, '')
+        .replace(/^Главпочтамт\s*/i, '')
+        .trim() || 'Почта';
       const closedText = `Закрыто ${scheduleStatus.closedUntilText || ''}`.trim();
 
       const pinLayout = ymaps.templateLayoutFactory.createClass(
         isClosed
-          ? `<div class="pvz-pin-marker select-none" style="display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-100%);${pointerStyles}">
-              <div style="background:#FFFFFF;border-radius:8px;padding:4px 9px;box-shadow:0 2px 10px rgba(0,0,0,0.18);border:1px solid #CBD5E1;text-align:center;white-space:nowrap;font-family:'Manrope',sans-serif;line-height:1.25;">
-                <div style="display:flex;align-items:center;justify-content:center;gap:4px;font-size:12px;font-weight:700;color:#0F172A;">
-                  <span>${shortName.length > 20 ? shortName.slice(0, 19) + '…' : shortName}</span>
-                  ${hasRating ? `<span style="color:#475569;font-size:11px;">★</span><span style="color:#334155;font-weight:700;">${ratingText}</span>` : ''}
-                </div>
-                <div style="color:#EF4444;font-size:11px;font-weight:700;margin-top:2px;">
-                  ${closedText}
-                </div>
+          ? `<div class="pvz-pin-marker select-none pvz-closed-pin group" style="display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-100%);cursor:default;position:relative;">
+              <!-- Компактная плашка по умолчанию (не загромождает карту) -->
+              <div class="pvz-closed-compact" style="display:inline-flex;align-items:center;gap:3px;padding:3px 8px;border-radius:9999px;background-color:${pinBg};border:${border};color:#FFFFFF;font-family:'Manrope',sans-serif;font-size:10px;font-weight:800;white-space:nowrap;line-height:1.2;box-shadow:${boxShadow};">
+                <span style="color:#FEF08A;font-size:10px;">★</span>
+                <span>${ratingText}</span>
+                <span style="opacity:0.6;">•</span>
+                <span>Закрыто</span>
               </div>
-              <div style="width:8px;height:8px;transform:rotate(45deg);margin-top:-4px;background:#FFFFFF;border-right:1px solid #CBD5E1;border-bottom:1px solid #CBD5E1;"></div>
+              <div class="pvz-closed-compact-tail" style="width:7px;height:7px;transform:rotate(45deg);margin-top:-4px;background-color:${pinBg};border-right:${border};border-bottom:${border};"></div>
+
+              <!-- Раскрывающаяся карточка при близком наведении -->
+              <div class="pvz-closed-card" style="display:none;position:absolute;bottom:0;left:50%;transform:translateX(-50%);flex-direction:column;align-items:center;z-index:999;pointer-events:none;">
+                <div style="background:#FFFFFF;border-radius:8px;padding:5px 10px;box-shadow:0 4px 16px rgba(0,0,0,0.25);border:1px solid #CBD5E1;text-align:center;white-space:nowrap;font-family:'Manrope',sans-serif;line-height:1.25;">
+                  <div style="display:flex;align-items:center;justify-content:center;gap:4px;font-size:12px;font-weight:700;color:#0F172A;">
+                    <span>${streetName}</span>
+                    ${hasRating ? `<span style="color:#475569;font-size:11px;">★</span><span style="color:#334155;font-weight:700;">${ratingText}</span>` : ''}
+                  </div>
+                  <div style="color:#EF4444;font-size:11px;font-weight:700;margin-top:2px;">
+                    ${closedText}
+                  </div>
+                </div>
+                <div style="width:8px;height:8px;transform:rotate(45deg);margin-top:-4px;background:#FFFFFF;border-right:1px solid #CBD5E1;border-bottom:1px solid #CBD5E1;"></div>
+              </div>
             </div>`
           : `<div class="pvz-pin-marker cursor-pointer select-none group" style="display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-100%);">
               <div style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:9999px;background-color:${pinBg};border:${border};color:#FFFFFF;font-family:'Manrope',sans-serif;font-size:11px;font-weight:800;white-space:nowrap;line-height:1.2;box-shadow:${boxShadow};">
@@ -655,6 +670,16 @@ export function BranchMapModal({
       placemark.events.add('click', () => {
         if (isClosed) return;
         focusBranchOnMap(b.id);
+      });
+      placemark.events.add('mouseenter', () => {
+        if (isClosed) {
+          placemark.options.set('zIndex', 9999);
+        }
+      });
+      placemark.events.add('mouseleave', () => {
+        if (isClosed) {
+          placemark.options.unset('zIndex');
+        }
       });
       clusterer.add(placemark);
     });
@@ -989,13 +1014,7 @@ export function BranchMapModal({
                             </div>
                           </div>
 
-                          {/* Бейдж ожидания (ПВЗ стиль) или статус закрытия в правом верхнем углу */}
-                          {isClosed ? (
-                            <span className="shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-50 border border-rose-200 text-[10px] font-bold text-rose-700 shadow-2xs">
-                              <Clock size={10} className="shrink-0 text-rose-500" />
-                              <span>Отделение закрыто {scheduleStatus.closedUntilText}</span>
-                            </span>
-                          ) : (
+                          {!isClosed && (
                             <span
                               className={`shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold text-white shadow-xs ${wait.colorClass}`}
                             >
@@ -1004,42 +1023,52 @@ export function BranchMapModal({
                           )}
                         </div>
 
-                      {/* Метро и рейтинг */}
-                      <div className="mt-2.5 flex items-center justify-between text-[11px] text-slate-500 pt-2 border-t border-slate-100">
-                        <div className="flex items-center gap-1.5 truncate" data-landmark-type={landmark?.isMetro ? 'metro' : 'landmark'}>
-                          {landmark?.isMetro ? (
-                            <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: landmark.color }} aria-hidden />
-                          ) : (
-                            <Navigation size={12} className="text-[#052F85] shrink-0" />
-                          )}
-                          <span className="truncate">{landmark?.label || 'Рядом с остановкой'}</span>
-                        </div>
-                        <div className="flex items-center gap-2 font-bold shrink-0">
-                          {/* Рейтинг Яндекс Карт (слева от звездочки отзывов с сайта) */}
-                          {(() => {
-                            const yRating = branch.yandexRating ?? (branch.rawLocation?.rating && branch.rawLocation.rating > 0 ? branch.rawLocation.rating : null);
-                            if (yRating === null || yRating === undefined) return null;
-                            return (
-                              <div
-                                className="flex items-center gap-1 text-slate-700"
-                                title={`Рейтинг Яндекс Карт: ${yRating.toFixed(2)}`}
-                                aria-label={`Рейтинг Яндекс Карт: ${yRating.toFixed(2)}`}
-                              >
-                                <YandexIcon size={12} className="shrink-0" />
-                                <span>{yRating.toFixed(2)}</span>
-                              </div>
-                            );
-                          })()}
-                          {/* Отзывы с сайта */}
-                          <div
-                            className="flex items-center gap-1 text-amber-500 shrink-0"
-                            title={branch.rating !== null ? `Оценка на сайте: ${branch.rating.toFixed(1)} (${branch.ratingCount ?? 0} оценок)` : 'Отзывы с сайта: нет оценок'}
-                            aria-label={`Оценка на сайте: ${branch.rating !== null ? branch.rating.toFixed(1) : 'нет оценок'}`}
-                          >
-                            <Star size={12} className="fill-amber-400 text-amber-400" />
-                            <span>{(branch.rating === null ? '—' : branch.rating.toFixed(2))}</span>
+                      {/* Метро, рейтинг и в правом нижнем углу статус закрытия */}
+                      <div className="mt-2.5 flex items-center justify-between text-[11px] text-slate-500 pt-2 border-t border-slate-100 gap-1.5 flex-wrap">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="flex items-center gap-1.5 truncate" data-landmark-type={landmark?.isMetro ? 'metro' : 'landmark'}>
+                            {landmark?.isMetro ? (
+                              <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: landmark.color }} aria-hidden />
+                            ) : (
+                              <Navigation size={12} className="text-[#052F85] shrink-0" />
+                            )}
+                            <span className="truncate">{landmark?.label || 'Рядом с остановкой'}</span>
+                          </div>
+                          <div className="flex items-center gap-2 font-bold shrink-0">
+                            {/* Рейтинг Яндекс Карт (слева от звездочки отзывов с сайта) */}
+                            {(() => {
+                              const yRating = branch.yandexRating ?? (branch.rawLocation?.rating && branch.rawLocation.rating > 0 ? branch.rawLocation.rating : null);
+                              if (yRating === null || yRating === undefined) return null;
+                              return (
+                                <div
+                                  className="flex items-center gap-1 text-slate-700"
+                                  title={`Рейтинг Яндекс Карт: ${yRating.toFixed(2)}`}
+                                  aria-label={`Рейтинг Яндекс Карт: ${yRating.toFixed(2)}`}
+                                >
+                                  <YandexIcon size={12} className="shrink-0" />
+                                  <span>{yRating.toFixed(2)}</span>
+                                </div>
+                              );
+                            })()}
+                            {/* Отзывы с сайта */}
+                            <div
+                              className="flex items-center gap-1 text-amber-500 shrink-0"
+                              title={branch.rating !== null ? `Оценка на сайте: ${branch.rating.toFixed(1)} (${branch.ratingCount ?? 0} оценок)` : 'Отзывы с сайта: нет оценок'}
+                              aria-label={`Оценка на сайте: ${branch.rating !== null ? branch.rating.toFixed(1) : 'нет оценок'}`}
+                            >
+                              <Star size={12} className="fill-amber-400 text-amber-400" />
+                              <span>{(branch.rating === null ? '—' : branch.rating.toFixed(2))}</span>
+                            </div>
                           </div>
                         </div>
+
+                        {/* Правый нижний угол: статус закрытия */}
+                        {isClosed && (
+                          <span className="shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-50 border border-rose-200 text-[10px] font-bold text-rose-700 shadow-2xs ml-auto">
+                            <Clock size={10} className="shrink-0 text-rose-500" />
+                            <span>Отделение закрыто {scheduleStatus.closedUntilText}</span>
+                          </span>
+                        )}
                       </div>
                         </div>
                       </div>
@@ -1296,12 +1325,7 @@ export function BranchMapModal({
                               <div className="text-xs font-bold text-[#031E56] break-words">{b.name}</div>
                               <div className="text-[11px] text-slate-500 mt-0.5 break-words">{b.address}</div>
                             </div>
-                            {isClosed ? (
-                              <span className="shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-50 border border-rose-200 text-[10px] font-bold text-rose-700 shadow-2xs">
-                                <Clock size={10} className="shrink-0 text-rose-500" />
-                                <span>Отделение закрыто {scheduleStatus.closedUntilText}</span>
-                              </span>
-                            ) : (
+                            {!isClosed && (
                               <span
                                 className={`shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold text-white shadow-xs ${getWaitBadgeInfo(b.liveWaitMinutes).colorClass}`}
                               >
@@ -1309,30 +1333,40 @@ export function BranchMapModal({
                               </span>
                             )}
                           </div>
-                          <div className="flex items-center gap-2 mt-1 text-[10px] text-slate-500 font-semibold">
-                            {(() => {
-                              const yRating = b.yandexRating ?? (b.rawLocation?.rating && b.rawLocation.rating > 0 ? b.rawLocation.rating : null);
-                              if (yRating === null || yRating === undefined) return null;
-                              return (
-                                <span className="inline-flex items-center gap-1 text-slate-700 font-bold" title="Рейтинг Яндекс Карт">
-                                  <YandexIcon size={11} className="shrink-0" />
-                                  <span>{yRating.toFixed(2)}</span>
-                                </span>
-                              );
-                            })()}
-                            <span className="inline-flex items-center gap-0.5 text-amber-500 font-bold" title="Оценка на сайте">
-                              <Star size={10} className="fill-amber-400 text-amber-400 shrink-0" />
-                              <span>{(b.rating === null ? '—' : b.rating.toFixed(2))}</span>
-                            </span>
-                            <span>•</span>
-                            <span className="inline-flex min-w-0 items-center gap-1" data-landmark-type={landmark?.isMetro ? 'metro' : 'landmark'}>
-                              {landmark?.isMetro ? (
-                                <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: landmark.color }} aria-hidden />
-                              ) : (
-                                <Navigation size={10} className="shrink-0" aria-hidden />
-                              )}
-                              <span className="truncate">{landmark?.label || 'Рядом с остановкой'}</span>
-                            </span>
+                          <div className="flex items-center justify-between gap-1.5 mt-1 text-[10px] text-slate-500 font-semibold flex-wrap">
+                            <div className="flex items-center gap-2">
+                              {(() => {
+                                const yRating = b.yandexRating ?? (b.rawLocation?.rating && b.rawLocation.rating > 0 ? b.rawLocation.rating : null);
+                                if (yRating === null || yRating === undefined) return null;
+                                return (
+                                  <span className="inline-flex items-center gap-1 text-slate-700 font-bold" title="Рейтинг Яндекс Карт">
+                                    <YandexIcon size={11} className="shrink-0" />
+                                    <span>{yRating.toFixed(2)}</span>
+                                  </span>
+                                );
+                              })()}
+                              <span className="inline-flex items-center gap-0.5 text-amber-500 font-bold" title="Оценка на сайте">
+                                <Star size={10} className="fill-amber-400 text-amber-400 shrink-0" />
+                                <span>{(b.rating === null ? '—' : b.rating.toFixed(2))}</span>
+                              </span>
+                              <span>•</span>
+                              <span className="inline-flex min-w-0 items-center gap-1" data-landmark-type={landmark?.isMetro ? 'metro' : 'landmark'}>
+                                {landmark?.isMetro ? (
+                                  <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: landmark.color }} aria-hidden />
+                                ) : (
+                                  <Navigation size={10} className="shrink-0" aria-hidden />
+                                )}
+                                <span className="truncate">{landmark?.label || 'Рядом с остановкой'}</span>
+                              </span>
+                            </div>
+
+                            {/* Правый нижний угол: статус закрытия */}
+                            {isClosed && (
+                              <span className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-rose-50 border border-rose-200 text-[9px] font-bold text-rose-700 shadow-2xs ml-auto">
+                                <Clock size={9} className="shrink-0 text-rose-500" />
+                                <span>Отделение закрыто {scheduleStatus.closedUntilText}</span>
+                              </span>
+                            )}
                           </div>
                         </div>
                       </button>
@@ -1775,22 +1809,44 @@ export function LeafletCartoOsmFallbackMap({
               }`}
             >
               {isClosed ? (
-                <div className="flex flex-col items-center">
-                  <div className="bg-white rounded-lg px-2.5 py-1 shadow-md border border-slate-300 text-center whitespace-nowrap leading-tight font-['Manrope']">
-                    <div className="flex items-center justify-center gap-1 text-[11px] font-bold text-slate-900">
-                      <span>{b.name.replace(/^Демо\s*[·•-]\s*/i, '').slice(0, 18)}</span>
-                      {b.rating !== null && (
-                        <>
-                          <span className="text-slate-600 text-[10px]">★</span>
-                          <span className="text-slate-700">{b.rating.toFixed(1)}</span>
-                        </>
-                      )}
+                <div className="group relative flex flex-col items-center cursor-default">
+                  {/* Компактное состояние по умолчанию */}
+                  <div className="group-hover:hidden flex flex-col items-center">
+                    <div className="pvz-pin-marker shadow px-2 py-0.5 rounded-full text-white text-[10px] font-extrabold flex items-center gap-1 whitespace-nowrap bg-slate-500 border border-slate-300">
+                      <span className="text-yellow-200 text-[10px]">★</span>
+                      <span>{b.rating !== null ? b.rating.toFixed(2) : '—'}</span>
+                      <span className="opacity-60">•</span>
+                      <span>Закрыто</span>
                     </div>
-                    <div className="text-red-500 text-[11px] font-bold mt-0.5">
-                      Закрыто {scheduleStatus.closedUntilText || ''}
-                    </div>
+                    <div className="w-1.5 h-1.5 rotate-45 -mt-1 bg-slate-500 border-r border-b border-slate-300" />
                   </div>
-                  <div className="w-1.5 h-1.5 rotate-45 -mt-1 bg-white border-r border-b border-slate-300" />
+
+                  {/* Карточка при близком наведении */}
+                  <div className="hidden group-hover:flex flex-col items-center z-50 absolute bottom-0 left-1/2 -translate-x-1/2 pointer-events-none">
+                    <div className="bg-white rounded-lg px-2.5 py-1 shadow-lg border border-slate-300 text-center whitespace-nowrap leading-tight font-['Manrope']">
+                      <div className="flex items-center justify-center gap-1 text-[11px] font-bold text-slate-900">
+                        <span>
+                          {b.name
+                            .replace(/^Демо\s*[·•-]\s*/i, '')
+                            .replace(/^Почтовое отделение\s+/i, '')
+                            .replace(/^Отделение\s+/i, '')
+                            .replace(/^ОПС\s*\d*\s*[·•-]?\s*/i, '')
+                            .replace(/^Главпочтамт\s*/i, '')
+                            .trim() || 'Почта'}
+                        </span>
+                        {b.rating !== null && (
+                          <>
+                            <span className="text-slate-600 text-[10px]">★</span>
+                            <span className="text-slate-700">{b.rating.toFixed(2)}</span>
+                          </>
+                        )}
+                      </div>
+                      <div className="text-red-500 text-[11px] font-bold mt-0.5">
+                        Закрыто {scheduleStatus.closedUntilText || ''}
+                      </div>
+                    </div>
+                    <div className="w-1.5 h-1.5 rotate-45 -mt-1 bg-white border-r border-b border-slate-300" />
+                  </div>
                 </div>
               ) : (
                 <>

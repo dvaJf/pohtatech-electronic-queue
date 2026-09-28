@@ -2,10 +2,10 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as api from '../../api/client/clientApi';
 import { getMe } from '../../api/authApi';
 import { Appointment, Branch, Service, Ticket, TicketStatus, TicketSource, QueuePosition, TicketETA, NotificationCapabilities, NotificationChannel, NotificationSubscription } from '../../api/client/types';
-import { CalendarClock, Ticket as TicketIcon, ListChecks, ChevronLeft, ChevronRight, MapPin, Clock, Check, Sparkles, Building2, AlertCircle, CheckCircle2, Navigation, X, Search, Zap, Star, Loader2, MapPinOff, Bell, MessageCircle, Mail } from 'lucide-react';
+import { CalendarClock, Ticket as TicketIcon, ListChecks, ChevronLeft, ChevronRight, MapPin, Clock, Check, Sparkles, Building2, AlertCircle, CheckCircle2, Navigation, X, Search, Zap, Star, Loader2, MapPinOff, Bell, Mail } from 'lucide-react';
 import './client.css';
 import './kiosk.css';
-import { formatMoscowDateTime, parseMoscowDatetimeLocal, toMoscowDatetimeLocal } from '../../utils/time';
+import { formatMoscowDate, formatMoscowDateTime, formatMoscowTime, parseMoscowDatetimeLocal, toMoscowDatetimeLocal } from '../../utils/time';
 import { PochtaEmblem } from '../../components/common/PochtaBrand';
 import { BranchWorkloadCard } from './BranchWorkloadCard';
 import { Appointment24hPicker } from './Appointment24hPicker';
@@ -21,6 +21,7 @@ import { canShowNearbyBranchCard, updateNearbyVisits, dismissNearbyVisit, type N
 import { VisitRatingSheet } from './rating/VisitRatingSheet';
 import { shouldOfferVisitRating } from './rating/visitRatingPolicy';
 import { BRANCH_PAGE_SIZES, BranchPage, BranchPageSize, getLandmarkPresentation, paginateBranches } from './branchOptions';
+import { saveClientServiceRecord, resolveOperatorName } from './serviceHistory';
 
 // calculateSmartRouting is the product-level routing policy represented by smartRouting below.
 
@@ -37,6 +38,78 @@ const STORAGE_PENDING_IDEMPOTENCY_KEY = 'client_pending_idempotency';
 const ANON_SCOPE = 'anon';
 
 type ClientScreen = 'home' | 'booking' | 'walkin' | 'my';
+
+const DEFAULT_OPERATOR_NAMES: Record<number, string> = {
+  1: 'Иванова Анна',
+  2: 'Смирнов Дмитрий',
+  3: 'Ковалев Михаил',
+  4: 'Кузнецова Ольга',
+  5: 'Морозов Алексей',
+  6: 'Соколова Екатерина',
+  7: 'Попов Андрей',
+  8: 'Васильева Елена',
+  9: 'Новиков Сергей',
+  10: 'Федорова Мария',
+};
+
+function getTicketOperatorName(ticket: Ticket): string {
+  return resolveOperatorName(ticket, DEFAULT_OPERATOR_NAMES);
+}
+
+function getCompletedTicketMetadata(ticket: Ticket) {
+  const windowText = ticket.window?.number ? `Окно №${ticket.window.number}` : 'Окно №1';
+  const operatorName = getTicketOperatorName(ticket);
+
+  const startRaw = ticket.serviceStartedAt || ticket.calledAt || ticket.createdAt;
+  const endRaw = ticket.completedAt || ticket.serviceStartedAt || ticket.calledAt || ticket.createdAt;
+
+  const startDate = startRaw ? new Date(startRaw) : null;
+  const endDate = endRaw ? new Date(endRaw) : null;
+
+  const validStart = Boolean(startDate && !isNaN(startDate.getTime()));
+  const validEnd = Boolean(endDate && !isNaN(endDate.getTime()));
+
+  // Дата: DD.MM.YYYY
+  const dateStr = validEnd && endDate
+    ? formatMoscowDate(endDate)
+    : validStart && startDate
+    ? formatMoscowDate(startDate)
+    : formatMoscowDate(new Date());
+
+  // Время работы (начало - конец): HH:MM — HH:MM
+  const startTimeStr = validStart && startDate
+    ? formatMoscowTime(startDate, { hour: '2-digit', minute: '2-digit', second: undefined })
+    : '—';
+  const endTimeStr = validEnd && endDate
+    ? formatMoscowTime(endDate, { hour: '2-digit', minute: '2-digit', second: undefined })
+    : '—';
+  const timeRange = `${startTimeStr} — ${endTimeStr}`;
+
+  // Общее время работы:
+  let durationStr = '—';
+  if (validStart && validEnd && startDate && endDate) {
+    const diffSec = Math.max(0, Math.round((endDate.getTime() - startDate.getTime()) / 1000));
+    const mins = Math.floor(diffSec / 60);
+    const secs = diffSec % 60;
+    if (mins === 0 && secs === 0) {
+      durationStr = '< 1 мин';
+    } else if (mins === 0) {
+      durationStr = `${secs} сек`;
+    } else if (secs === 0) {
+      durationStr = `${mins} мин`;
+    } else {
+      durationStr = `${mins} мин ${secs} сек`;
+    }
+  }
+
+  return {
+    windowText,
+    operatorName,
+    dateStr,
+    timeRange,
+    durationStr,
+  };
+}
 
 interface VisitRatingRecord {
   ticketId: string;
@@ -116,7 +189,7 @@ function TelegramIcon({ size = 18 }: { size?: number }) {
 }
 
 function NotificationControls({ ticket, managementToken }: { ticket: Ticket; managementToken?: string }) {
-  const [phone, setPhone] = useState(''); const [email, setEmail] = useState(''); const [notice, setNotice] = useState(''); const [busy, setBusy] = useState<string | null>(null);
+  const [email, setEmail] = useState(''); const [notice, setNotice] = useState(''); const [busy, setBusy] = useState<string | null>(null);
   const [telegramError, setTelegramError] = useState(false);
   const [subscriptions, setSubscriptions] = useState<NotificationSubscription[]>([]);
   const [capabilities, setCapabilities] = useState<NotificationCapabilities | null>(null);
@@ -144,16 +217,16 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
   }, [ticket.id, token]);
   useEffect(() => { void refresh(); }, [refresh]);
   const connected = (channel: NotificationChannel) => subscriptions.find(item => item.channel === channel && item.enabled);
-  const unavailable = (channel: 'telegram' | 'webPush' | 'sms' | 'email') => capabilities ? !capabilities[channel].enabled : true;
+  const unavailable = (channel: 'telegram' | 'webPush' | 'email') => capabilities ? !capabilities[channel].enabled : true;
   const managementUnavailable = 'Для этого талона управление уведомлениями недоступно. Создайте новый талон.';
   const disconnect = async (channel: NotificationChannel) => { const item = connected(channel); if (!item) return; setBusy(channel); try { await api.removeNotificationSubscription(ticket.id, channel, item.id, token); await refresh(); } catch (e) { setNotice(friendlyError(e, 'Не удалось отключить уведомления')); } finally { setBusy(null); } };
   const telegram = async () => { setBusy('TELEGRAM'); setTelegramError(false); try { const url = await api.telegramLink(ticket.id, token); window.open(url, '_blank', 'noopener,noreferrer'); setNotice('Откройте Telegram и отправьте команду /start. Статус обновится автоматически.'); } catch (e) { setTelegramError(true); setNotice(friendlyError(e, 'Не удалось подключить Telegram')); } finally { setBusy(null); } };
-  const save = async (channel: 'SMS' | 'EMAIL', value: string) => { const valid = channel === 'SMS' ? /^(?:\+7|7|8)\D*\d/.test(value) : /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value); if (!valid) { setNotice(channel === 'SMS' ? 'Введите корректный номер телефона.' : 'Введите корректный email.'); return; } setBusy(channel); try { await api.saveNotificationSubscription(ticket.id, channel, value, token); await refresh(); } catch (e) { setNotice(friendlyError(e, 'Не удалось сохранить уведомления')); } finally { setBusy(null); } };
+  const save = async (channel: 'EMAIL', value: string) => { const valid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value); if (!valid) { setNotice('Введите корректный email.'); return; } setBusy(channel); try { await api.saveNotificationSubscription(ticket.id, channel, value, token); await refresh(); } catch (e) { setNotice(friendlyError(e, 'Не удалось сохранить уведомления')); } finally { setBusy(null); } };
   const push = async () => { if (!('serviceWorker' in navigator) || !('PushManager' in window)) { setNotice('Этот браузер не поддерживает системные уведомления.'); return; } if (Notification.permission === 'denied') { setNotice('Уведомления запрещены в настройках браузера.'); return; } const key = capabilities?.webPush?.vapidPublicKey || (import.meta.env.VITE_WEB_PUSH_VAPID_PUBLIC_KEY as string | undefined); if (!capabilities?.webPush.enabled || !key) { setNotice('Уведомления браузера временно недоступны.'); return; } setBusy('WEB_PUSH'); try { if (await Notification.requestPermission() !== 'granted') { setNotice('Уведомления запрещены в настройках браузера.'); return; } await navigator.serviceWorker.register('/sw.js'); const reg = await navigator.serviceWorker.ready; const padding = '='.repeat((4 - (key.length % 4)) % 4); const base64 = (key + padding).replace(/-/g, '+').replace(/_/g, '/'); const rawData = window.atob(base64); const bytes = new Uint8Array(rawData.length); for (let i = 0; i < rawData.length; ++i) { bytes[i] = rawData.charCodeAt(i); } const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: bytes }); await api.saveNotificationSubscription(ticket.id, 'WEB_PUSH', JSON.stringify(sub), token); await refresh(); } catch { setNotice('Не удалось включить уведомления браузера. Повторите попытку.'); } finally { setBusy(null); } };
   const action = (channel: NotificationChannel, label: string, onClick: () => void, providerUnavailable = false) => connected(channel) ? <button type="button" className="cx-notification-link" disabled={busy !== null} onClick={() => disconnect(channel)}>Отключить</button> : <button type="button" className="cx-btn cx-btn-secondary" disabled={busy !== null || providerUnavailable || !canManage} onClick={onClick}>{busy === channel ? <Loader2 className="w-4 h-4 animate-spin" /> : label}</button>;
   const telegramAction = () => { if (!capabilities || unavailable('telegram')) return null; if (connected('TELEGRAM')) return <button type="button" className="cx-notification-link" disabled={busy !== null} onClick={() => disconnect('TELEGRAM')}>Отключить</button>; if (telegramError) return <button type="button" className="cx-btn cx-btn-secondary" disabled={busy !== null || !canManage} onClick={telegram}>Повторить</button>; return <button type="button" className="cx-btn cx-btn-secondary" disabled={busy !== null || !canManage} onClick={telegram}>{busy === 'TELEGRAM' ? <span className="inline-flex items-center gap-1.5"><Loader2 className="w-4 h-4 animate-spin" /> Открываем Telegram…</span> : 'Подключить Telegram'}</button>; };
   const providerAction = (provider: 'telegram' | 'webPush', channel: NotificationChannel, label: string, onClick: () => void) => capabilities && !unavailable(provider) ? (channel === 'TELEGRAM' ? telegramAction() : action(channel, label, onClick)) : null;
-  const subscriptionForm = (provider: 'sms' | 'email', form: React.ReactNode) => capabilities && !unavailable(provider) ? form : null;
+  const subscriptionForm = (provider: 'email', form: React.ReactNode) => capabilities && !unavailable(provider) ? form : null;
   const channelText = (channel: NotificationChannel, defaultDesc: string, unavailMsg?: string) => {
     if (connected(channel)) {
       if (channel === 'TELEGRAM') return '✓ Telegram подключён';
@@ -164,16 +237,15 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
     return unavailMsg || defaultDesc;
   };
   const row = (icon: React.ReactNode, title: string, description: string, channel: NotificationChannel, content: React.ReactNode, unavailable?: string) => <div className="cx-notification-row"><div className="cx-notification-icon">{icon}</div><div className="cx-notification-main"><strong>{title}</strong><p>{channelText(channel, description, unavailable)}</p>{content}</div></div>;
-  const smsForm = <div className="cx-notification-form"><label className="sr-only" htmlFor={`sms-${ticket.id}`}>Номер телефона для SMS</label><input id={`sms-${ticket.id}`} value={phone} onChange={e => setPhone(e.target.value)} placeholder="+7 999 000-00-00" disabled={busy !== null || !canManage || unavailable('sms')}/><button type="button" className="cx-btn cx-btn-secondary" disabled={busy !== null || !canManage || unavailable('sms')} onClick={() => save('SMS', phone)}>{busy === 'SMS' ? <Loader2 className="w-4 h-4 animate-spin"/> : 'Подключить SMS'}</button></div>;
   const emailForm = <div className="cx-notification-form"><label className="sr-only" htmlFor={`email-${ticket.id}`}>Email для подтверждения записи</label><input id={`email-${ticket.id}`} type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="name@example.com" disabled={busy !== null || !canManage || unavailable('email')}/><button type="button" className="cx-btn cx-btn-secondary" disabled={busy !== null || !canManage || unavailable('email')} onClick={() => save('EMAIL', email)}>{busy === 'EMAIL' ? <Loader2 className="w-4 h-4 animate-spin"/> : 'Получить подтверждение'}</button></div>;
-  const unavailableMessage = (provider: 'telegram' | 'webPush' | 'sms' | 'email', label: string) => {
+  const unavailableMessage = (provider: 'telegram' | 'webPush' | 'email', label: string) => {
     if (!capabilities) return 'Проверяем доступность канала…';
     if (!unavailable(provider)) return undefined;
     if (provider === 'telegram') return 'Telegram временно недоступен';
     if (provider === 'webPush') return 'Уведомления браузера временно недоступны';
     return `${label} временно недоступен.`;
   };
-  return <section className="cx-notifications" aria-label="Уведомления по талону"><div className="cx-notifications-heading"><Bell size={18}/><div><h3>Уведомления</h3><p>Сообщим, когда очередь приблизится или вас вызовут к окну.</p></div></div>{row(<TelegramIcon/>, 'Telegram', 'Получать сообщения о движении очереди.', 'TELEGRAM', providerAction('telegram', 'TELEGRAM', 'Подключить Telegram', telegram), unavailableMessage('telegram', 'Telegram'))}{row(<Bell size={18}/>, 'Уведомления браузера', 'Системные уведомления даже при свёрнутой вкладке.', 'WEB_PUSH', providerAction('webPush', 'WEB_PUSH', 'Включить', push), unavailableMessage('webPush', 'Уведомления браузера'))}{row(<MessageCircle size={18}/>, 'SMS', capabilities?.sms.mode === 'demo' ? 'Демонстрационный режим: сообщения не отправляются на телефон.' : 'Уведомление перед записью и при приближении очереди.', 'SMS', connected('SMS') ? action('SMS', '', () => {}) : subscriptionForm('sms', smsForm), unavailableMessage('sms', 'SMS'))}{ticket.source === 'APPOINTMENT' && row(<Mail size={18}/>, 'Email', capabilities?.email.mode === 'demo' ? 'Email доступен только в демонстрационном режиме.' : 'Подтверждение предварительной записи.', 'EMAIL', connected('EMAIL') ? action('EMAIL', '', () => {}) : subscriptionForm('email', emailForm), unavailableMessage('email', 'Email'))}{!canManage && <p className="cx-notification-status" role="status">{managementUnavailable}</p>}{subscriptionsError && <p className="cx-notification-status" role="status" aria-live="polite">Не удалось загрузить настройки уведомлений. <button type="button" className="cx-notification-link" onClick={() => void refresh()}>Повторить</button></p>}{capabilitiesError && <p className="cx-notification-status" role="status" aria-live="polite">Не удалось определить доступность каналов. <button type="button" className="cx-notification-link" onClick={() => void refresh()}>Повторить</button></p>}{notice && <p className="cx-notification-status" role="status" aria-live="polite">{notice}</p>}</section>;
+  return <section className="cx-notifications" aria-label="Уведомления по талону">{row(<TelegramIcon/>, 'Telegram', 'Получать сообщения о движении очереди.', 'TELEGRAM', providerAction('telegram', 'TELEGRAM', 'Подключить Telegram', telegram), unavailableMessage('telegram', 'Telegram'))}{row(<Bell size={18}/>, 'Уведомления браузера', 'Системные уведомления даже при свёрнутой вкладке.', 'WEB_PUSH', providerAction('webPush', 'WEB_PUSH', 'Включить', push), unavailableMessage('webPush', 'Уведомления браузера'))}{ticket.source === 'APPOINTMENT' && row(<Mail size={18}/>, 'Email', capabilities?.email.mode === 'demo' ? 'Email доступен только в демонстрационном режиме.' : 'Подтверждение предварительной записи.', 'EMAIL', connected('EMAIL') ? action('EMAIL', '', () => {}) : subscriptionForm('email', emailForm), unavailableMessage('email', 'Email'))}{!canManage && <p className="cx-notification-status" role="status">{managementUnavailable}</p>}{subscriptionsError && <p className="cx-notification-status" role="status" aria-live="polite">Не удалось загрузить настройки уведомлений. <button type="button" className="cx-notification-link" onClick={() => void refresh()}>Повторить</button></p>}{capabilitiesError && <p className="cx-notification-status" role="status" aria-live="polite">Не удалось определить доступность каналов. <button type="button" className="cx-notification-link" onClick={() => void refresh()}>Повторить</button></p>}{notice && <p className="cx-notification-status" role="status" aria-live="polite">{notice}</p>}</section>;
 }
 
 function ErrorBanner({ message, onClose }: { message: string; onClose: () => void }) {
@@ -680,6 +752,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
     return v && v !== 'undefined' && v !== 'null' ? v : '';
   });
   const [scheduledAtInput, setScheduledAtInput] = useState('');
+  const [smsReminderEnabled, setSmsReminderEnabled] = useState(true);
   const [bookingStep, setBookingStep] = useState(0);
   const [walkinStep, setWalkinStep] = useState(qrBranchId ? 1 : 0);
 
@@ -1014,12 +1087,12 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
       );
     }
 
-    if (branchSortMode === 'fastest') {
+    if (screen !== 'booking' && branchSortMode === 'fastest') {
       return [...result].sort((a, b) => (a.totalMinutes ?? Infinity) - (b.totalMinutes ?? Infinity));
     } else {
       return [...result].sort((a, b) => (a.distanceMeters ?? Infinity) - (b.distanceMeters ?? Infinity));
     }
-  }, [enrichedBranches, branchSearchQuery, branchSortMode]);
+  }, [enrichedBranches, branchSearchQuery, branchSortMode, screen]);
 
   const branchPageData = useMemo(
     () => paginateBranches(displayBranches, branchPage, branchPageSize),
@@ -1192,6 +1265,21 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
               saveVisitRatingHistory(scope, history);
               setVisitRatingQueue(history.pending);
             }
+            try {
+              const meta = getCompletedTicketMetadata(nextTicket);
+              saveClientServiceRecord(scope, {
+                id: nextTicket.id,
+                publicNumber: nextTicket.publicNumber,
+                serviceName: services.find(s => s.id === nextTicket.serviceId)?.name || 'Почтовые услуги',
+                branchName: branches.find(b => b.id === nextTicket.branchId)?.name || 'Почта России',
+                windowText: meta.windowText,
+                operatorName: meta.operatorName,
+                date: meta.dateStr,
+                timeRange: meta.timeRange,
+                duration: meta.durationStr,
+                completedAt: nextTicket.completedAt || new Date().toISOString(),
+              });
+            } catch {}
           }
           removeSavedTicketId(id, scope);
         }
@@ -1313,6 +1401,16 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
       const mgmtToken = created.managementToken || finalTicket.managementToken;
       if (mgmtToken) {
         saveMgmtToken(finalTicket.id, mgmtToken, ownerScope);
+      }
+
+      if (!smsReminderEnabled && mgmtToken) {
+        try {
+          const subs = await api.listNotificationSubscriptions(finalTicket.id, mgmtToken);
+          const smsSub = subs.find(s => s.channel === 'SMS');
+          if (smsSub) {
+            await api.removeNotificationSubscription(finalTicket.id, 'SMS', smsSub.id, mgmtToken);
+          }
+        } catch {}
       }
 
       addSavedTicketId(finalTicket.id, ownerScope);
@@ -1776,26 +1874,10 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                   <button
                     type="button"
                     onClick={() => setBranchSortMode('distance')}
-                    className={`px-3 py-1.5 rounded-xl font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-                      branchSortMode === 'distance'
-                        ? 'bg-[#052F85] text-white shadow-xs'
-                        : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                    }`}
+                    className="px-3 py-1.5 rounded-xl font-bold transition-all flex items-center gap-1.5 cursor-pointer bg-[#052F85] text-white shadow-xs"
                   >
                     <Navigation size={12} />
                     <span>По удалённости</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setBranchSortMode('fastest')}
-                    className={`px-3 py-1.5 rounded-xl font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-                      branchSortMode === 'fastest'
-                        ? 'bg-emerald-600 text-white shadow-xs'
-                        : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                    }`}
-                  >
-                    <Zap size={12} />
-                    <span>Быстрее всего (дорога + очередь)</span>
                   </button>
                 </div>
               </div>
@@ -1886,14 +1968,36 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                 disabled={creating}
                 workHours={branches.find(b => b.id === branchId)?.workHours}
               />
-              <div className="p-3.5 rounded-2xl bg-blue-50/80 border border-blue-200/80 text-xs text-[#003B73] flex items-start gap-2.5">
-                <span className="text-base leading-none shrink-0 mt-0.5">🔔</span>
-                <div className="space-y-0.5">
-                  <strong className="block text-[#003B73] font-bold">СМС-напоминание за 30 минут</strong>
-                  <p className="text-slate-600 text-[11px] leading-relaxed">
-                    Клиентам с подтвержденным номером в личном кабинете автоматически поступает бесплатное СМС о записи.
-                  </p>
+              <div className="p-3.5 rounded-2xl bg-blue-50/80 border border-blue-200/80 text-xs text-[#003B73] flex items-center justify-between gap-3">
+                <div className="flex items-start gap-2.5 min-w-0">
+                  <span className="text-base leading-none shrink-0 mt-0.5" aria-hidden>🔔</span>
+                  <div className="space-y-0.5 min-w-0">
+                    <strong className="block text-[#003B73] font-bold text-xs sm:text-sm">СМС-напоминание за 30 минут</strong>
+                    <p className="text-slate-600 text-[11px] leading-relaxed">
+                      {smsReminderEnabled
+                        ? 'Клиентам с подтвержденным номером в личном кабинете автоматически поступает бесплатное СМС о записи.'
+                        : 'СМС-напоминание отключено для этой записи.'}
+                    </p>
+                  </div>
                 </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={smsReminderEnabled}
+                  onClick={() => setSmsReminderEnabled(v => !v)}
+                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent p-0 transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-[#003B73] focus:ring-offset-1 ${
+                    smsReminderEnabled ? 'bg-[#003B73]' : 'bg-slate-300'
+                  }`}
+                  aria-label="Включить или отключить СМС-напоминание за 30 минут"
+                  title={smsReminderEnabled ? 'Отключить СМС-напоминание' : 'Включить СМС-напоминание'}
+                >
+                  <span
+                    aria-hidden="true"
+                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                      smsReminderEnabled ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
               </div>
               <button
                 type="button"
@@ -2183,6 +2287,33 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                         <span>Отделение</span>
                         <strong>{branches.find(b => b.id === ticket.branchId)?.name || 'Почта России'}</strong>
                       </div>
+                      {ticket.status === 'COMPLETED' && (() => {
+                        const meta = getCompletedTicketMetadata(ticket);
+                        return (
+                          <>
+                            <div className="cx-ticket-row">
+                              <span>Окно</span>
+                              <strong>{meta.windowText}</strong>
+                            </div>
+                            <div className="cx-ticket-row">
+                              <span>Оператор</span>
+                              <strong>{meta.operatorName}</strong>
+                            </div>
+                            <div className="cx-ticket-row">
+                              <span>Дата</span>
+                              <strong>{meta.dateStr}</strong>
+                            </div>
+                            <div className="cx-ticket-row">
+                              <span>Время работы</span>
+                              <strong>{meta.timeRange}</strong>
+                            </div>
+                            <div className="cx-ticket-row">
+                              <span>Общее время работы</span>
+                              <strong>{meta.durationStr}</strong>
+                            </div>
+                          </>
+                        );
+                      })()}
                       {appointment && (
                         <div className="cx-ticket-row">
                           <span>Время по записи</span>
@@ -2271,7 +2402,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                             : (ticket.status === 'SCHEDULED' ? 'Отменить запись' : 'Отказаться от талона')}
                         </button>
                       )}
-                      {terminalStatuses.has(ticket.status) && (
+                      {terminalStatuses.has(ticket.status) && ticket.status !== 'COMPLETED' && (
                         <button
                           type="button"
                           className="cx-btn cx-btn-primary cx-btn-block"

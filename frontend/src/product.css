@@ -102,6 +102,17 @@ html[data-text-scale="150"] { --client-text-scale: 1.5; }
   height: auto;
   line-height: 1.4;
 }
+#a11y-settings button[aria-label="Закрыть настройки доступности"] {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 0 !important;
+  line-height: 1;
+}
+#a11y-settings button[aria-label="Закрыть настройки доступности"] svg {
+  display: block;
+  margin: auto;
+}
 .main-product-header button > svg { flex-shrink: 0; }
 
 html, body {

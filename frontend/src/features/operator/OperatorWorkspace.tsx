@@ -6,6 +6,7 @@ import { listServices, arriveAppointment } from '../../api/client/clientApi';
 import { Branch, OperatorWindow, Ticket, OperatorApiError } from '../../api/operator/types';
 import { Service } from '../../api/client/types';
 import { getMe, User } from '../../api/authApi';
+import { recordTicketOperator } from '../client/serviceHistory';
 import { ActionControls } from './ActionControls';
 import { TicketCard } from './TicketCard';
 import { broadcastTicketCallToTV } from '../../utils/tvNotification';
@@ -21,8 +22,10 @@ import {
   Layers,
   ChevronDown,
   AlertTriangle,
-  X
+  X,
+  Lock
 } from 'lucide-react';
+import { SearchableBranchSelect } from '../../components/common/SearchableBranchSelect';
 
 export function OperatorWorkspace() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -74,16 +77,99 @@ export function OperatorWorkspace() {
     getMe().then(setCurrentUser).catch(() => {});
   }, []);
 
+  const getEffectiveOperatorFio = () => {
+    return (
+      currentUser?.fio?.trim() ||
+      (currentUser?.id ? localStorage.getItem(`user_fio:${currentUser.id}`)?.trim() : '') ||
+      (currentUser?.email ? localStorage.getItem(`user_fio:${currentUser.email}`)?.trim() : '') ||
+      localStorage.getItem('operator_fio')?.trim() ||
+      ''
+    );
+  };
+
+  useEffect(() => {
+    const handleFioUpdated = (e: Event) => {
+      const detail = (e as CustomEvent)?.detail;
+      if (detail?.fio) {
+        setCurrentUser(prev => prev ? { ...prev, fio: detail.fio } : null);
+        const win = windows.find(w => w.id === windowId);
+        if (win) {
+          recordTicketOperator('', detail.fio, win.number, branchId, win.id);
+        }
+      }
+    };
+    window.addEventListener('auth_fio_updated', handleFioUpdated);
+    return () => window.removeEventListener('auth_fio_updated', handleFioUpdated);
+  }, [windows, windowId, branchId]);
+
+  useEffect(() => {
+    const win = windows.find(w => w.id === windowId);
+    const fio = getEffectiveOperatorFio();
+    if (win && fio) {
+      recordTicketOperator('', fio, win.number, branchId, win.id);
+    }
+  }, [windows, windowId, branchId, currentUser]);
+
+  useEffect(() => {
+    if (current?.id) {
+      const win = windows.find(w => w.id === windowId);
+      const fio = getEffectiveOperatorFio();
+      if (fio) {
+        recordTicketOperator(current.id, fio, win?.number, branchId, win?.id);
+      }
+    }
+  }, [current?.id, windows, windowId, branchId, currentUser]);
+
+  const assignedBranchId = (
+    currentUser?.branchId ||
+    (currentUser?.id && typeof localStorage !== 'undefined' ? localStorage.getItem(`operator_branch:${currentUser.id}`) : null) ||
+    (currentUser?.email && typeof localStorage !== 'undefined' ? localStorage.getItem(`operator_branch:${currentUser.email}`) : null) ||
+    ''
+  );
+  const isBranchLocked = currentUser?.role === 'employee';
+
   useEffect(() => {
     let active = true;
     api.listBranches().then(items => {
       if (!active) return;
       setBranches(items);
-      const saved = localStorage.getItem('operator.branch');
+      const assigned = (
+        currentUser?.branchId ||
+        (currentUser?.id && typeof localStorage !== 'undefined' ? localStorage.getItem(`operator_branch:${currentUser.id}`) : null) ||
+        (currentUser?.email && typeof localStorage !== 'undefined' ? localStorage.getItem(`operator_branch:${currentUser.email}`) : null)
+      );
+      const saved = assigned || localStorage.getItem('operator.branch');
       setBranchId(items.find(b => b.id === saved)?.id ?? items[0]?.id ?? '');
     }).catch(() => { if (active) setError('Не удалось загрузить отделения. Обновите страницу.'); });
     return () => { active = false; };
-  }, []);
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (isBranchLocked && assignedBranchId && branchId !== assignedBranchId) {
+      ++epoch.current;
+      setReady(false);
+      setCurrent(null);
+      setBranchId(assignedBranchId);
+      localStorage.setItem('operator.branch', assignedBranchId);
+    }
+  }, [isBranchLocked, assignedBranchId, branchId]);
+
+  useEffect(() => {
+    const handleBranchUpdated = (e: Event) => {
+      const detail = (e as CustomEvent)?.detail;
+      if (detail && (detail.userId === currentUser?.id || detail.email === currentUser?.email)) {
+        if (detail.branchId && detail.branchId !== branchId) {
+          ++epoch.current;
+          setReady(false);
+          setCurrent(null);
+          setBranchId(detail.branchId);
+          localStorage.setItem('operator.branch', detail.branchId);
+        }
+      }
+    };
+    window.addEventListener('operator_branch_updated', handleBranchUpdated);
+    return () => window.removeEventListener('operator_branch_updated', handleBranchUpdated);
+  }, [currentUser?.id, currentUser?.email, branchId]);
 
   useEffect(() => {
     let active = true;
@@ -258,6 +344,10 @@ export function OperatorWorkspace() {
       const targetNum = ticket?.publicNumber || publicNum;
       if (ticket) {
         lastAnnouncedTicketId.current = ticket.id;
+        const fio = getEffectiveOperatorFio();
+        if (fio && selected) {
+          recordTicketOperator(ticket.id, fio, selected.number, branchId, selected.id);
+        }
       }
       if (selected) {
         broadcastTicketCallToTV(targetNum, selected.number);
@@ -297,7 +387,7 @@ export function OperatorWorkspace() {
               <p className="text-xs text-slate-500 mt-0.5">
                 Оператор:{' '}
                 <strong className="text-slate-800">
-                  {currentUser?.email ?? 'operator@pochta.local'}
+                  {currentUser?.fio || currentUser?.email || 'operator@pochta.local'}
                 </strong>{' '}
                 {selected && `· Отделение: ${branches.find(b => b.id === branchId)?.name || 'Почта России'}`}
               </p>
@@ -308,27 +398,36 @@ export function OperatorWorkspace() {
           <div className="flex flex-wrap items-start justify-start gap-3 w-full">
             {/* Branch Selector */}
             <div className="flex flex-col shrink-0">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 pl-1">Отделение</span>
+              <div className="flex items-center gap-1.5 mb-1 pl-1">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Отделение</span>
+                {isBranchLocked && (
+                  <span
+                    title="Почтовое отделение назначено администратором и зафиксировано для оператора"
+                    className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200 select-none"
+                  >
+                    <Lock className="w-2.5 h-2.5" /> Назначено
+                  </span>
+                )}
+              </div>
               <div className={`${containerHeightClass} flex items-center`}>
-                <select
-                  aria-label="Отделение"
-                  value={branchId}
-                  disabled={pending}
-                  onChange={e => {
-                    if (e.target.value === branchId) return;
+                <SearchableBranchSelect
+                  branches={branches}
+                  selectedId={branchId}
+                  disabled={isBranchLocked || pending}
+                  disabledTooltip={
+                    isBranchLocked
+                      ? 'Почтовое отделение назначено администратором и зафиксировано для вашей учётной записи'
+                      : undefined
+                  }
+                  onSelect={newBranchId => {
+                    if (newBranchId === branchId) return;
                     ++epoch.current;
                     setReady(false);
                     setCurrent(null);
-                    setBranchId(e.target.value);
+                    setBranchId(newBranchId);
                   }}
-                  className="px-3 h-12 rounded-xl border border-slate-300 text-sm font-medium bg-white text-slate-800 shadow-sm min-w-[200px] outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all cursor-pointer"
-                >
-                  {branches.map(b => (
-                    <option key={b.id} value={b.id}>
-                      {b.name}
-                    </option>
-                  ))}
-                </select>
+                  className="min-w-[240px]"
+                />
               </div>
             </div>
 
@@ -485,6 +584,10 @@ export function OperatorWorkspace() {
                             const ticket = await api.callNext(windowId);
                             if (ticket) {
                               lastAnnouncedTicketId.current = ticket.id;
+                              const fio = getEffectiveOperatorFio();
+                              if (fio && selected) {
+                                recordTicketOperator(ticket.id, fio, selected.number, branchId, selected.id);
+                              }
                               if (selected) {
                                 broadcastTicketCallToTV(ticket.publicNumber, selected.number);
                               }
@@ -498,6 +601,10 @@ export function OperatorWorkspace() {
                                   const ticket = await api.callNext(windowId);
                                   if (ticket) {
                                     lastAnnouncedTicketId.current = ticket.id;
+                                    const fio = getEffectiveOperatorFio();
+                                    if (fio && selected) {
+                                      recordTicketOperator(ticket.id, fio, selected.number, branchId, selected.id);
+                                    }
                                     if (selected) {
                                       broadcastTicketCallToTV(ticket.publicNumber, selected.number);
                                     }
@@ -517,8 +624,24 @@ export function OperatorWorkspace() {
                           broadcastTicketCallToTV(current.publicNumber, selected.number);
                         }
                       }}
-                      onStartService={() => current && void act(() => api.startService(current.id))}
-                      onCompleteService={() => current && void act(() => api.completeService(current.id))}
+                      onStartService={() => {
+                        if (current && selected) {
+                          const fio = getEffectiveOperatorFio();
+                          if (fio) {
+                            recordTicketOperator(current.id, fio, selected.number, branchId, selected.id);
+                          }
+                        }
+                        current && void act(() => api.startService(current.id));
+                      }}
+                      onCompleteService={() => {
+                        if (current && selected) {
+                          const fio = getEffectiveOperatorFio();
+                          if (fio) {
+                            recordTicketOperator(current.id, fio, selected.number, branchId, selected.id);
+                          }
+                        }
+                        current && void act(() => api.completeService(current.id));
+                      }}
                       onNoShow={() => current && void act(() => api.markNoShow(current.id))}
                     />
                   </div>

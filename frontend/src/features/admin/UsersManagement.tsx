@@ -10,6 +10,10 @@ const roles: Record<string, string> = {
   client: 'Клиент',
   employee: 'Оператор',
   opc_chief: 'Начальник ОПС',
+};
+
+const roleLabels: Record<string, string> = {
+  ...roles,
   terminal: 'Терминал',
 };
 
@@ -311,7 +315,7 @@ export function UsersManagement() {
                           : 'bg-slate-200 text-slate-600 border border-slate-300'
                       }`}
                     >
-                      {roles[user.role] || user.role}
+                      {roleLabels[user.role] || user.role}
                     </span>
                   </td>
                   <td className="p-3">

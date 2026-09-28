@@ -8,6 +8,7 @@ import {
   Navigation,
   ChevronUp,
   ChevronDown,
+  ChevronLeft,
   Users,
   Accessibility,
   Package,
@@ -778,7 +779,7 @@ export function BranchMapModal({
       <div className="relative w-full h-full md:max-w-6xl md:h-[90vh] bg-[#F8FAFC] md:rounded-3xl border border-[#E2E8F0] shadow-2xl flex flex-col overflow-hidden">
         {/* === ШАПКА МОДАЛЬНОГО ОКНА === */}
         <header className="flex items-center justify-between px-4 md:px-5 py-2.5 pt-[max(0.625rem,env(safe-area-inset-top))] bg-white border-b border-[#E2E8F0] shrink-0 z-30">
-          <div className="flex items-center gap-3 min-w-0">
+          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
             <div className="hidden md:flex w-9 h-9 rounded-xl bg-[#052F85] items-center justify-center text-white">
               <MapPin size={19} className="text-white" />
             </div>
@@ -1069,11 +1070,10 @@ export function BranchMapModal({
 
             {/* Всплывающая подробная карточка отделения над картой на десктопе */}
             {selectedBranch && (
-              <div ref={desktopBranchCardRef} data-testid="desktop-branch-card-overlay" className="hidden lg:block absolute bottom-5 right-5 w-[34%] min-w-[256px] max-w-[320px] max-h-[calc(100%-2.5rem)] overflow-y-auto rounded-3xl z-20 animate-in fade-in slide-in-from-bottom-2 duration-200">
+              <div ref={desktopBranchCardRef} data-testid="desktop-branch-card-overlay" className="hidden md:block absolute bottom-5 right-5 w-80 max-w-[calc(100%-2.5rem)] max-h-[calc(100%-2.5rem)] overflow-y-auto rounded-3xl z-20 shadow-xl animate-in fade-in slide-in-from-bottom-2 duration-200">
                 <DetailedBranchCard
                   branch={selectedBranch}
                   compact
-                  informationalOnly
                   userLocation={userLocation}
                   onClose={clearBranchSelection}
                   onTakeTicket={() => handleTakeTicket(selectedBranch)}
@@ -1176,6 +1176,7 @@ export function BranchMapModal({
                 {selectedBranch ? (
                   <DetailedBranchCard
                     branch={selectedBranch}
+                    showCollapseLink
                     userLocation={userLocation}
                     onClose={clearBranchSelection}
                     onTakeTicket={() => handleTakeTicket(selectedBranch)}
@@ -1273,6 +1274,7 @@ export function DetailedBranchCard({
   onClose,
   compact = false,
   informationalOnly = false,
+  showCollapseLink = false,
   userLocation,
 }: {
   branch: MapBranch;
@@ -1281,9 +1283,11 @@ export function DetailedBranchCard({
   onClose?: () => void;
   compact?: boolean;
   informationalOnly?: boolean;
+  showCollapseLink?: boolean;
   userLocation?: [number, number] | null;
 }) {
   const [imgError, setImgError] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
   const wait = getWaitBadgeInfo(branch.liveWaitMinutes);
   const landmark = getLandmarkPresentation(branch.rawLocation);
 
@@ -1297,7 +1301,7 @@ export function DetailedBranchCard({
   return (
     <div className="bg-white rounded-3xl border border-[#E2E8F0] shadow-xl overflow-hidden font-['Manrope']">
       {/* Фото входа отделения / фирменный фасад Почты России */}
-      <div className={`branch-card-photo relative ${compact ? 'h-28' : 'h-36 sm:h-44'} w-full bg-gradient-to-br from-[#052F85] via-[#004B93] to-[#031E56] overflow-hidden flex items-center justify-center`}>
+      <div className={`branch-card-photo relative ${compact && !isExpanded ? 'h-28' : 'h-28 sm:h-32'} w-full bg-gradient-to-br from-[#052F85] via-[#004B93] to-[#031E56] overflow-hidden flex items-center justify-center`}>
         {!imgError && displayPhoto ? (
           <img
             src={displayPhoto}
@@ -1321,7 +1325,7 @@ export function DetailedBranchCard({
         <div className="absolute inset-0 bg-gradient-to-b from-black/55 via-transparent to-black/30 pointer-events-none" />
 
         {(branch.rating !== null || branch.liveWaitMinutes !== null) && (
-          <div className={`branch-photo-badges absolute top-3 left-3 ${onClose ? 'right-16' : 'right-3'} z-20`}>
+          <div className={`branch-photo-badges absolute top-3 left-3 ${compact && onClose ? 'right-28' : onClose ? 'right-16' : 'right-3'} z-20`}>
             {branch.rating !== null && (
               <div
                 aria-label={`Рейтинг отделения: ${branch.rating.toFixed(2)}`}
@@ -1338,22 +1342,35 @@ export function DetailedBranchCard({
           </div>
         )}
 
-        {/* Кнопка закрытия / сворачивания отделения (X) */}
-        {onClose && (
-          <button
-            type="button"
-            onClick={onClose}
-            className="absolute top-3 right-3 z-30 w-11 h-11 rounded-full bg-slate-900/65 hover:bg-slate-900/85 text-white flex items-center justify-center backdrop-blur-md border border-white/20 transition-all active:scale-95 shadow-md cursor-pointer"
-            aria-label="Свернуть карточку отделения"
-            title="Свернуть"
-          >
-            <X size={16} />
-          </button>
-        )}
+        {/* Кнопки управления в правом верхнем углу фото: Развернуть/Свернуть со стрелочкой и Закрыть (X) */}
+        <div className="absolute top-3 right-3 z-30 flex items-center gap-2">
+          {compact && (
+            <button
+              type="button"
+              onClick={() => setIsExpanded((prev) => !prev)}
+              className="w-11 h-11 rounded-full bg-slate-900/65 hover:bg-slate-900/85 text-white flex items-center justify-center backdrop-blur-md border border-white/20 transition-all active:scale-95 shadow-md cursor-pointer"
+              aria-label={isExpanded ? 'Свернуть подробности' : 'Открыть побольше'}
+              title={isExpanded ? 'Свернуть' : 'Открыть побольше'}
+            >
+              {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+            </button>
+          )}
+          {onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-11 h-11 rounded-full bg-slate-900/65 hover:bg-slate-900/85 text-white flex items-center justify-center backdrop-blur-md border border-white/20 transition-all active:scale-95 shadow-md cursor-pointer"
+              aria-label="Свернуть карточку отделения"
+              title="Свернуть"
+            >
+              <X size={16} />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Информация об отделении */}
-      <div className={`${compact ? 'p-3 space-y-2' : 'p-4 space-y-3'}`}>
+      <div className={`${compact && !isExpanded ? 'p-3 space-y-2' : 'p-4 space-y-3'}`}>
         <div>
           <h3 className="text-sm font-extrabold text-[#031E56] leading-snug">
             {branch.name}
@@ -1393,8 +1410,24 @@ export function DetailedBranchCard({
           })()}
         </div>
 
+        {/* Кнопка прокладки пешего маршрута в Яндекс.Картах */}
+        <a
+          href={
+            userLocation
+              ? `https://yandex.ru/maps/?rtext=${userLocation[0]},${userLocation[1]}~${branch.coordinates[0]},${branch.coordinates[1]}&rtt=pd`
+              : `https://yandex.ru/maps/?rtext=~${branch.coordinates[0]},${branch.coordinates[1]}&rtt=pd`
+          }
+          target="_blank"
+          rel="noopener noreferrer"
+          className="w-full py-2 px-3 rounded-2xl bg-blue-50/70 hover:bg-blue-100/70 border border-blue-200/70 text-[#052F85] text-xs font-bold transition-all flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer"
+        >
+          <Navigation size={13} />
+          <span>{compact && !isExpanded ? 'Маршрут' : 'Проложить маршрут в Яндекс.Картах'}</span>
+        </a>
+
+
         {/* Удобства и доступная среда (Amenities badges) */}
-        {!compact && <div>
+        {(!compact || isExpanded) && <div>
           <div className="text-[10px] uppercase font-extrabold tracking-wider text-slate-400 mb-1.5">
             Услуги и доступность
           </div>
@@ -1432,23 +1465,8 @@ export function DetailedBranchCard({
           </div>
         </div>}
 
-        {/* Кнопка прокладки пешего маршрута в Яндекс.Картах */}
-        <a
-          href={
-            userLocation
-              ? `https://yandex.ru/maps/?rtext=${userLocation[0]},${userLocation[1]}~${branch.coordinates[0]},${branch.coordinates[1]}&rtt=pd`
-              : `https://yandex.ru/maps/?rtext=~${branch.coordinates[0]},${branch.coordinates[1]}&rtt=pd`
-          }
-          target="_blank"
-          rel="noopener noreferrer"
-          className="w-full py-2 px-3 rounded-2xl bg-blue-50/70 hover:bg-blue-100/70 border border-blue-200/70 text-[#052F85] text-xs font-bold transition-all flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer"
-        >
-          <Navigation size={13} />
-          <span>{compact ? 'Маршрут' : 'Проложить маршрут в Яндекс.Картах'}</span>
-        </a>
-
         {/* Кнопки действий: «Взять талон» / «Записаться» */}
-        {!informationalOnly && <div className="grid grid-cols-2 gap-2 pt-1">
+        {(!compact || isExpanded) && !informationalOnly && <div className="grid grid-cols-2 gap-2 pt-1">
           <button
             type="button"
             onClick={onTakeTicket}
@@ -1468,7 +1486,7 @@ export function DetailedBranchCard({
         </div>}
 
         {/* Ссылка на сворачивание карточки */}
-        {onClose && !informationalOnly && (
+        {onClose && showCollapseLink && !informationalOnly && (
           <div className="pt-1 text-center">
             <button
               type="button"

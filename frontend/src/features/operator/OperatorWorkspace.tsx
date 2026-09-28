@@ -10,6 +10,7 @@ import { recordTicketOperator } from '../client/serviceHistory';
 import { ActionControls } from './ActionControls';
 import { TicketCard } from './TicketCard';
 import { broadcastTicketCallToTV } from '../../utils/tvNotification';
+import { getBranchPostalCode } from '../../utils/branchSlug';
 import {
   Clock,
   UserPlus,
@@ -23,7 +24,8 @@ import {
   ChevronDown,
   AlertTriangle,
   X,
-  Lock
+  Lock,
+  Tv
 } from 'lucide-react';
 import { SearchableBranchSelect } from '../../components/common/SearchableBranchSelect';
 
@@ -350,7 +352,7 @@ export function OperatorWorkspace() {
         }
       }
       if (selected) {
-        broadcastTicketCallToTV(targetNum, selected.number);
+        broadcastTicketCallToTV(targetNum, selected.number, false, branchId);
       }
     });
   }
@@ -499,6 +501,25 @@ export function OperatorWorkspace() {
                 </div>
               </div>
             )}
+
+            {/* Direct Link to TV Board for this Branch */}
+            {branchId && (
+              <div className="flex flex-col shrink-0">
+                <span aria-hidden="true" className="text-[10px] font-bold uppercase tracking-wider mb-1 pl-1 invisible select-none">ТВ</span>
+                <div className={`${containerHeightClass} flex items-center`}>
+                  <a
+                    href={`/tv/${getBranchPostalCode(branchId, branches.find(b => b.id === branchId)?.name)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="h-10 px-3 rounded-xl border border-blue-200 bg-blue-50/70 hover:bg-blue-100/80 text-[#003B73] flex items-center gap-1.5 text-xs font-bold transition-all shadow-xs"
+                    title={`Открыть табло вызова зала (ТВ) для отделения ${branches.find(b => b.id === branchId)?.name || ''} в отдельной вкладке`}
+                  >
+                    <Tv className="w-4 h-4 text-[#003B73]" />
+                    <span>Табло зала (ТВ)</span>
+                  </a>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -590,7 +611,7 @@ export function OperatorWorkspace() {
                                 recordTicketOperator(ticket.id, fio, selected.number, branchId, selected.id);
                               }
                               if (selected) {
-                                broadcastTicketCallToTV(ticket.publicNumber, selected.number);
+                                broadcastTicketCallToTV(ticket.publicNumber, selected.number, false, branchId);
                               }
                             }
                           } catch (err) {
@@ -607,7 +628,7 @@ export function OperatorWorkspace() {
                                       recordTicketOperator(ticket.id, fio, selected.number, branchId, selected.id);
                                     }
                                     if (selected) {
-                                      broadcastTicketCallToTV(ticket.publicNumber, selected.number);
+                                      broadcastTicketCallToTV(ticket.publicNumber, selected.number, false, branchId);
                                     }
                                   }
                                   return;
@@ -622,7 +643,8 @@ export function OperatorWorkspace() {
                       }
                       onRepeatCall={() => {
                         if (current && selected) {
-                          broadcastTicketCallToTV(current.publicNumber, selected.number);
+                          broadcastTicketCallToTV(current.publicNumber, selected.number, true, branchId);
+                          setNotice(`Повторный вызов талона ${current.publicNumber} отправлен на табло зала`);
                         }
                       }}
                       onStartService={() => {

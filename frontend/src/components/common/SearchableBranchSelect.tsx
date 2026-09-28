@@ -170,7 +170,7 @@ export const SearchableBranchSelect: React.FC<SearchableBranchSelectProps> = ({
       {isOpen && !disabled && (
         <div
           role="listbox"
-          className="absolute left-0 top-full mt-1.5 w-full min-w-[280px] max-w-[420px] bg-white rounded-2xl border border-slate-200 shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-100"
+          className="absolute left-0 top-full mt-1.5 w-full min-w-[300px] max-w-[440px] bg-white rounded-2xl border border-slate-200 shadow-2xl overflow-hidden font-sans"
           style={{ zIndex: 100 }}
         >
           {/* Search Input Box */}

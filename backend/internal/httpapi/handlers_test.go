@@ -21,6 +21,7 @@ type FakeUseCases struct {
 	MarkNoShowFunc         func(context.Context, string) (domain.Ticket, error)
 	GetQueuePositionFunc   func(context.Context, string) (domain.QueuePosition, error)
 	ListBranchesFunc       func(ctx context.Context) ([]domain.Branch, error)
+	SubmitFeedbackFunc     func(ctx context.Context, ticketID string, rating int, comment string) error
 	ListBranchServicesFunc func(ctx context.Context, branchID string) ([]domain.Service, error)
 	ListBranchWindowsFunc  func(ctx context.Context, branchID string) ([]domain.Window, error)
 	CreateQRTicketFunc     func(ctx context.Context, cmd application.CreateQRTicketCommand) (application.CreateQRTicketResult, error)
@@ -101,6 +102,11 @@ func (f *FakeUseCases) GetQueuePosition(ctx context.Context, id string) (domain.
 
 func (f *FakeUseCases) ListBranches(ctx context.Context) ([]domain.Branch, error) {
 	return f.ListBranchesFunc(ctx)
+}
+
+func (f *FakeUseCases) SubmitFeedback(ctx context.Context, ticketID string, rating int, comment string) error {
+	if f.SubmitFeedbackFunc != nil { return f.SubmitFeedbackFunc(ctx, ticketID, rating, comment) }
+	return nil
 }
 
 func (f *FakeUseCases) ListBranchServices(ctx context.Context, branchID string) ([]domain.Service, error) {

@@ -417,6 +417,29 @@ paths:
           $ref: '#/components/responses/NotFound'
         '500':
           $ref: '#/components/responses/InternalError'
+  /tickets/{ticketId}/feedback:
+    post:
+      summary: Submit one rating for a completed ticket
+      description: The branch is derived from the ticket. A management token is required; cancelled and unserved tickets are rejected.
+      parameters:
+        - { name: ticketId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: X-Ticket-Manage-Token, in: header, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [rating]
+              properties:
+                rating: { type: integer, minimum: 1, maximum: 5 }
+                comment: { type: string, maxLength: 500 }
+      responses:
+        '204': { description: Feedback stored }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/InvalidState' }
   /branches/{branchId}/workload:
     get:
       summary: Get branch workload distribution and waiting count
@@ -1888,6 +1911,13 @@ components:
           type: string
         name:
           type: string
+        ratingAverage:
+          type: number
+          nullable: true
+          description: Average of real 1–5 feedback for completed service visits; null when no feedback exists.
+        ratingCount:
+          type: integer
+          minimum: 0
     ServiceListResponse:
       type: object
       required:
@@ -2043,6 +2073,7 @@ components:
         - queue
         - priorities
         - anomalies
+        - quality
       properties:
         branchId:
           type: string
@@ -2075,6 +2106,26 @@ components:
           type: array
           items:
             type: object
+        quality:
+          type: object
+          description: Branch-scoped feedback analytics. Current and previous periods are adjacent 30-day server-time intervals.
+          properties:
+            ratingAverage: { type: number, nullable: true }
+            ratingCount: { type: integer, minimum: 0 }
+            current30Average: { type: number, nullable: true }
+            current30Count: { type: integer, minimum: 0 }
+            previous30Average: { type: number, nullable: true }
+            previous30Count: { type: integer, minimum: 0 }
+            delta: { type: number, nullable: true, description: current30Average minus previous30Average; null unless both periods have ratings. }
+            distribution:
+              type: object
+              properties:
+                '1': { type: integer, minimum: 0 }
+                '2': { type: integer, minimum: 0 }
+                '3': { type: integer, minimum: 0 }
+                '4': { type: integer, minimum: 0 }
+                '5': { type: integer, minimum: 0 }
+            lowRatingCount: { type: integer, minimum: 0, description: Count of 1–2 star feedback. }
         windowRecommendation:
           type: object
           nullable: true

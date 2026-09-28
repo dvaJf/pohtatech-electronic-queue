@@ -64,7 +64,9 @@ function parseBranches(value: unknown): BranchListResponse {
   return {
     items: value.items.map((item) => {
       if (!isRecord(item)) throw new ClientApiError('Некорректное отделение');
-      return { latitude: typeof item.latitude === 'number' ? item.latitude : undefined, longitude: typeof item.longitude === 'number' ? item.longitude : undefined, isDemo: item.isDemo === true, id: requireString(item.id, 'id'), name: requireString(item.name, 'name'), address: typeof item.address === 'string' ? item.address : undefined, workHours: typeof item.workHours === 'string' ? item.workHours : undefined };
+      if (item.ratingAverage !== null && typeof item.ratingAverage !== 'number') throw new ClientApiError('Некорректный рейтинг отделения');
+      if (typeof item.ratingCount !== 'number' || item.ratingCount < 0) throw new ClientApiError('Некорректное число оценок');
+      return { latitude: typeof item.latitude === 'number' ? item.latitude : undefined, longitude: typeof item.longitude === 'number' ? item.longitude : undefined, isDemo: item.isDemo === true, id: requireString(item.id, 'id'), name: requireString(item.name, 'name'), address: typeof item.address === 'string' ? item.address : undefined, workHours: typeof item.workHours === 'string' ? item.workHours : undefined, ratingAverage: item.ratingAverage as number | null, ratingCount: item.ratingCount };
     }),
   };
 }
@@ -199,6 +201,10 @@ export async function createQrTicket(branchId: string, serviceId: string, idempo
 
 export async function getTicket(ticketId: string, signal?: AbortSignal): Promise<Ticket> {
   return request(`/tickets/${encodeURIComponent(ticketId)}`, { signal }, parseTicket);
+}
+
+export async function submitFeedback(ticketId: string, rating: number, comment: string, token?: string): Promise<void> {
+  await request(`/tickets/${encodeURIComponent(ticketId)}/feedback`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...managementHeaders(token) }, body: JSON.stringify({ rating, comment }) }, () => undefined);
 }
 
 function managementHeaders(token?: string): Record<string, string> { return token ? { 'X-Ticket-Manage-Token': token } : {}; }

@@ -58,6 +58,7 @@ func (a *API) RegisterRoutes(r chi.Router) {
 		r.Post("/appointments/{ticketId}/cancel", a.CancelAppointment)
 		r.Post("/appointments/{ticketId}/arrive", a.ArriveAppointment)
 		r.Get("/tickets/{ticketId}", a.GetTicket)
+		r.Post("/tickets/{ticketId}/feedback", a.SubmitFeedback)
 		r.Post("/tickets/{ticketId}/cancel", a.CancelTicket)
 		r.Get("/tickets/{ticketId}/position", a.GetQueuePosition)
 		r.Get("/tickets/{ticketId}/eta", a.GetTicketETA)
@@ -140,6 +141,8 @@ type BranchDTO struct {
 	Address        string   `json:"address"`
 	WorkHours      string   `json:"workHours"`
 	TimezoneOffset int      `json:"timezoneOffset"`
+	RatingAverage  *float64 `json:"ratingAverage"`
+	RatingCount    int      `json:"ratingCount"`
 }
 
 type ListServicesResponse struct {

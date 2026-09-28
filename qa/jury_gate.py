@@ -152,9 +152,29 @@ def main():
     winner = next(r[1] for r in results if r[0] == 200)
     loser = next(r[1] for r in results if r[0] == 409)
     assert winner['id'] == single_tkt['id']
-    assert loser['error']['code'] == 'NO_ELIGIBLE_TICKETS'
+    # JURY-01 leaves a future appointment. Before the winner commits the
+    # loser can see a locked ready ticket (NO_ELIGIBLE_TICKETS); after commit
+    # only the future appointment remains (NOT_ELIGIBLE_YET). Both are
+    # canonical no-assignment outcomes, unlike WINDOW_BUSY or other conflicts.
+    assert loser['error']['code'] in ('NO_ELIGIBLE_TICKETS', 'NOT_ELIGIBLE_YET'), loser
+    assert winner['status'] == 'CALLED'
+    assert winner['window']['id'] in (WINDOW1, WINDOW3)
+    persisted = api('GET', f'/tickets/{single_tkt["id"]}')[0]
+    assert persisted['status'] == 'CALLED'
+    assert persisted['window']['id'] == winner['window']['id']
+    current = [
+        request('GET', f'/api/v1/operator/windows/{wid}/current-ticket', token=op_token)
+        for wid in (WINDOW1, WINDOW3)
+    ]
+    owners = [value for status, value, _ in current
+              if status == 200 and value and value['id'] == single_tkt['id']]
+    assert len(owners) == 1, f'Expected exactly one active owner: {current}'
+    assignment_events = api('GET', f'/admin/tickets/{single_tkt["id"]}/events', token=admin_token)[0]['items']
+    called_events = [event for event in assignment_events if event['type'] == 'CALLED']
+    assert len(called_events) == 1, f'Duplicate CALLED assignment: {called_events}'
+    assert called_events[0]['windowId'] == winner['window']['id']
     finish_ticket(winner, op_token)
-    print(f"PASS: Concurrent CallNext atomic: 1 winner (HTTP 200), 1 loser (HTTP 409 NO_ELIGIBLE_TICKETS), zero double-assignment.")
+    print(f"PASS: Concurrent CallNext atomic: 1 winner (HTTP 200), 1 loser (HTTP 409 {loser['error']['code']}), one active owner and one CALLED event.")
 
     # -------------------------------------------------------------
     # JURY-05: Close Window with active client (Mandatory)

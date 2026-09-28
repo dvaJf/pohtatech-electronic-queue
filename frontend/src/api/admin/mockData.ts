@@ -41,6 +41,7 @@ export function updateMockQueuePolicy(
 export const DEMO_ADMIN_OVERVIEW: AdminBranchOverview = {
   branchId: '11111111-1111-1111-1111-111111111111',
   branchName: 'Демо-отделение №1 (ул. Ленина, д. 10)',
+  quality: { ratingAverage: null, ratingCount: 0, current30Average: null, current30Count: 0, previous30Average: null, previous30Count: 0, delta: null, distribution: { '1': 0, '2': 0, '3': 0, '4': 0, '5': 0 }, lowRatingCount: 0, recentFeedback: [] },
   metrics: {
     waitingClientsCount: 5,
     avgWaitTimeMinutes: 6.5,

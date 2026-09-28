@@ -176,19 +176,19 @@ export const SearchableBranchSelect: React.FC<SearchableBranchSelectProps> = ({
       {isOpen && !disabled && (
         <div
           role="listbox"
-          className={`absolute ${dropdownAlign === 'right' ? 'right-0' : 'left-0'} top-full mt-1.5 w-[420px] sm:w-[480px] max-w-[calc(100vw-1.5rem)] bg-white rounded-2xl border border-slate-200 shadow-2xl overflow-hidden font-sans`}
+          className={`absolute ${dropdownAlign === 'right' ? 'right-0' : 'left-0'} top-full mt-1.5 w-full min-w-[300px] max-w-[360px] bg-white rounded-2xl border border-slate-200 shadow-2xl overflow-hidden font-sans`}
           style={{ zIndex: 100 }}
         >
           {/* Search Input Box */}
           <div className="p-2 border-b border-slate-100 bg-slate-50/80">
             <div
-              className="flex items-center gap-2 px-2.5 py-1.5 bg-white rounded-xl border border-slate-200 focus-within:border-[#003B73] focus-within:ring-2 focus-within:ring-[#003B73]/20 transition-all"
+              className="flex items-center gap-1.5 px-2 py-1.5 bg-white rounded-xl border border-slate-200 focus-within:border-[#003B73] focus-within:ring-2 focus-within:ring-[#003B73]/20 transition-all"
               style={{ display: 'flex', alignItems: 'center' }}
             >
               <Search
                 className="w-3.5 h-3.5 text-slate-400 shrink-0"
                 aria-hidden="true"
-                style={{ minWidth: '14px', width: '14px', height: '14px' }}
+                style={{ minWidth: '13px', width: '13px', height: '13px' }}
               />
               <input
                 ref={inputRef}
@@ -196,7 +196,7 @@ export const SearchableBranchSelect: React.FC<SearchableBranchSelectProps> = ({
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
                 placeholder="Поиск отделения по названию, адресу или индексу..."
-                className="w-full bg-transparent text-xs text-slate-800 placeholder:text-slate-400 outline-none"
+                className="w-full bg-transparent text-[11px] text-slate-800 placeholder:text-slate-400 placeholder:text-[10px] outline-none"
                 style={{
                   border: 'none',
                   outline: 'none',
@@ -205,6 +205,7 @@ export const SearchableBranchSelect: React.FC<SearchableBranchSelectProps> = ({
                   margin: 0,
                   height: '24px',
                   lineHeight: '24px',
+                  fontSize: '11px',
                   background: 'transparent',
                 }}
                 aria-label="Поиск отделения"

@@ -522,7 +522,7 @@ function AssignBranchModal({
         </div>
 
         {/* Modal Body */}
-        <div className="p-5 space-y-3 flex-1 overflow-hidden flex flex-col">
+        <div className="p-5 space-y-3 overflow-hidden flex flex-col">
           {/* Search Box */}
           <div
             className="flex items-center gap-2 px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 focus-within:bg-white focus-within:border-[#003B73] focus-within:ring-2 focus-within:ring-[#003B73]/20 transition-all"
@@ -566,12 +566,12 @@ function AssignBranchModal({
 
           {/* List of branches (strictly 5 items visible, rest scrollable) */}
           <div
-            style={{ maxHeight: '240px', overflowY: 'auto', overscrollBehavior: 'contain' }}
-            className="modal-scrollable-content border border-slate-100 rounded-2xl overflow-y-auto divide-y divide-slate-100 scrollbar-thin flex-1 overscroll-contain"
+            style={{ maxHeight: '270px', overflowY: 'auto', overscrollBehavior: 'contain' }}
+            className="modal-scrollable-content border border-slate-100 rounded-2xl overflow-y-auto divide-y divide-slate-100 scrollbar-thin overscroll-contain"
           >
             {filteredBranches.length === 0 ? (
-              <div className="p-8 text-center text-xs text-slate-400">
-                <Search className="w-6 h-6 mx-auto mb-1.5 text-slate-300" />
+              <div className="py-6 px-4 text-center text-xs text-slate-400">
+                <Search className="w-5 h-5 mx-auto mb-1 text-slate-300" />
                 <span>Отделения не найдены</span>
               </div>
             ) : (

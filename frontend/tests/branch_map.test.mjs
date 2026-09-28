@@ -336,3 +336,22 @@ test(`offline zoom (${control}) cancels a pending older Geo center request befor
   assert.equal(left, expectedLeft, 'late GPS marker projects against the original center at the manually selected zoom');
 });
 }
+
+test('BranchMapModal shows Yandex Maps rating with recognizable YandexIcon to the left of website star rating', async () => {
+  const modal = await readFile(new URL('../src/features/client/map/BranchMapModal.tsx', import.meta.url), 'utf8');
+  const yandexIconFile = await readFile(new URL('../src/components/common/YandexIcon.tsx', import.meta.url), 'utf8');
+
+  // YandexIcon SVG uses official Yandex red #FC3F1D
+  assert.match(yandexIconFile, /#FC3F1D/);
+  assert.match(yandexIconFile, /aria-label="Яндекс Карты"/);
+
+  // BranchMapModal imports and renders YandexIcon
+  assert.match(modal, /import\s*\{\s*YandexIcon\s*\}\s*from/);
+  assert.match(modal, /yandexRating/);
+  assert.match(modal, /<YandexIcon/);
+
+  // Checks that Yandex rating is placed before the website star rating in the branch card footer
+  const branchCardPattern = /YandexIcon[\s\S]*?yRating\.toFixed\(2\)[\s\S]*?<Star[\s\S]*?branch\.rating/;
+  assert.match(modal, branchCardPattern, 'Yandex rating with YandexIcon must appear to the left of the site star rating');
+});
+

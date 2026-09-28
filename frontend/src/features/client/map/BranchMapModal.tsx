@@ -28,6 +28,7 @@ import { useModalFocus } from '../../../hooks/useModalFocus';
 import type { BranchWorkload } from '../../../api/client/clientApi';
 import { Branch } from '../../../api/client/types';
 import { PochtaEmblem } from '../../../components/common/PochtaBrand';
+import { YandexIcon } from '../../../components/common/YandexIcon';
 import { getLandmarkPresentation } from '../branchOptions';
 import {
   MOSCOW_BRANCHES,
@@ -46,6 +47,7 @@ export interface MapBranch extends Branch {
   metroColor?: string;
   landmarkType?: 'metro' | 'landmark';
   rating: number | null;
+  yandexRating?: number | null;
   reviewsCount?: number;
   liveWaitMinutes: number | null;
   waitingCount: number | null;
@@ -144,6 +146,7 @@ export function convertLocationToMapBranch(loc: BranchLocation): MapBranch {
     metroColor: loc.metroColor,
     landmarkType: loc.landmarkType,
     rating: loc.rating > 0 ? loc.rating : null,
+    yandexRating: loc.rating > 0 ? loc.rating : null,
     reviewsCount: loc.reviewCount,
     liveWaitMinutes: waitMin,
     waitingCount: loc.activeQueueCount,
@@ -319,9 +322,12 @@ export function BranchMapModal({
     const loc = matchBranchLocation(b, MOSCOW_BRANCHES);
     if (!loc) return [];
     const workload = workloads[b.id];
+    const yRating = loc.rating > 0 ? loc.rating : null;
     return [{ ...convertLocationToMapBranch(loc), ...b, id: b.id,
       address: b.address || loc.address, workHours: b.workHours || loc.workHours,
-      rating: b.ratingAverage, reviewsCount: b.ratingCount,
+      rating: b.ratingAverage,
+      yandexRating: yRating,
+      reviewsCount: b.ratingCount,
       liveWaitMinutes: liveWaitMinutes(workload) ?? null,
       waitingCount: workload?.currentWaiting ?? null }];
   }), [incomingBranches, workloads]);
@@ -558,9 +564,10 @@ export function BranchMapModal({
       const isSelected = selectedBranchIdRef.current === b.id;
       const isRecommended = recommendedBranchIdRef.current === b.id && !isSelected;
       const waitInfo = getWaitBadgeInfo(b.liveWaitMinutes);
-      const hasRating = b.rating !== null && Number.isFinite(b.rating) && b.rating > 0;
+      const displayRating = b.yandexRating ?? (b.rating !== null && Number.isFinite(b.rating) && b.rating > 0 ? b.rating : null);
+      const hasRating = displayRating !== null && Number.isFinite(displayRating) && displayRating > 0;
       const hasWait = b.liveWaitMinutes !== null && Number.isFinite(b.liveWaitMinutes);
-      const ratingText = hasRating ? b.rating!.toFixed(2) : '—';
+      const ratingText = hasRating ? displayRating!.toFixed(2) : '—';
 
       let border = '2px solid #FFFFFF';
       let boxShadow = '0 4px 14px rgba(5,47,133,0.35)';
@@ -940,7 +947,7 @@ export function BranchMapModal({
                         </div>
                       </div>
 
-                      {/* Метро и рейтинг (★ 4.92) */}
+                      {/* Метро и рейтинг */}
                       <div className="mt-2.5 flex items-center justify-between text-[11px] text-slate-500 pt-2 border-t border-slate-100">
                         <div className="flex items-center gap-1.5 truncate" data-landmark-type={landmark?.isMetro ? 'metro' : 'landmark'}>
                           {landmark?.isMetro ? (
@@ -950,9 +957,31 @@ export function BranchMapModal({
                           )}
                           <span className="truncate">{landmark?.label || 'Рядом с остановкой'}</span>
                         </div>
-                        <div className="flex items-center gap-1 font-bold text-amber-500 shrink-0">
-                          <Star size={12} className="fill-amber-400 text-amber-400" />
-                          <span>{(branch.rating === null ? '—' : branch.rating.toFixed(2))}</span>
+                        <div className="flex items-center gap-2 font-bold shrink-0">
+                          {/* Рейтинг Яндекс Карт (слева от звездочки отзывов с сайта) */}
+                          {(() => {
+                            const yRating = branch.yandexRating ?? (branch.rawLocation?.rating && branch.rawLocation.rating > 0 ? branch.rawLocation.rating : null);
+                            if (yRating === null || yRating === undefined) return null;
+                            return (
+                              <div
+                                className="flex items-center gap-1 text-slate-700"
+                                title={`Рейтинг Яндекс Карт: ${yRating.toFixed(2)}`}
+                                aria-label={`Рейтинг Яндекс Карт: ${yRating.toFixed(2)}`}
+                              >
+                                <YandexIcon size={12} className="shrink-0" />
+                                <span>{yRating.toFixed(2)}</span>
+                              </div>
+                            );
+                          })()}
+                          {/* Отзывы с сайта */}
+                          <div
+                            className="flex items-center gap-1 text-amber-500 shrink-0"
+                            title={branch.rating !== null ? `Оценка на сайте: ${branch.rating.toFixed(1)} (${branch.ratingCount ?? 0} оценок)` : 'Отзывы с сайта: нет оценок'}
+                            aria-label={`Оценка на сайте: ${branch.rating !== null ? branch.rating.toFixed(1) : 'нет оценок'}`}
+                          >
+                            <Star size={12} className="fill-amber-400 text-amber-400" />
+                            <span>{(branch.rating === null ? '—' : branch.rating.toFixed(2))}</span>
+                          </div>
                         </div>
                       </div>
                         </div>
@@ -1200,8 +1229,21 @@ export function BranchMapModal({
                         <div className="min-w-0 flex-1">
                           <div className="text-xs font-bold text-[#031E56] break-words">{b.name}</div>
                           <div className="text-[11px] text-slate-500 mt-0.5 break-words">{b.address}</div>
-                          <div className="flex items-center gap-2 mt-1 text-[10px] text-slate-400">
-                            <span>★ {(b.rating === null ? '—' : b.rating.toFixed(2))}</span>
+                          <div className="flex items-center gap-2 mt-1 text-[10px] text-slate-500 font-semibold">
+                            {(() => {
+                              const yRating = b.yandexRating ?? (b.rawLocation?.rating && b.rawLocation.rating > 0 ? b.rawLocation.rating : null);
+                              if (yRating === null || yRating === undefined) return null;
+                              return (
+                                <span className="inline-flex items-center gap-1 text-slate-700 font-bold" title="Рейтинг Яндекс Карт">
+                                  <YandexIcon size={11} className="shrink-0" />
+                                  <span>{yRating.toFixed(2)}</span>
+                                </span>
+                              );
+                            })()}
+                            <span className="inline-flex items-center gap-0.5 text-amber-500 font-bold" title="Оценка на сайте">
+                              <Star size={10} className="fill-amber-400 text-amber-400 shrink-0" />
+                              <span>{(b.rating === null ? '—' : b.rating.toFixed(2))}</span>
+                            </span>
                             <span>•</span>
                             <span className="inline-flex min-w-0 items-center gap-1" data-landmark-type={landmark?.isMetro ? 'metro' : 'landmark'}>
                               {landmark?.isMetro ? (

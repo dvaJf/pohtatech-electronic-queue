@@ -28,9 +28,13 @@ export async function mountGeofencing(geolocation, permission = 'prompt') {
   const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
   const originalWindow = globalThis.window;
   globalThis.window = {};
-  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { geolocation, permissions: {
-    query: typeof permission === 'function' ? permission : async () => ({ state: permission }),
-  } } });
+  const navigatorValue = { geolocation };
+  if (permission !== 'unavailable') {
+    navigatorValue.permissions = {
+      query: typeof permission === 'function' ? permission : async () => ({ state: permission }),
+    };
+  }
+  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: navigatorValue });
   globalThis.__geofenceHooks = hooks;
   const moduleUrl = async path => {
     const source = await readFile(new URL(path, import.meta.url), 'utf8');

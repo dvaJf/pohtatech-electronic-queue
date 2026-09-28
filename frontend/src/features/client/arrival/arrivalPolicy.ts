@@ -5,6 +5,11 @@ export interface NearbyVisitState {
   activeBranchId: string | null;
 }
 
+/** Never offer a second ticket until the current owner's ticket state is authoritative. */
+export function canShowNearbyBranchCard(ticketsLoading: boolean, hasActiveTicket: boolean): boolean {
+  return !ticketsLoading && !hasActiveTicket;
+}
+
 /** A dismissal belongs to one branch visit and expires only after a measured exit. */
 export function updateNearbyVisits(
   previous: NearbyVisitState,

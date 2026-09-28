@@ -4,7 +4,7 @@ import test from 'node:test';
 import ts from 'typescript';
 import { mountGeofencing } from './geofencingHarness.mjs';
 
-test('explicit geo requests share one watcher, publish walking fixes, and clean up on simulation and unmount', async () => {
+test('initial prompt request starts one shared watcher, publishes walking fixes, and cleans up on simulation and unmount', async () => {
   let watchers = 0;
   let lookups = 0;
   let walkingFix;
@@ -18,12 +18,13 @@ test('explicit geo requests share one watcher, publish walking fixes, and clean 
   try {
     let state = hook.render();
     await new Promise(resolve => setImmediate(resolve));
-    assert.equal(watchers, 0, 'prompt permission waits for user action');
+    assert.equal(watchers, 1, 'prompt permission starts the browser geolocation request automatically');
+    assert.equal(lookups, 1, 'the initial position is requested without a Geo-button click');
     state.requestGpsPermission({ centerMap: true });
     state.requestGpsPermission();
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(watchers, 1, 'one authoritative watcher is required');
-    assert.equal(lookups, 1);
+    assert.equal(lookups, 1, 'rerenders and explicit actions reuse the fresh shared fix');
     state = hook.render();
     assert.equal(state.isInsideGeofence, false);
     assert.equal(state.locationCenterRequest, 1);
@@ -42,6 +43,45 @@ test('explicit geo requests share one watcher, publish walking fixes, and clean 
     assert.equal(watchers, 2);
   } finally { hook.unmount(); }
   assert.deepEqual(cleared, [1, 2]);
+});
+
+test('automatic GPS lookup does not depend on the Permissions API', async () => {
+  let lookups = 0;
+  let watchers = 0;
+  const geo = {
+    getCurrentPosition(success) {
+      lookups++;
+      success({ coords: { latitude: 55.7, longitude: 37.6, accuracy: 5 }, timestamp: Date.now() });
+    },
+    watchPosition() { return ++watchers; },
+    clearWatch() {},
+  };
+  const hook = await mountGeofencing(geo, 'unavailable');
+  try {
+    hook.render();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(lookups, 1, 'a normal geolocation lookup is still attempted');
+    assert.equal(watchers, 1, 'the shared watcher starts after the initial lookup');
+    assert.equal(hook.render().hasReliableGpsFix, true);
+  } finally { hook.unmount(); }
+});
+
+test('denied permission never starts a retry loop on rerender', async () => {
+  let lookups = 0;
+  const geo = {
+    getCurrentPosition() { lookups++; },
+    watchPosition() { throw new Error('watch must not start after denial'); },
+    clearWatch() {},
+  };
+  const hook = await mountGeofencing(geo, 'denied');
+  try {
+    hook.render();
+    await new Promise(resolve => setImmediate(resolve));
+    hook.render();
+    hook.render();
+    assert.equal(lookups, 0);
+    assert.equal(hook.render().gpsPermissionStatus, 'denied');
+  } finally { hook.unmount(); }
 });
 
 test('granted permission restores one watcher and permission denial clears it', async () => {
@@ -125,8 +165,9 @@ test('a delayed cached lookup cannot overwrite a newer walking fix or publish af
   try {
     hook.render().requestGpsPermission();
     const now = Date.now();
-    walkingFix({ coords: { latitude: 55.7, longitude: 37.6, accuracy: 5 }, timestamp: now });
     lookupFix({ coords: { latitude: 55.71, longitude: 37.6, accuracy: 5 }, timestamp: now - 1000 });
+    await new Promise(resolve => setImmediate(resolve));
+    walkingFix({ coords: { latitude: 55.7, longitude: 37.6, accuracy: 5 }, timestamp: now });
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(hook.render().currentCoordinates.lat, 55.7, 'newer position remains authoritative');
     hook.render().setSimulationMode('home_1500m'); hook.render();

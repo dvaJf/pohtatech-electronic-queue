@@ -114,6 +114,7 @@ export function useGeofencing(options: UseGeofencingOptions = {}): UseGeofencing
   const lifecycleRef = useRef({ active: true, generation: 0 });
   const pendingExplicitRef = useRef(false);
   const newestMeasurementRef = useRef(-1);
+  const latestPositionRef = useRef<GeoCoordinates | null>(null);
   const [locationCenterRequest, setLocationCenterRequest] = useState(0);
   const stopTracking = useCallback(() => {
     lifecycleRef.current.generation++;
@@ -146,6 +147,8 @@ export function useGeofencing(options: UseGeofencingOptions = {}): UseGeofencing
       return;
     }
 
+    const latest = latestPositionRef.current;
+    if (latest && isReliableArrival(0, latest.accuracy, 0, latest.measuredAt ?? 0)) return;
     if (requestInFlightRef.current) return;
     setGpsError(null);
     setGpsPermissionStatus('locating');
@@ -156,8 +159,10 @@ export function useGeofencing(options: UseGeofencingOptions = {}): UseGeofencing
     const publishPosition = (pos: GeolocationPosition) => {
       if (!isActive() || !isUsableGeoPosition(pos) || pos.timestamp < newestMeasurementRef.current) return;
       newestMeasurementRef.current = pos.timestamp;
-      setCurrentCoordinates({ lat: pos.coords.latitude, lng: pos.coords.longitude,
-        accuracy: pos.coords.accuracy, measuredAt: pos.timestamp });
+      const coordinates = { lat: pos.coords.latitude, lng: pos.coords.longitude,
+        accuracy: pos.coords.accuracy, measuredAt: pos.timestamp };
+      latestPositionRef.current = coordinates;
+      setCurrentCoordinates(coordinates);
       setHasRealGpsFix(true);
       setGpsPermissionStatus('granted');
       setGpsError(null);
@@ -169,16 +174,20 @@ export function useGeofencing(options: UseGeofencingOptions = {}): UseGeofencing
       setGpsPermissionStatus(err.code === 1 ? 'denied' : 'unavailable');
       setGpsError(err.code === 1 ? 'Доступ к геолокации отклонен' : `GPS недоступен (${err.message})`);
     };
-    if (!watchRef.current) {
+    const startWatching = () => {
+      if (!isActive() || watchRef.current) return;
       const geolocation = navigator.geolocation;
       const id = geolocation.watchPosition(publishPosition, failPosition, {
         enableHighAccuracy: true, maximumAge: 5000, timeout: 15000,
       });
       watchRef.current = { geolocation, id };
-    }
+    };
     const request = getCurrentPositionFast(navigator.geolocation);
     requestInFlightRef.current = request;
-    request.then(publishPosition).catch(failPosition).finally(() => {
+    request.then(position => {
+      publishPosition(position);
+      startWatching();
+    }).catch(failPosition).finally(() => {
         if (requestInFlightRef.current === request) requestInFlightRef.current = null;
       });
   }, [stopTracking]);
@@ -197,6 +206,7 @@ export function useGeofencing(options: UseGeofencingOptions = {}): UseGeofencing
       setHasRealGpsFix(true);
       setGpsError(null);
     } else if (mode === 'real_gps') {
+      latestPositionRef.current = null;
       setHasRealGpsFix(false);
     }
   }, [stopTracking]);
@@ -206,8 +216,9 @@ export function useGeofencing(options: UseGeofencingOptions = {}): UseGeofencing
     return () => { lifecycleRef.current.active = false; stopTracking(); };
   }, [stopTracking]);
 
-  // Reuse an already granted permission on mount. When permission is still in
-  // the prompt state, the browser request starts only from the user's click.
+  // Start one browser-owned location session on mount. The native prompt is
+  // intentionally allowed here: a granted permission needs no extra click,
+  // and browsers without Permissions API still receive a normal lookup.
   useEffect(() => {
     let active = true;
     if (simulationMode === 'real_gps') {
@@ -224,9 +235,15 @@ export function useGeofencing(options: UseGeofencingOptions = {}): UseGeofencing
               if (!isCurrentQuery()) return;
               if (watchRef.current) return;
               setGpsPermissionStatus(permission.state === 'denied' ? 'denied' : 'prompt');
-              if (permission.state === 'granted') requestGpsPermission();
+              if (permission.state !== 'denied') requestGpsPermission();
             })
-            .catch(() => { if (isCurrentQuery()) setGpsPermissionStatus('prompt'); });
+            .catch(() => {
+              if (!isCurrentQuery()) return;
+              setGpsPermissionStatus('prompt');
+              requestGpsPermission();
+            });
+        } else {
+          requestGpsPermission();
         }
       } else {
         setGpsPermissionStatus('unavailable');

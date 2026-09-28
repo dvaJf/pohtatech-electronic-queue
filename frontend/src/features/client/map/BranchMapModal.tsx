@@ -288,7 +288,7 @@ export function BranchMapModal({
   const [ymapsError, setYmapsError] = useState<string | null>(null);
 
   // Мобильный bottom sheet: 'collapsed' | 'half' | 'expanded'
-  const [bottomSheetState, setBottomSheetState] = useState<'collapsed' | 'half' | 'expanded'>('half');
+  const [bottomSheetState, setBottomSheetState] = useState<'collapsed' | 'half' | 'expanded'>('collapsed');
   const touchStartYRef = useRef<number | null>(null);
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
@@ -381,7 +381,7 @@ export function BranchMapModal({
       setSelectedFilter(initialFilter);
       setSearchQuery('');
       setSelectedBranchId(null);
-      setBottomSheetState('half');
+      setBottomSheetState('collapsed');
       hasAutoCenteredRef.current = Boolean(targetBranchId);
       const target = allBranchesRef.current.find(branch => branch.id === targetBranchId);
       setFallbackCenter(target?.coordinates ?? userLocationRef.current ?? [55.7618, 37.6385]);
@@ -775,33 +775,17 @@ export function BranchMapModal({
 
       <div className="relative w-full h-full md:max-w-6xl md:h-[90vh] bg-[#F8FAFC] md:rounded-3xl border border-[#E2E8F0] shadow-2xl flex flex-col overflow-hidden">
         {/* === ШАПКА МОДАЛЬНОГО ОКНА === */}
-        <header className="flex items-center justify-between px-4 md:px-6 py-3.5 bg-white border-b border-[#E2E8F0] shrink-0 z-30">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-[#052F85] flex items-center justify-center text-white shadow-md shadow-[#052F85]/20">
-              <MapPin size={22} className="text-white" />
+        <header className="flex items-center justify-between px-4 md:px-5 py-2.5 pt-[max(0.625rem,env(safe-area-inset-top))] bg-white border-b border-[#E2E8F0] shrink-0 z-30">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="hidden md:flex w-9 h-9 rounded-xl bg-[#052F85] items-center justify-center text-white">
+              <MapPin size={19} className="text-white" />
             </div>
-            <div>
-              <h2 id="branch-map-title" className="text-base md:text-lg font-extrabold text-[#031E56] leading-tight">
-                Отделения Почты России
-              </h2>
-              <div className="flex items-center gap-2 text-xs text-slate-500 font-medium">
-                <span>{filteredBranches.length} отделений на карте</span>
-                <span>•</span>
-                <span className="text-emerald-600 font-semibold flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                  Мониторинг очередей онлайн
-                </span>
-              </div>
-            </div>
+            <h2 id="branch-map-title" className="text-base md:text-lg font-extrabold text-[#031E56] leading-tight">
+              Карта отделений
+            </h2>
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Режим: только Яндекс.Карты */}
-            <div className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-blue-50 border border-blue-200/80 text-[#052F85]">
-              <MapPin size={13} className="text-[#052F85]" />
-              <span>Яндекс.Карты</span>
-            </div>
-
             {/* Кнопка закрытия */}
             <button
               type="button"
@@ -813,9 +797,11 @@ export function BranchMapModal({
             </button>
           </div>
         </header>
-      <div role="status" className="shrink-0 bg-white text-xs text-slate-600 px-4 py-2 border-b border-slate-200">
-        {locationError || (incomingBranches.length > allBranches.length ? 'Часть отделений доступна только в списке: координаты ещё не подтверждены.' : 'Ожидание — приблизительная оценка по текущей очереди. Дорога рассчитана по расстоянию, без учёта препятствий.')}
-      </div>
+        {locationError && (
+          <div role="alert" className="shrink-0 bg-amber-50 text-xs text-amber-900 px-4 py-2 border-b border-amber-200">
+            {locationError}
+          </div>
+        )}
 
         {/* === СПЛИТ-ЛЕЙАУТ ===
             Desktop (md:flex): 35% левый сайдбар со скроллируемым списком и фильтрами; 65% контейнер карты.
@@ -1085,6 +1071,7 @@ export function BranchMapModal({
                 <DetailedBranchCard
                   branch={selectedBranch}
                   compact
+                  informationalOnly
                   userLocation={userLocation}
                   onClose={clearBranchSelection}
                   onTakeTicket={() => handleTakeTicket(selectedBranch)}
@@ -1101,10 +1088,10 @@ export function BranchMapModal({
               data-testid="mobile-branch-bottom-sheet"
               className={`md:hidden absolute bottom-0 inset-x-0 bg-white rounded-t-3xl shadow-2xl border-t border-[#E2E8F0] transition-all duration-300 z-30 flex flex-col ${
                 bottomSheetState === 'collapsed'
-                  ? 'h-24'
+                  ? 'h-20'
                   : bottomSheetState === 'half'
-                  ? 'h-[52vh]'
-                  : 'h-[85vh]'
+                  ? 'h-[48dvh] landscape:h-[42dvh]'
+                  : 'h-[78dvh] landscape:h-[62dvh]'
               }`}
             >
               {/* Полоса свайпа (Drag Handle) */}
@@ -1123,13 +1110,12 @@ export function BranchMapModal({
               >
                 <div className="w-12 h-1.5 rounded-full bg-slate-300 mb-1" />
                 <div className="flex items-center gap-2 text-[11px] font-bold text-slate-500">
-                  <span>{filteredBranches.length} отделений на карте</span>
+                  <span>Отделения</span>
                   {bottomSheetState === 'collapsed' ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                 </div>
               </button>
 
-              {/* Мобильные фильтр-чипы */}
-              <div className="px-3 py-2 bg-slate-50 border-b border-[#E2E8F0] flex items-center gap-1.5 overflow-x-auto scrollbar-none">
+              {bottomSheetState === 'expanded' && <><div className="px-3 py-2 bg-slate-50 border-b border-[#E2E8F0] flex items-center gap-1.5 overflow-x-auto scrollbar-none">
                 <FilterChip
                   active={selectedFilter === 'all'}
                   onClick={() => setSelectedFilter('all')}
@@ -1155,10 +1141,10 @@ export function BranchMapModal({
                   onClick={() => setSelectedFilter('accessible')}
                   label="Доступная среда"
                 />
-              </div>
+              </div></>}
 
               {/* Мобильное поле поиска */}
-              <div className="px-3 pt-2 pb-1 bg-white">
+              {bottomSheetState !== 'collapsed' && <div className="px-3 pt-2 pb-1 bg-white">
                 <div className="relative">
                   <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={15} />
                   <input
@@ -1181,10 +1167,10 @@ export function BranchMapModal({
                     </button>
                   )}
                 </div>
-              </div>
+              </div>}
 
               {/* Содержимое Bottom Sheet: детальная карточка выбранного отделения или список */}
-              <div className="flex-1 overflow-y-auto p-3 space-y-3">
+              {bottomSheetState !== 'collapsed' && <div className="flex-1 overflow-y-auto p-3 space-y-3">
                 {selectedBranch ? (
                   <DetailedBranchCard
                     branch={selectedBranch}
@@ -1235,7 +1221,7 @@ export function BranchMapModal({
                     );})}
                   </div>
                 )}
-              </div>
+              </div>}
             </div>
           </main>
         </div>
@@ -1284,6 +1270,7 @@ export function DetailedBranchCard({
   onBookAppointment,
   onClose,
   compact = false,
+  informationalOnly = false,
   userLocation,
 }: {
   branch: MapBranch;
@@ -1291,6 +1278,7 @@ export function DetailedBranchCard({
   onBookAppointment: () => void;
   onClose?: () => void;
   compact?: boolean;
+  informationalOnly?: boolean;
   userLocation?: [number, number] | null;
 }) {
   const [imgError, setImgError] = useState(false);
@@ -1331,15 +1319,14 @@ export function DetailedBranchCard({
         <div className="absolute inset-0 bg-gradient-to-b from-black/55 via-transparent to-black/30 pointer-events-none" />
 
         {(branch.rating !== null || branch.liveWaitMinutes !== null) && (
-          <div className={`branch-photo-badges absolute top-3 left-3 ${onClose ? 'right-12' : 'right-3'} z-20`}>
+          <div className={`branch-photo-badges absolute top-3 left-3 ${onClose ? 'right-16' : 'right-3'} z-20`}>
             {branch.rating !== null && (
-              <a href={yandexBranchSearchUrl(branch.name, branch.address)} target="_blank" rel="noreferrer"
-                title="Открыть актуальную карточку отделения в Яндекс Картах"
-                className="branch-rating-badge px-2.5 py-1 rounded-full bg-slate-900/75 backdrop-blur-md text-white text-[11px] font-bold border border-white/15 hover:bg-slate-900">
+              <div
+                aria-label={`Рейтинг отделения: ${branch.rating.toFixed(2)}`}
+                className="branch-rating-badge px-2.5 py-1 rounded-full bg-slate-900/75 backdrop-blur-md text-white text-[11px] font-bold border border-white/15">
                 <Star size={12} className="fill-amber-400 text-amber-400 shrink-0" />
                 <span>{branch.rating.toFixed(2)}</span>
-                <span className="branch-rating-source text-white/75">Яндекс Карты ↗</span>
-              </a>
+              </div>
             )}
             {branch.liveWaitMinutes !== null && (
               <div className={`branch-queue-badge px-2.5 py-1 rounded-full text-white text-[11px] font-bold shadow-md ${wait.colorClass}`}>
@@ -1405,7 +1392,7 @@ export function DetailedBranchCard({
         </div>
 
         {/* Удобства и доступная среда (Amenities badges) */}
-        <div>
+        {!compact && <div>
           <div className="text-[10px] uppercase font-extrabold tracking-wider text-slate-400 mb-1.5">
             Услуги и доступность
           </div>
@@ -1441,7 +1428,7 @@ export function DetailedBranchCard({
               </span>
             )}
           </div>
-        </div>
+        </div>}
 
         {/* Кнопка прокладки пешего маршрута в Яндекс.Картах */}
         <a
@@ -1455,11 +1442,11 @@ export function DetailedBranchCard({
           className="w-full py-2 px-3 rounded-2xl bg-blue-50/70 hover:bg-blue-100/70 border border-blue-200/70 text-[#052F85] text-xs font-bold transition-all flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer"
         >
           <Navigation size={13} />
-          <span>Проложить маршрут в Яндекс.Картах</span>
+          <span>{compact ? 'Маршрут' : 'Проложить маршрут в Яндекс.Картах'}</span>
         </a>
 
         {/* Кнопки действий: «Взять талон» / «Записаться» */}
-        <div className="grid grid-cols-2 gap-2 pt-1">
+        {!informationalOnly && <div className="grid grid-cols-2 gap-2 pt-1">
           <button
             type="button"
             onClick={onTakeTicket}
@@ -1476,10 +1463,10 @@ export function DetailedBranchCard({
             <Clock size={14} />
             <span>Записаться</span>
           </button>
-        </div>
+        </div>}
 
         {/* Ссылка на сворачивание карточки */}
-        {onClose && (
+        {onClose && !informationalOnly && (
           <div className="pt-1 text-center">
             <button
               type="button"

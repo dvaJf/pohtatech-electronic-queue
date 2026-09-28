@@ -34,3 +34,4 @@ backups/
 *.sql.gz
 *.exe
 scratch/
+frontend/tmp/test-output/

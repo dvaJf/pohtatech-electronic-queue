@@ -11,12 +11,13 @@ import { BranchWorkloadCard } from './BranchWorkloadCard';
 import { Appointment24hPicker } from './Appointment24hPicker';
 import { useGeofencing, GeofenceSimulationMode, calculateHaversineDistanceMeters, DEFAULT_GEOFENCE_THRESHOLD_METERS } from './arrival';
 import { NearbyBranchCard } from './arrival/NearbyBranchCard';
+import { RouteOfferModal } from './RouteOfferModal';
 import { BranchMapModal } from './map/BranchMapModal';
 import { calculateBranchTotalTime, isUsableDurationMinutes, MAX_QUEUE_WAIT_MINUTES, MAX_ROUTE_TRAVEL_MINUTES, MOSCOW_BRANCHES, BranchLocation, RankedBranch } from './map/branchLocations';
 
 import { calculatePersonalRouting, recommendationActions, matchBranchLocation, liveWaitMinutes } from './map/liveBranches';
 import { useBranchWorkloads } from './map/useBranchWorkloads';
-import { updateNearbyVisits, dismissNearbyVisit, type NearbyVisitState } from './arrival/arrivalPolicy';
+import { canShowNearbyBranchCard, updateNearbyVisits, dismissNearbyVisit, type NearbyVisitState } from './arrival/arrivalPolicy';
 import { VisitRatingSheet } from './rating/VisitRatingSheet';
 import { shouldOfferVisitRating } from './rating/visitRatingPolicy';
 import { BRANCH_PAGE_SIZES, BranchPage, BranchPageSize, getLandmarkPresentation, paginateBranches } from './branchOptions';
@@ -1390,41 +1391,22 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
 
     return (
       <div className="max-w-5xl xl:max-w-6xl mx-auto space-y-3.5 sm:space-y-5 pb-6">
-        {/* Light, contextual hero header (non-competing with recommendation) */}
-        <div className="px-1 py-1">
-          <div className="flex items-start gap-2.5 sm:gap-3 min-w-0">
-            <PochtaEmblem className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg drop-shadow-2xs shrink-0" bg="#003B73" fg="#FFFFFF" />
-            <div className="min-w-0">
-              <h1 className="text-base sm:text-xl font-black text-[#031E56] tracking-tight leading-tight">
-                Цифровая очередь
-              </h1>
-              <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3 mt-0.5">
-                <p className="text-xs text-slate-500 leading-relaxed mb-0">
-                  Получите талон без ожидания в общей очереди
-                </p>
-                <div className="inline-flex items-center gap-1.5 text-[11px] font-medium text-slate-500 shrink-0">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                  <span>Онлайн</span>
-                  {branches.length > 0 && <span>· Отделений: {branches.length}</span>}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+        {/* Accessible screen-reader heading (visual title is already present in header) */}
+        <h1 className="sr-only">Цифровая очередь</h1>
 
         {error && <ErrorBanner message={error} onClose={() => setError(null)} />}
         {notice && <NoticeBanner message={notice} onClose={() => setNotice(null)} />}
 
         {/* Состояние поиска геолокации (Skeleton) */}
-        {gpsPermissionStatus === 'locating' && (
+        {!hasReliableGpsFix && gpsPermissionStatus !== 'denied' && gpsPermissionStatus !== 'unavailable' && (
           <div className="rounded-2xl border border-blue-200/80 bg-blue-50/70 p-3.5 sm:p-4 animate-pulse flex items-center justify-between gap-3 shadow-2xs">
             <div className="flex items-center gap-3 min-w-0">
               <div className="w-8 h-8 rounded-xl bg-blue-200 flex items-center justify-center text-blue-700 shrink-0">
                 <Loader2 size={16} className="animate-spin" />
               </div>
               <div className="min-w-0">
-                <div className="h-3.5 bg-blue-200 rounded w-28 mb-1.5" />
-                <div className="h-3 bg-blue-100 rounded w-44" />
+                <p className="text-sm font-bold text-blue-900">Определяем ваше местоположение…</p>
+                <p className="text-xs text-blue-700 mt-0.5">Подберём ближайшее отделение после GPS fix.</p>
               </div>
             </div>
             <span className="text-[11px] font-mono font-bold text-blue-700 shrink-0 bg-blue-100/80 px-2.5 py-1 rounded-full border border-blue-200">
@@ -1514,7 +1496,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
               </div>
               <div className="min-w-0">
                 <p className="text-xs sm:text-sm font-bold text-slate-800">
-                  Геолокация отключена
+                  Включите геолокацию, чтобы подобрать ближайшее отделение
                 </p>
                 <p className="text-[11px] sm:text-xs text-slate-500 mt-0.5">
                   Показаны отделения Москвы. Выберите ближайшее на карте или включите геопозицию.
@@ -1542,79 +1524,15 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
           </div>
         )}
 
-        {/* Modal / Dialog for route offer when user selects recommended branch */}
         {routeOfferBranch && (
-          <div
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-in fade-in"
-            role="dialog"
-            aria-modal="true"
-          >
-            <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl p-5 sm:p-6 w-full max-w-md space-y-4">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <h3 className="text-base font-extrabold text-[#031E56]">{routeOfferBranch.name}</h3>
-                  <p className="text-xs text-slate-500 mt-0.5">{routeOfferBranch.address}</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setRouteOfferBranch(null)}
-                  className="p-1 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 cursor-pointer"
-                  aria-label="Закрыть"
-                >
-                  <X size={18} />
-                </button>
-              </div>
-
-              <div className="text-xs font-semibold text-emerald-800 bg-emerald-50 px-3 py-2 rounded-xl border border-emerald-200/80">
-                <div>Суммарно ~{Math.round(routeOfferBranch.totalMinutes)} мин: {Math.round(routeOfferBranch.travelMinutes)} мин дорога + {Math.round(routeOfferBranch.waitMinutes)} мин очередь</div>
-                {(rec?.fastestBranch.id === routeOfferBranch.id) && rec.timeSavedMinutes > 0 && (
-                  <div className="mt-1">Экономия ~{rec.timeSavedMinutes} мин относительно ближайшего</div>
-                )}
-              </div>
-
-              <div className="space-y-2 pt-2">
-                <a
-                  href={
-                    hasRealGpsFix && currentCoordinates?.lat && currentCoordinates?.lng
-                      ? `https://yandex.ru/maps/?rtext=${currentCoordinates.lat},${currentCoordinates.lng}~${routeOfferBranch.lat},${routeOfferBranch.lng}&rtt=pd`
-                      : `https://yandex.ru/maps/?rtext=~${routeOfferBranch.lat},${routeOfferBranch.lng}&rtt=pd`
-                  }
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={() => setRouteOfferBranch(null)}
-                  className="w-full py-2.5 px-4 rounded-xl bg-[#003B73] hover:bg-[#002D5A] text-white text-xs font-bold flex items-center justify-center gap-2 shadow-sm transition-colors cursor-pointer"
-                >
-                  <Navigation size={14} />
-                  <span>Проложить пеший маршрут в Яндекс.Картах</span>
-                </a>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setRouteOfferBranch(null);
-                    handleRepeatTicket(routeOfferBranch.id);
-                  }}
-                  className="w-full py-2.5 px-4 rounded-xl border border-[#003B73] text-[#003B73] hover:bg-blue-50 text-xs font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer"
-                >
-                  <TicketIcon size={14} />
-                  <span>Взять талон в это отделение</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    const targetBranchId = routeOfferBranch.id;
-                    setRouteOfferBranch(null);
-                    handleOpenMap('all', targetBranchId);
-                  }}
-                  className="w-full py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer"
-                >
-                  <MapPin size={13} />
-                  <span>Посмотреть на карте</span>
-                </button>
-              </div>
-            </div>
-          </div>
+          <RouteOfferModal
+            branch={routeOfferBranch}
+            origin={hasRealGpsFix ? currentCoordinates : undefined}
+            timeSavedMinutes={rec?.fastestBranch.id === routeOfferBranch.id ? rec.timeSavedMinutes : 0}
+            onClose={() => setRouteOfferBranch(null)}
+            onTakeTicket={handleRepeatTicket}
+            onOpenMap={(id) => handleOpenMap('all', id)}
+          />
         )}
 
         {/* 4 Action Cards - Mobile-First Layout & Prominent Hierarchy */}
@@ -2356,8 +2274,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
         />
       )}
 
-      {!kiosk && nearbyBranch && !hasActiveTicketForBranch && !isMapModalOpen &&
-        !(ticketsLoading && getSavedTicketIds(ownerScope).length > 0) && (
+      {!kiosk && nearbyBranch && canShowNearbyBranchCard(ticketsLoading, hasActiveTicketForBranch) && (
         <NearbyBranchCard
           branch={nearbyBranch}
           distanceMeters={nearbyDistanceMeters}

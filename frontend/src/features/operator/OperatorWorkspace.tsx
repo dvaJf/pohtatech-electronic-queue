@@ -426,7 +426,8 @@ export function OperatorWorkspace() {
                     setCurrent(null);
                     setBranchId(newBranchId);
                   }}
-                  className="min-w-[240px]"
+                  className="min-w-[260px] sm:min-w-[300px]"
+                  dropdownAlign="left"
                 />
               </div>
             </div>

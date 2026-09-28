@@ -178,6 +178,7 @@ export const AdminWorkspace: React.FC = () => {
                 onSelect={setSelectedBranchId}
                 compact
                 className="min-w-[240px]"
+                dropdownAlign="right"
               />
             </div>
           )}

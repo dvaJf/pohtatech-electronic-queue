@@ -5,9 +5,10 @@ import test from 'node:test';
 test('SearchableBranchSelect provides search by name and disabled locked state', async () => {
   const content = await readFile(new URL('../src/components/common/SearchableBranchSelect.tsx', import.meta.url), 'utf8');
 
-  // Verify search input by branch name
-  assert.match(content, /Поиск отделения по названию/);
+  // Verify search input by branch name, address, or postal index
+  assert.match(content, /Поиск отделения по названию, адресу или индексу/);
   assert.match(content, /filteredBranches/);
+  assert.match(content, /postalCode|index|code/);
   assert.match(content, /searchQuery/);
 
   // Verify disabled locked state
@@ -18,13 +19,20 @@ test('SearchableBranchSelect provides search by name and disabled locked state',
   // Verify height constrained to ~5 items with scrollbar
   assert.match(content, /maxHeight:\s*['"]230px['"]/);
   assert.match(content, /overflowY:\s*['"]auto['"]/);
+  assert.match(content, /overscrollBehavior:\s*['"]contain['"]/);
 });
 
-test('UsersManagement supports assigning postal branches with searchable select', async () => {
+test('UsersManagement supports assigning postal branches with searchable select and locked body scroll', async () => {
   const content = await readFile(new URL('../src/features/admin/UsersManagement.tsx', import.meta.url), 'utf8');
 
   // Table header has Postal Branch column
   assert.match(content, /Почтовое отделение/);
+
+  // Search input placeholder includes name, address, or index
+  assert.match(content, /Поиск отделения по названию, адресу или индексу/);
+
+  // Body scroll is locked when modal is open
+  assert.match(content, /document\.body\.style\.overflow\s*=\s*['"]hidden['"]/);
 
   // Uses SearchableBranchSelect
   assert.match(content, /SearchableBranchSelect/);

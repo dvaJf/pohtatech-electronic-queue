@@ -437,13 +437,39 @@ function AssignBranchModal({
     return () => clearTimeout(timer);
   }, []);
 
+  // Prevent background page scrolling when modal is open
+  useEffect(() => {
+    const originalBodyOverflow = document.body.style.overflow;
+    const originalHtmlOverflow = document.documentElement.style.overflow;
+    document.body.style.overflow = 'hidden';
+    document.documentElement.style.overflow = 'hidden';
+
+    const preventBackdropScroll = (e: TouchEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target?.closest('.modal-scrollable-content')) {
+        e.preventDefault();
+      }
+    };
+    document.addEventListener('touchmove', preventBackdropScroll, { passive: false });
+
+    return () => {
+      document.body.style.overflow = originalBodyOverflow;
+      document.documentElement.style.overflow = originalHtmlOverflow;
+      document.removeEventListener('touchmove', preventBackdropScroll);
+    };
+  }, []);
+
   const filteredBranches = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return branches;
     return branches.filter(b => {
+      const anyB = b as { address?: string; code?: string; postalCode?: string; index?: string };
       const nameMatch = b.name.toLowerCase().includes(q);
-      const addressMatch = (b as { address?: string }).address?.toLowerCase().includes(q);
-      return nameMatch || addressMatch;
+      const addressMatch = anyB.address?.toLowerCase().includes(q);
+      const codeMatch = anyB.code?.toLowerCase().includes(q);
+      const postalCodeMatch = anyB.postalCode?.toLowerCase().includes(q);
+      const indexMatch = anyB.index?.toLowerCase().includes(q);
+      return Boolean(nameMatch || addressMatch || codeMatch || postalCodeMatch || indexMatch);
     });
   }, [branches, searchQuery]);
 
@@ -459,9 +485,14 @@ function AssignBranchModal({
     <div
       role="dialog"
       aria-modal="true"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4 animate-in fade-in duration-150 font-sans"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4 animate-in fade-in duration-150 font-sans overscroll-contain"
       onClick={e => {
         if (e.target === e.currentTarget) onClose();
+      }}
+      onWheel={e => {
+        if (e.target === e.currentTarget) {
+          e.preventDefault();
+        }
       }}
     >
       <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
@@ -503,7 +534,7 @@ function AssignBranchModal({
               type="text"
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              placeholder="Поиск отделения по названию или адресу..."
+              placeholder="Поиск отделения по названию, адресу или индексу..."
               className="w-full bg-transparent text-xs text-slate-800 placeholder:text-slate-400 outline-none"
               style={{
                 border: 'none',
@@ -535,8 +566,8 @@ function AssignBranchModal({
 
           {/* List of branches (strictly 5 items visible, rest scrollable) */}
           <div
-            style={{ maxHeight: '240px', overflowY: 'auto' }}
-            className="border border-slate-100 rounded-2xl overflow-y-auto divide-y divide-slate-100 scrollbar-thin flex-1"
+            style={{ maxHeight: '240px', overflowY: 'auto', overscrollBehavior: 'contain' }}
+            className="modal-scrollable-content border border-slate-100 rounded-2xl overflow-y-auto divide-y divide-slate-100 scrollbar-thin flex-1 overscroll-contain"
           >
             {filteredBranches.length === 0 ? (
               <div className="p-8 text-center text-xs text-slate-400">
@@ -546,6 +577,9 @@ function AssignBranchModal({
             ) : (
               filteredBranches.map((branch: Branch) => {
                 const isSelected = branch.id === selectedId;
+                const anyB = branch as { address?: string; code?: string; postalCode?: string; index?: string };
+                const extraInfo = [anyB.code || anyB.postalCode || anyB.index, anyB.address].filter(Boolean).join(' · ');
+
                 return (
                   <div
                     key={branch.id}
@@ -560,9 +594,9 @@ function AssignBranchModal({
                       <span className={`truncate font-medium text-xs ${isSelected ? 'font-bold text-[#003B73]' : 'text-slate-900'}`}>
                         {branch.name}
                       </span>
-                      {(branch as { address?: string }).address && (
+                      {extraInfo && (
                         <span className="text-[11px] text-slate-400 truncate mt-0.5">
-                          {(branch as { address?: string }).address}
+                          {extraInfo}
                         </span>
                       )}
                     </div>

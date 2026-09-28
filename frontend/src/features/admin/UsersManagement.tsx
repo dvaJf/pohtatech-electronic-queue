@@ -77,21 +77,39 @@ export function UsersManagement() {
   }, [chief, loadUsers]);
 
   const handleBranchChange = async (user: User, branchId: string) => {
-    setUserBranches(prev => ({ ...prev, [user.id]: branchId }));
-    if (user.id) localStorage.setItem(`operator_branch:${user.id}`, branchId);
-    if (user.email) localStorage.setItem(`operator_branch:${user.email}`, branchId);
+    setUserBranches(prev => {
+      const next = { ...prev };
+      if (!branchId) {
+        delete next[user.id];
+      } else {
+        next[user.id] = branchId;
+      }
+      return next;
+    });
+    if (user.id) {
+      if (!branchId) localStorage.removeItem(`operator_branch:${user.id}`);
+      else localStorage.setItem(`operator_branch:${user.id}`, branchId);
+    }
+    if (user.email) {
+      if (!branchId) localStorage.removeItem(`operator_branch:${user.email}`);
+      else localStorage.setItem(`operator_branch:${user.email}`, branchId);
+    }
     window.dispatchEvent(
       new CustomEvent('operator_branch_updated', {
-        detail: { userId: user.id, email: user.email, branchId },
+        detail: { userId: user.id, email: user.email, branchId: branchId || '' },
       })
     );
     try {
-      await changeUserBranch(user.id, branchId);
+      await changeUserBranch(user.id, branchId || '');
     } catch {}
     setSavedBranchUserId(user.id);
     setTimeout(() => setSavedBranchUserId(null), 2500);
-    const branchName = branches.find(b => b.id === branchId)?.name || 'Выбранное отделение';
-    setNotice(`Почтовое отделение для ${user.email} установлено: ${branchName}`);
+    if (!branchId) {
+      setNotice(`Привязка к отделению для ${user.email} снята`);
+    } else {
+      const branchName = branches.find(b => b.id === branchId)?.name || 'Выбранное отделение';
+      setNotice(`Почтовое отделение для ${user.email} установлено: ${branchName}`);
+    }
   };
 
   if (!chief) return null;

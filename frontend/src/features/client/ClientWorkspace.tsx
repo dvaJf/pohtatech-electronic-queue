@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as api from '../../api/client/clientApi';
+import type { BranchWorkload } from '../../api/client/clientApi';
 import { getMe } from '../../api/authApi';
 import { Appointment, Branch, Service, Ticket, TicketStatus, TicketSource, QueuePosition, TicketETA, NotificationCapabilities, NotificationChannel, NotificationSubscription } from '../../api/client/types';
-import { CalendarClock, Ticket as TicketIcon, ListChecks, ChevronLeft, ChevronRight, MapPin, Clock, Check, Sparkles, Building2, AlertCircle, CheckCircle2, Navigation, X, Search, Zap, Star, Loader2, MapPinOff, Bell, Mail } from 'lucide-react';
+import { CalendarClock, Ticket as TicketIcon, ListChecks, ChevronLeft, ChevronRight, MapPin, Clock, Check, Sparkles, Building2, AlertCircle, CheckCircle2, Navigation, X, Search, Zap, Star, Loader2, MapPinOff, Bell, Mail, Calendar, ChevronDown } from 'lucide-react';
 import './client.css';
 import './kiosk.css';
 import { formatMoscowDate, formatMoscowDateTime, formatMoscowTime, parseMoscowDatetimeLocal, toMoscowDatetimeLocal } from '../../utils/time';
@@ -23,6 +24,8 @@ import { shouldOfferVisitRating } from './rating/visitRatingPolicy';
 import { BRANCH_PAGE_SIZES, BranchPage, BranchPageSize, getLandmarkPresentation, paginateBranches } from './branchOptions';
 import { saveClientServiceRecord, resolveOperatorName } from './serviceHistory';
 import { YandexIcon } from '../../components/common/YandexIcon';
+import { getBranchScheduleStatus } from './map/branchSchedule';
+import { WeeklyScheduleView } from './map/WeeklyScheduleView';
 
 // calculateSmartRouting is the product-level routing policy represented by smartRouting below.
 
@@ -312,6 +315,7 @@ interface BranchCardProps {
   location?: BranchLocation;
   ratingAverage?: number | null;
   ratingCount?: number;
+  workload?: BranchWorkload;
 }
 
 interface RecommendationListBranch {
@@ -378,20 +382,30 @@ function BranchCard({
   timeSavedMinutes,
   location,
   ratingAverage, ratingCount,
+  workload,
 }: BranchCardProps) {
   const [photoFailed, setPhotoFailed] = useState(false);
+  const [showWeeklySchedule, setShowWeeklySchedule] = useState(false);
   const photoUrl = location?.photos?.[0];
   const landmark = getLandmarkPresentation(location);
   const distText = typeof distanceMeters === 'number'
     ? (distanceMeters < 1000 ? `${distanceMeters} м` : `${(distanceMeters / 1000).toFixed(1)} км`)
     : null;
 
+  const scheduleStatus = getBranchScheduleStatus(
+    { code: location?.code, name: branch.name, workHours: branch.workHours },
+    workload
+  );
+  const isClosed = scheduleStatus.isClosed;
+
   return (
     <button
       type="button"
       className={`cx-choice active:scale-[0.99] transition-all relative overflow-hidden ${
         selected ? ' cx-choice-selected' : ''
-      } ${isFastest ? 'ring-2 ring-emerald-500/60 bg-emerald-50/20' : ''}`}
+      } ${isFastest && !isClosed ? 'ring-2 ring-emerald-500/60 bg-emerald-50/20' : ''} ${
+        isClosed ? 'bg-slate-50/70 border-slate-200 opacity-90' : ''
+      }`}
       aria-pressed={selected}
       onClick={onSelect}
     >
@@ -403,29 +417,38 @@ function BranchCard({
             loading="lazy"
             decoding="async"
             onError={() => setPhotoFailed(true)}
-            className="w-20 h-16 sm:w-24 sm:h-20 rounded-xl object-cover shrink-0 bg-slate-100"
+            className={`w-20 h-16 sm:w-24 sm:h-20 rounded-xl object-cover shrink-0 bg-slate-100 ${isClosed ? 'grayscale' : ''}`}
           />
         )}
         <div className="min-w-0 flex-1">
       {/* Бейджи статуса: Рекомендуем (минимальное общее время) или Ближайшее */}
       <div className="flex flex-wrap items-center gap-1.5 mb-1.5 w-full">
-        {isFastest && (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-xs">
-            <Zap size={11} className="fill-emerald-600 text-emerald-600" />
-            <span>Рекомендуем: быстрее всего</span>
-            {typeof totalMinutes === 'number' && <span className="opacity-80">· ~{totalMinutes} мин</span>}
+        {isClosed ? (
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-slate-200 text-slate-700">
+            <Clock size={11} className="text-slate-500" />
+            <span>Закрыто</span>
           </span>
-        )}
-        {isFastest && typeof timeSavedMinutes === 'number' && timeSavedMinutes > 0 && (
-          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
-            Экономия ~{timeSavedMinutes} мин vs ближайшего
-          </span>
-        )}
-        {isClosest && !isFastest && (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200">
-            <Navigation size={10} />
-            <span>Ближайшее к вам</span>
-          </span>
+        ) : (
+          <>
+            {isFastest && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-xs">
+                <Zap size={11} className="fill-emerald-600 text-emerald-600" />
+                <span>Рекомендуем: быстрее всего</span>
+                {typeof totalMinutes === 'number' && <span className="opacity-80">· ~{totalMinutes} мин</span>}
+              </span>
+            )}
+            {isFastest && typeof timeSavedMinutes === 'number' && timeSavedMinutes > 0 && (
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                Экономия ~{timeSavedMinutes} мин vs ближайшего
+              </span>
+            )}
+            {isClosest && !isFastest && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200">
+                <Navigation size={10} />
+                <span>Ближайшее к вам</span>
+              </span>
+            )}
+          </>
         )}
         {location?.rating && location.rating > 0 ? (
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-800" title="Рейтинг Яндекс Карт">
@@ -445,6 +468,13 @@ function BranchCard({
         <div className="flex-1 min-w-0">
           <span className="cx-choice-title text-sm sm:text-base font-extrabold">{branch.name}</span>
 
+          {isClosed && (
+            <div className="my-1.5 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-rose-50 border border-rose-200 text-xs font-bold text-rose-700">
+              <Clock size={12} className="shrink-0 text-rose-500" />
+              <span>Отделение закрыто {scheduleStatus.closedUntilText}</span>
+            </div>
+          )}
+
           {/* Расстояние, время в пути и общее расчетное время T = T_travel + T_wait */}
           {(distText || typeof totalMinutes === 'number') && (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-600 my-1 font-medium">
@@ -454,12 +484,12 @@ function BranchCard({
                   <span>{distText} ({travelMinutes ?? Math.round((distanceMeters! / 1000) * 12)} мин пешком)</span>
                 </span>
               )}
-              {typeof waitMinutes === 'number' && (
+              {typeof waitMinutes === 'number' && !isClosed && (
                 <span className="text-slate-500">
                   Очередь: ~<strong>{waitMinutes} мин</strong>
                 </span>
               )}
-              {typeof totalMinutes === 'number' && (
+              {typeof totalMinutes === 'number' && !isClosed && (
                 <span className="text-slate-700 font-semibold">
                   Дорога + очередь: <strong>~{totalMinutes} мин</strong>
                 </span>
@@ -491,6 +521,37 @@ function BranchCard({
               <span>{branch.workHours}</span>
             </span>
           ) : null}
+
+          {/* Кнопка просмотра официального расписания на всю неделю */}
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowWeeklySchedule(prev => !prev);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                e.stopPropagation();
+                setShowWeeklySchedule(prev => !prev);
+              }
+            }}
+            className="mt-2 pt-2 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-[#052F85] hover:text-[#031E56] cursor-pointer"
+          >
+            <span className="inline-flex items-center gap-1.5 hover:underline">
+              <Calendar size={13} />
+              <span>{showWeeklySchedule ? 'Скрыть расписание на неделю' : 'Расписание на всю неделю'}</span>
+              <ChevronDown size={13} className={`transition-transform duration-200 ${showWeeklySchedule ? 'rotate-180' : ''}`} />
+            </span>
+            <span className="text-[10px] text-slate-400 font-medium">Яндекс Карты</span>
+          </div>
+
+          {showWeeklySchedule && (
+            <div className="mt-2.5 w-full cursor-default" onClick={(e) => e.stopPropagation()}>
+              <WeeklyScheduleView schedule={scheduleStatus.weeklySchedule} />
+            </div>
+          )}
         </div>
         <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 border-2 transition-all mt-0.5 ${selected ? 'bg-[#003B73] border-[#003B73] text-white' : 'border-slate-300 bg-white'}`}>
           {selected && <Check size={12} strokeWidth={3} />}
@@ -1050,10 +1111,13 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
         waitMinutes: waitMin, totalMinutes: totalMin, metro: loc?.metro };
     });
 
-    const sortedByDist = list.filter(b => b.distanceMeters !== undefined).sort((a, b) => a.distanceMeters! - b.distanceMeters!);
+    const openBranches = list.filter(b => !getBranchScheduleStatus({ code: b.loc?.code, name: b.name, workHours: b.workHours }, workloads[b.id]).isClosed);
+    const eligibleBranches = openBranches.length > 0 ? openBranches : list;
+
+    const sortedByDist = eligibleBranches.filter(b => b.distanceMeters !== undefined).sort((a, b) => a.distanceMeters! - b.distanceMeters!);
     const closest = sortedByDist[0] || null;
 
-    const sortedByTotal = list.filter(b => b.totalMinutes !== undefined).sort((a, b) => a.totalMinutes! - b.totalMinutes!);
+    const sortedByTotal = eligibleBranches.filter(b => b.totalMinutes !== undefined).sort((a, b) => a.totalMinutes! - b.totalMinutes!);
     const fastest = sortedByTotal[0] || null;
 
     const saved =
@@ -1069,7 +1133,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
     };
   }, [branches, currentCoordinates, workloads, hasReliableGpsFix, simulationMode]);
 
-  // Фильтрация по поиску и применение сортировки
+  // Фильтрация по поиску и применение сортировки: открытые сверху, закрытые снизу
   const displayBranches = useMemo(() => {
     let result = enrichedBranches;
     const q = branchSearchQuery.trim().toLowerCase();
@@ -1083,12 +1147,20 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
       );
     }
 
-    if (screen !== 'booking' && branchSortMode === 'fastest') {
-      return [...result].sort((a, b) => (a.totalMinutes ?? Infinity) - (b.totalMinutes ?? Infinity));
-    } else {
-      return [...result].sort((a, b) => (a.distanceMeters ?? Infinity) - (b.distanceMeters ?? Infinity));
-    }
-  }, [enrichedBranches, branchSearchQuery, branchSortMode, screen]);
+    const isFastestMode = screen !== 'booking' && branchSortMode === 'fastest';
+    return [...result].sort((a, b) => {
+      const aClosed = getBranchScheduleStatus({ code: a.loc?.code, name: a.name, workHours: a.workHours }, workloads[a.id]).isClosed;
+      const bClosed = getBranchScheduleStatus({ code: b.loc?.code, name: b.name, workHours: b.workHours }, workloads[b.id]).isClosed;
+      if (aClosed && !bClosed) return 1;
+      if (!aClosed && bClosed) return -1;
+
+      if (isFastestMode) {
+        return (a.totalMinutes ?? Infinity) - (b.totalMinutes ?? Infinity);
+      } else {
+        return (a.distanceMeters ?? Infinity) - (b.distanceMeters ?? Infinity);
+      }
+    });
+  }, [enrichedBranches, branchSearchQuery, branchSortMode, screen, workloads]);
 
   const branchPageData = useMemo(
     () => paginateBranches(displayBranches, branchPage, branchPageSize),
@@ -1914,6 +1986,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                     timeSavedMinutes={timeSavedMinutes}
                     location={b.loc}
                     ratingAverage={b.ratingAverage} ratingCount={b.ratingCount}
+                    workload={workloads[b.id]}
                   />
                 ))
               )}
@@ -2156,6 +2229,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                     timeSavedMinutes={timeSavedMinutes}
                     location={b.loc}
                     ratingAverage={b.ratingAverage} ratingCount={b.ratingCount}
+                    workload={workloads[b.id]}
                   />
                 ))
               )}

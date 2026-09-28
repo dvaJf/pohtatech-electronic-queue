@@ -76,8 +76,9 @@ test('BranchMapModal turns closed branch map pins gray and unclickable', async (
   // Closed pin styling is gray
   assert.match(modalSource, /pinBg\s*=\s*isClosed\s*\?\s*'#64748B'/);
 
-  // Closed pin is unclickable (pointer-events: none, filter: grayscale(1))
-  assert.match(modalSource, /pointer-events:none;cursor:default;filter:grayscale\(1\);/);
+  // Compact marker by default and hover expansion card
+  assert.match(modalSource, /pvz-closed-compact/);
+  assert.match(modalSource, /pvz-closed-card/);
 
   // Yandex Maps placemark interaction blocked
   assert.match(modalSource, /interactive:\s*!isClosed/);

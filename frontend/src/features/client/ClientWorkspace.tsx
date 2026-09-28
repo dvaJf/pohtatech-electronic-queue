@@ -459,14 +459,6 @@ function BranchCard({
                 </span>
               ) : <span className="text-[10px] font-semibold text-slate-500">Нет оценок</span>}
             </div>
-
-            {/* Правый верхний угол: бейдж "Отделение закрыто до ..." */}
-            {isClosed && (
-              <span className="shrink-0 inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-50 border border-rose-200 text-rose-700 ml-auto shadow-2xs">
-                <Clock size={11} className="text-rose-500 shrink-0" />
-                <span>Отделение закрыто {scheduleStatus.closedUntilText}</span>
-              </span>
-            )}
           </div>
 
           <div className="flex items-start justify-between gap-2 w-full">
@@ -520,28 +512,40 @@ function BranchCard({
                 </span>
               ) : null}
 
-              {/* Кнопка просмотра официального расписания на всю неделю */}
+              {/* Кнопка просмотра официального расписания на всю неделю и статус закрытия в правом нижнем углу */}
               <div
-                role="button"
-                tabIndex={0}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setShowWeeklySchedule(prev => !prev);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
+                className="mt-2 pt-2 border-t border-slate-100 flex items-center justify-between gap-2 flex-wrap text-xs"
+              >
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={(e) => {
                     e.stopPropagation();
                     setShowWeeklySchedule(prev => !prev);
-                  }
-                }}
-                className="mt-2 pt-2 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-[#052F85] hover:text-[#031E56] cursor-pointer"
-              >
-                <span className="inline-flex items-center gap-1.5 hover:underline">
-                  <Calendar size={13} />
-                  <span>{showWeeklySchedule ? 'Скрыть расписание на неделю' : 'Расписание на всю неделю'}</span>
-                  <ChevronDown size={13} className={`transition-transform duration-200 ${showWeeklySchedule ? 'rotate-180' : ''}`} />
-                </span>
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setShowWeeklySchedule(prev => !prev);
+                    }
+                  }}
+                  className="font-bold text-[#052F85] hover:text-[#031E56] cursor-pointer"
+                >
+                  <span className="inline-flex items-center gap-1.5 hover:underline">
+                    <Calendar size={13} />
+                    <span>{showWeeklySchedule ? 'Скрыть расписание на неделю' : 'Расписание на всю неделю'}</span>
+                    <ChevronDown size={13} className={`transition-transform duration-200 ${showWeeklySchedule ? 'rotate-180' : ''}`} />
+                  </span>
+                </div>
+
+                {/* Правый нижний угол: статус закрытия */}
+                {isClosed && (
+                  <span className="shrink-0 inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-50 border border-rose-200 text-rose-700 shadow-2xs ml-auto">
+                    <Clock size={11} className="text-rose-500 shrink-0" />
+                    <span>Отделение закрыто {scheduleStatus.closedUntilText}</span>
+                  </span>
+                )}
               </div>
 
               {showWeeklySchedule && (

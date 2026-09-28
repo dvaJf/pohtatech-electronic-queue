@@ -955,3 +955,21 @@ html:not(.a11y-contrast) .main-product-header .cx-header-btn[aria-pressed="true"
   white-space: nowrap !important;
   line-height: 1.2 !important;
 }
+
+/* Закрытые отделения на карте: компактная плашка по умолчанию, карточка при наведении */
+.pvz-pin-marker.pvz-closed-pin .pvz-closed-card {
+  display: none !important;
+}
+
+.pvz-pin-marker.pvz-closed-pin:hover .pvz-closed-compact,
+.pvz-pin-marker.pvz-closed-pin:hover .pvz-closed-compact-tail {
+  display: none !important;
+}
+
+.pvz-pin-marker.pvz-closed-pin:hover .pvz-closed-card {
+  display: flex !important;
+}
+
+.pvz-pin-marker.pvz-closed-pin:hover {
+  z-index: 9999 !important;
+}

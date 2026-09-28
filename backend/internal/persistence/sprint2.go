@@ -117,6 +117,9 @@ func (p *Postgres) CreateAppointment(ctx context.Context, cmd application.Create
 	}); err != nil {
 		return empty, err
 	}
+	if err = p.enqueueAppointmentNotificationsTx(ctx, tx, t.ID, cmd.ScheduledAt, cmd.NotificationEmail, cmd.NotificationPhone); err != nil {
+		return empty, err
+	}
 	if err = tx.Commit(ctx); err != nil {
 		return empty, dbError(err)
 	}

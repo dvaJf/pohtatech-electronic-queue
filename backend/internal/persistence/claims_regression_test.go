@@ -341,8 +341,8 @@ func TestClaim4_OutboxAtomicLeasingAndMessageIdentity(t *testing.T) {
 	for i := 1; i <= 5; i++ {
 		tkt := create(t, ctx, p, parcels, fmt.Sprintf("outbox-lease-%d", i))
 		execSQL(t, ctx, p, `
-			INSERT INTO notification_outbox (ticket_id, branch_id, event_type, payload, status, next_attempt_at, created_at)
-			VALUES ($1::uuid, $2::uuid, 'TICKET_CALLED', '{}'::jsonb, 'PENDING', $3, $3)
+			INSERT INTO notification_outbox (ticket_id, branch_id, event_type, payload, status, next_attempt_at, created_at, available_at)
+			VALUES ($1::uuid, $2::uuid, 'TICKET_CALLED', '{}'::jsonb, 'PENDING', $3, $3, $3)
 		`, tkt.ID, demoBranch, now.Add(-1*time.Minute))
 	}
 

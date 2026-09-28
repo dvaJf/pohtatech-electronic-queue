@@ -29,6 +29,7 @@ func NewAPI(usecases application.UseCases) *API {
 }
 
 func (a *API) RegisterRoutes(r chi.Router) {
+	r.Post("/integrations/telegram/webhook", a.TelegramWebhook)
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Use(a.loadSession)
 
@@ -60,6 +61,11 @@ func (a *API) RegisterRoutes(r chi.Router) {
 		r.Post("/tickets/{ticketId}/cancel", a.CancelTicket)
 		r.Get("/tickets/{ticketId}/position", a.GetQueuePosition)
 		r.Get("/tickets/{ticketId}/eta", a.GetTicketETA)
+		r.Get("/notification-capabilities", a.NotificationCapabilities)
+		r.Get("/tickets/{ticketId}/notifications", a.Notifications)
+		r.Post("/tickets/{ticketId}/notifications/telegram/link", a.TelegramLink)
+		r.Put("/tickets/{ticketId}/notifications/{channel}", a.PutNotificationSubscription)
+		r.Delete("/tickets/{ticketId}/notifications/{channel}/{subscriptionId}", a.DeleteNotificationSubscription)
 		r.Get("/branches/{branchId}/tv", a.GetTVQueue)
 		r.Get("/branches/{branchId}/workload", a.GetBranchWorkload)
 		r.With(requireRole(domain.RoleOPCChief)).Post("/branches/{branchId}/windows", a.CreateWindow)

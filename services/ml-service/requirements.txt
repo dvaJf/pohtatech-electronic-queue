@@ -1,0 +1,6 @@
+fastapi==0.115.6
+uvicorn==0.34.0
+scikit-learn==1.6.1
+joblib==1.4.2
+numpy==2.2.2
+psycopg[binary]==3.2.3

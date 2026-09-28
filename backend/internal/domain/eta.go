@@ -17,6 +17,7 @@ type TicketETA struct {
 	P90WaitSeconds       *int
 	Distribution         *ETADistribution
 	CalculatedAt         time.Time
+	Source               string
 }
 
 type ETADistribution struct {

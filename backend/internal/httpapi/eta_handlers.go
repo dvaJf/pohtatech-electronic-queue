@@ -6,20 +6,21 @@ import (
 )
 
 type TicketETADTO struct {
-	TicketID             string        `json:"ticketId"`
-	TicketStatus         string        `json:"ticketStatus"`
-	Reason               string        `json:"reason"`
-	EstimatedWaitSeconds *int          `json:"estimatedWaitSeconds"`
-	EstimatedCallAt      *time.Time    `json:"estimatedCallAt"`
-	Position             *int          `json:"position"`
-	ReferenceWindow      *WindowRefDTO `json:"referenceWindow"`
-	SampleSize           int           `json:"sampleSize"`
-	UsedFallback         bool          `json:"usedFallback"`
-	WeightedWaitSeconds  *int          `json:"weightedWaitSeconds,omitempty"`
-	MedianSeconds        *int          `json:"medianSeconds,omitempty"`
-	P90WaitSeconds       *int          `json:"p90WaitSeconds,omitempty"`
+	TicketID             string              `json:"ticketId"`
+	TicketStatus         string              `json:"ticketStatus"`
+	Reason               string              `json:"reason"`
+	EstimatedWaitSeconds *int                `json:"estimatedWaitSeconds"`
+	EstimatedCallAt      *time.Time          `json:"estimatedCallAt"`
+	Position             *int                `json:"position"`
+	ReferenceWindow      *WindowRefDTO       `json:"referenceWindow"`
+	SampleSize           int                 `json:"sampleSize"`
+	UsedFallback         bool                `json:"usedFallback"`
+	WeightedWaitSeconds  *int                `json:"weightedWaitSeconds,omitempty"`
+	MedianSeconds        *int                `json:"medianSeconds,omitempty"`
+	P90WaitSeconds       *int                `json:"p90WaitSeconds,omitempty"`
 	Distribution         *ETADistributionDTO `json:"distribution,omitempty"`
-	CalculatedAt         time.Time     `json:"calculatedAt"`
+	CalculatedAt         time.Time           `json:"calculatedAt"`
+	Source               string              `json:"source,omitempty"`
 }
 
 type ETADistributionDTO struct {
@@ -45,6 +46,8 @@ func (a *API) GetTicketETA(w http.ResponseWriter, r *http.Request) {
 		window = &WindowRefDTO{ID: eta.ReferenceWindow.ID, Number: eta.ReferenceWindow.Number}
 	}
 	var distribution *ETADistributionDTO
-	if eta.Distribution != nil { distribution = &ETADistributionDTO{Avg: eta.Distribution.Avg, WeightedAvg: eta.Distribution.WeightedAvg, Median: eta.Distribution.Median, P90: eta.Distribution.P90, Samples: eta.Distribution.Samples} }
-	writeJSONResponse(w, http.StatusOK, TicketETADTO{TicketID: eta.TicketID, TicketStatus: string(eta.TicketStatus), Reason: string(eta.Reason), EstimatedWaitSeconds: eta.EstimatedWaitSeconds, EstimatedCallAt: eta.EstimatedCallAt, Position: eta.Position, ReferenceWindow: window, SampleSize: eta.SampleSize, UsedFallback: eta.UsedFallback, WeightedWaitSeconds: eta.WeightedWaitSeconds, MedianSeconds: eta.MedianSeconds, P90WaitSeconds: eta.P90WaitSeconds, Distribution: distribution, CalculatedAt: eta.CalculatedAt})
+	if eta.Distribution != nil {
+		distribution = &ETADistributionDTO{Avg: eta.Distribution.Avg, WeightedAvg: eta.Distribution.WeightedAvg, Median: eta.Distribution.Median, P90: eta.Distribution.P90, Samples: eta.Distribution.Samples}
+	}
+	writeJSONResponse(w, http.StatusOK, TicketETADTO{TicketID: eta.TicketID, TicketStatus: string(eta.TicketStatus), Reason: string(eta.Reason), EstimatedWaitSeconds: eta.EstimatedWaitSeconds, EstimatedCallAt: eta.EstimatedCallAt, Position: eta.Position, ReferenceWindow: window, SampleSize: eta.SampleSize, UsedFallback: eta.UsedFallback, WeightedWaitSeconds: eta.WeightedWaitSeconds, MedianSeconds: eta.MedianSeconds, P90WaitSeconds: eta.P90WaitSeconds, Distribution: distribution, CalculatedAt: eta.CalculatedAt, Source: eta.Source})
 }

@@ -19,9 +19,10 @@ import (
 )
 
 type Postgres struct {
-	pool     *pgxpool.Pool
-	policyMu sync.RWMutex
-	policy   domain.QueuePolicyConfig
+	pool      *pgxpool.Pool
+	policyMu  sync.RWMutex
+	policy    domain.QueuePolicyConfig
+	predictor application.ETAPredictor
 }
 
 func New(pool *pgxpool.Pool, policy ...domain.QueuePolicyConfig) *Postgres {
@@ -43,6 +44,8 @@ func (p *Postgres) GetPolicy() domain.QueuePolicyConfig {
 	defer p.policyMu.RUnlock()
 	return p.policy
 }
+
+func (p *Postgres) SetETAPredictor(predictor application.ETAPredictor) { p.predictor = predictor }
 
 var _ application.UseCases = (*Postgres)(nil)
 
@@ -706,6 +709,9 @@ func (p *Postgres) transition(ctx context.Context, ticketID string, from, to dom
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return empty, dbError(err)
+	}
+	if observer, ok := p.predictor.(application.ETAObservation); ok && t.ServiceStartedAt != nil && t.CompletedAt != nil {
+		observer.ObserveCompleted(t.ID, t.CompletedAt.Sub(*t.ServiceStartedAt).Seconds())
 	}
 	return t, nil
 }

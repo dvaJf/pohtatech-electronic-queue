@@ -49,6 +49,23 @@ type AlertsPolicy struct {
 	OverdueAfterMinutes int `yaml:"overdue_after_minutes"`
 }
 
+type MLEtaPolicy struct {
+	Enabled                   bool   `yaml:"enabled"`
+	URL                       string `yaml:"url,omitempty"`
+	TimeoutMilliseconds       int    `yaml:"timeout_ms"`
+	CircuitBreakerThreshold   int    `yaml:"circuit_breaker_threshold"`
+	CircuitBreakerCooldownSec int    `yaml:"circuit_breaker_cooldown_seconds"`
+	CacheTTLSeconds           int    `yaml:"cache_ttl_seconds"`
+}
+
+type MLPolicy struct {
+	ETA    MLEtaPolicy `yaml:"eta"`
+	NoShow struct {
+		Enabled          bool `yaml:"enabled"`
+		MaxAbsAdjustment int  `yaml:"max_abs_adjustment"`
+	} `yaml:"noshow"`
+}
+
 type QueuePolicyConfig struct {
 	PolicyVersion int64                    `yaml:"policy_version"`
 	Appointment   AppointmentPolicy        `yaml:"appointment"`
@@ -57,6 +74,7 @@ type QueuePolicyConfig struct {
 	Call          CallPolicy               `yaml:"call"`
 	WindowClose   WindowCloseConfig        `yaml:"window_close"`
 	Alerts        AlertsPolicy             `yaml:"alerts"`
+	ML            MLPolicy                 `yaml:"ml"`
 }
 
 func (c *QueuePolicyConfig) Validate() error {
@@ -99,6 +117,18 @@ func (c *QueuePolicyConfig) Validate() error {
 	}
 	if c.Alerts.OverdueAfterMinutes <= 0 {
 		return errors.New("alerts.overdue_after_minutes must be positive")
+	}
+	if c.ML.ETA.TimeoutMilliseconds <= 0 {
+		c.ML.ETA.TimeoutMilliseconds = 300
+	}
+	if c.ML.ETA.CircuitBreakerThreshold <= 0 {
+		c.ML.ETA.CircuitBreakerThreshold = 3
+	}
+	if c.ML.ETA.CircuitBreakerCooldownSec <= 0 {
+		c.ML.ETA.CircuitBreakerCooldownSec = 10
+	}
+	if c.ML.ETA.CacheTTLSeconds <= 0 {
+		c.ML.ETA.CacheTTLSeconds = 5
 	}
 	return nil
 }
@@ -305,6 +335,7 @@ func DefaultQueuePolicy() QueuePolicyConfig {
 		Alerts: AlertsPolicy{
 			OverdueAfterMinutes: 15,
 		},
+		ML: MLPolicy{ETA: MLEtaPolicy{Enabled: false, TimeoutMilliseconds: 300, CircuitBreakerThreshold: 3, CircuitBreakerCooldownSec: 10, CacheTTLSeconds: 5}},
 	}
 }
 
@@ -328,4 +359,3 @@ func RequestIDFromContext(ctx context.Context) string {
 	}
 	return ""
 }
-

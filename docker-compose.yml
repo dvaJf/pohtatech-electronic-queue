@@ -36,6 +36,28 @@ x-backend: &backend
     SMTP_APP_BASE_URL: ${SMTP_APP_BASE_URL:-}
 
 services:
+  ml-service:
+    build: ./services/ml-service
+    restart: always
+    environment:
+      MODEL_PATH: /models/eta.joblib
+    volumes:
+      - ml_model_data:/models
+      - ./ml-data:/app/ml-data
+    ports:
+      - "127.0.0.1:8090:8090"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health')\""]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    mem_limit: 256m
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+
   postgres:
     image: postgres:17-alpine
     restart: always
@@ -292,6 +314,7 @@ services:
           memory: 256M
 
 volumes:
+  ml_model_data:
   postgres_data:
   frontend_node_modules:
   prometheus_data:

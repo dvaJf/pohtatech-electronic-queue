@@ -105,6 +105,7 @@ func run() int {
 	}
 
 	usecases := persistence.New(pool, policyCfg)
+	usecases.SetETAPredictor(persistence.NewMLEtaAdapter(logger))
 
 	// Background hot-reload of queue_policy.yaml
 	go func() {

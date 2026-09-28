@@ -10,8 +10,8 @@ export interface WeeklyScheduleViewProps {
 }
 
 /**
- * Интерактивный компонент расписания отделения на всю неделю (Пн–Вс).
- * Показывает сокращённые дни, выходные дни и подсвечивает текущий день недели.
+ * Интерактивный компонент расписания отделения на всю неделю (Понедельник–Воскресенье).
+ * Показывает часы работы, выходные дни и подсвечивает текущий день недели.
  * Данные подтверждены официальными источниками Яндекс Карт.
  */
 export function WeeklyScheduleView({
@@ -43,26 +43,13 @@ export function WeeklyScheduleView({
                   : 'text-slate-700 hover:bg-white/80'
               }`}
             >
-              <div className="flex items-center gap-1.5 min-w-0">
-                <span className={`w-6 font-extrabold shrink-0 ${isToday ? 'text-[#052F85]' : 'text-slate-900'}`}>
-                  {item.dayShort}
-                </span>
-                <span className="text-[11px] truncate text-slate-500 hidden sm:inline">
+              <div className="flex items-center min-w-0">
+                <span className={`text-xs ${isToday ? 'font-bold text-[#052F85]' : 'font-medium text-slate-800'}`}>
                   {item.dayFull}
                 </span>
-                {isToday && (
-                  <span className="px-1.5 py-0.2 rounded-full text-[9px] font-black uppercase tracking-wider bg-[#052F85] text-white shrink-0">
-                    Сегодня
-                  </span>
-                )}
               </div>
 
               <div className="flex items-center gap-1.5 shrink-0">
-                {item.isShortened && (
-                  <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
-                    Сокращённый
-                  </span>
-                )}
                 {item.isDayOff ? (
                   <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-200 text-slate-600">
                     Выходной

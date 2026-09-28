@@ -51,8 +51,10 @@ export function App() {
     return () => { active = false; controller.abort(); window.clearTimeout(timeout); };
   }, []);
 
+  const tvMatch = currentPath.match(/^\/tv\/([^/?#]+)/);
   if (currentPath === '/tv' || currentPath === '/tv/' || currentPath.startsWith('/tv/') || currentPath.startsWith('/tv?')) {
-    return <TVBoard />;
+    const branchIdFromPath = tvMatch ? decodeURIComponent(tvMatch[1]) : undefined;
+    return <TVBoard branchId={branchIdFromPath} />;
   }
 
   if (currentPath === '/demo' || currentPath.startsWith('/demo/')) {
@@ -61,6 +63,7 @@ export function App() {
   const routes: Array<{ path: string; label: string; page: ReactNode }> = [
     { path: '/tv', label: 'TV', page: <TVBoard /> },
     { path: '/tv/', label: 'TV', page: <TVBoard /> },
+    ...(tvMatch ? [{ path: currentPath, label: 'TV', page: <TVBoard branchId={decodeURIComponent(tvMatch[1])} /> }] : []),
     ...(currentPath.startsWith('/q/') ? [{ path: currentPath, label: 'QR', page: <PhysicalQRPage key={currentPath} branchId={currentPath.slice(3)} kiosk={new URLSearchParams(window.location.search).get('kiosk') === '1'} /> }] : []),
     ...(currentPath.startsWith('/kiosk/') ? [{ path: currentPath, label: 'Kiosk', page: <PhysicalQRPage key={currentPath} branchId={currentPath.slice(7)} kiosk /> }] : []),
     { path: '/', label: 'Client', page: <ClientPage /> },

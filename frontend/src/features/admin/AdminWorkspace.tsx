@@ -501,6 +501,7 @@ export const AdminWorkspace: React.FC = () => {
               windows={overview?.windows || []}
               queue={overview?.queue || []}
               branchName={branches.find((b) => b.id === selectedBranchId)?.name}
+              branchId={selectedBranchId}
               onRefresh={async () => {
                 if (selectedBranchId) {
                   try {

@@ -4,6 +4,8 @@ import { useTVQueue } from '../../api/queries';
 import { announceTicketCall, isSoundEnabled, setSoundEnabled, unlockSpeechSynthesis } from '../../utils/postalVoice';
 import { enqueueAnnouncement } from '../../utils/announcementQueue';
 import { subscribeToTVCalls } from '../../utils/tvNotification';
+import { MOSCOW_BRANCHES } from './map/branchLocations';
+import { resolveBranchIdFromSlug, getBranchDisplayName, getBranchSlug } from '../../utils/branchSlug';
 
 /* ─────────────────────── types ─────────────────────── */
 interface TVCall {
@@ -58,17 +60,32 @@ function SberArrow() {
 }
 
 /* ────────────── flash overlay for new call ──────────── */
-function FlashOverlay({ ticket, windowId }: { ticket: string; windowId: string | number }) {
+function FlashOverlay({
+  ticket,
+  windowId,
+  isRepeat,
+  onClose,
+}: {
+  ticket: string;
+  windowId: string | number;
+  isRepeat?: boolean;
+  onClose?: () => void;
+}) {
   const [visible, setVisible] = useState(true);
   useEffect(() => {
-    const t = setTimeout(() => setVisible(false), 4500);
+    const t = setTimeout(() => {
+      setVisible(false);
+      onClose?.();
+    }, 4500);
     return () => clearTimeout(t);
-  }, []);
+  }, [onClose]);
   if (!visible) return null;
   return (
     <div className="tv-flash-overlay">
       <div className="tv-flash-card">
-        <div className="tv-flash-label">Талон вызван!</div>
+        <div className="tv-flash-label">
+          {isRepeat ? 'Повторный вызов талона!' : 'Талон вызван!'}
+        </div>
         <div className="tv-flash-ticket">{ticket}</div>
         <SberArrow />
         <div className="tv-flash-window">Окно {windowId}</div>
@@ -77,21 +94,46 @@ function FlashOverlay({ ticket, windowId }: { ticket: string; windowId: string |
   );
 }
 
+export interface TVBoardProps {
+  branchId?: string;
+}
+
 /* ══════════════════════ MAIN TV BOARD ══════════════════════ */
-export function TVBoard() {
+export function TVBoard({ branchId: propBranchId }: TVBoardProps = {}) {
   /* ── state ── */
   const [now, setNow] = useState(() => new Date());
-  const [branches, setBranches] = useState<Array<{ id: string; name: string }>>([]);
-  const [selectedBranchId, setSelectedBranchId] = useState<string>(() => {
+  const [branches, setBranches] = useState<Array<{ id: string; name: string }>>(() =>
+    MOSCOW_BRANCHES.map(b => ({ id: b.id, name: b.name }))
+  );
+
+  const resolveRawBranchParam = (): string => {
+    if (propBranchId) return propBranchId;
     if (typeof window !== 'undefined') {
+      const match = window.location.pathname.match(/^\/tv\/([^/?#]+)/);
+      if (match && match[1]) return decodeURIComponent(match[1]);
       const p = new URLSearchParams(window.location.search);
       if (p.get('branchId')) return p.get('branchId')!;
       const saved = localStorage.getItem('client_selected_branch_id') || localStorage.getItem('operator.branch');
       if (saved) return saved;
     }
     return '';
-  });
-  const [flash, setFlash] = useState<{ ticket: string; windowId: string | number } | null>(null);
+  };
+
+  const [rawBranchParam, setRawBranchParam] = useState<string>(resolveRawBranchParam);
+
+  /* ── sync prop changes ── */
+  useEffect(() => {
+    if (propBranchId && propBranchId !== rawBranchParam) {
+      setRawBranchParam(propBranchId);
+    }
+  }, [propBranchId]);
+
+  /* ── canonical UUID for API queries and subscriptions ── */
+  const selectedBranchId = useMemo(() => {
+    return resolveBranchIdFromSlug(rawBranchParam, branches);
+  }, [rawBranchParam, branches]);
+
+  const [flash, setFlash] = useState<{ ticket: string; windowId: string | number; isRepeat?: boolean } | null>(null);
   const flashKeyRef = useRef(0);
   const [audioUnlocked, setAudioUnlocked] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
@@ -115,14 +157,28 @@ export function TVBoard() {
     fetch('/api/v1/branches')
       .then(r => r.ok ? r.json() : null)
       .then(d => {
-        const list = d?.items || [];
-        setBranches(list);
-        if (!selectedBranchId && list.length > 0) setSelectedBranchId(list[0].id);
+        const apiList = d?.items || [];
+        const map = new Map<string, { id: string; name: string }>();
+        for (const b of MOSCOW_BRANCHES) {
+          map.set(b.id, { id: b.id, name: b.name });
+        }
+        for (const b of apiList) {
+          map.set(b.id, { id: b.id, name: b.name });
+        }
+        const combined = Array.from(map.values());
+        setBranches(combined);
+        if (!rawBranchParam && combined.length > 0) {
+          const firstSlug = getBranchSlug(combined[0].id, combined[0].name);
+          setRawBranchParam(firstSlug);
+          if (typeof window !== 'undefined' && window.location.pathname === '/tv') {
+            window.history.replaceState({}, '', `/tv/${firstSlug}`);
+          }
+        }
       })
       .catch(() => {});
-  }, [selectedBranchId]);
+  }, [rawBranchParam]);
 
-  /* ── live data ── */
+  /* ── live data for this specific branch ── */
   const { data: tvData, isLoading, error } = useTVQueue(selectedBranchId, 2500);
 
   /* ── sound announcements & cross-tab calls ── */
@@ -130,7 +186,7 @@ export function TVBoard() {
   const lastAnnouncedTimestampRef = useRef<Map<string, number>>(new Map());
   const isInitialRef = useRef(true);
 
-  const triggerCallAnnouncement = (ticketNumber: string, windowId: number | string) => {
+  const triggerCallAnnouncement = (ticketNumber: string, windowId: number | string, isRepeat = false) => {
     const key = `${ticketNumber}-${windowId}`;
     const nowTs = Date.now();
     const last = lastAnnouncedTimestampRef.current.get(key) || 0;
@@ -142,16 +198,23 @@ export function TVBoard() {
 
     enqueueAnnouncement(() => announceTicketCall(ticketNumber, windowId));
     flashKeyRef.current += 1;
-    setFlash({ ticket: ticketNumber, windowId });
+    setFlash({ ticket: ticketNumber, windowId, isRepeat });
   };
 
-  /* ── listen to operator cross-tab calls (call-next, specific call, repeat call) ── */
+  /* ── listen to operator cross-tab calls strictly for this branch ── */
   useEffect(() => {
-    const unsubscribe = subscribeToTVCalls((ticketNumber, windowNumber) => {
-      triggerCallAnnouncement(ticketNumber, windowNumber);
+    const unsubscribe = subscribeToTVCalls((ticketNumber, windowNumber, isRepeat, eventBranchId) => {
+      // If event specified a branch, only process if it matches this TV board's branch!
+      if (eventBranchId && selectedBranchId) {
+        const resolvedEventBranchId = resolveBranchIdFromSlug(eventBranchId, branches);
+        if (resolvedEventBranchId !== selectedBranchId) {
+          return;
+        }
+      }
+      triggerCallAnnouncement(ticketNumber, windowNumber, isRepeat);
     });
     return unsubscribe;
-  }, []);
+  }, [selectedBranchId, branches]);
 
   useEffect(() => {
     if (!tvData?.windows) return;
@@ -245,7 +308,9 @@ export function TVBoard() {
     return list;
   }, [tvData]);
 
-  const branchName = branches.find(b => b.id === selectedBranchId)?.name || 'Табло электронной очереди';
+  const branchName = useMemo(() => {
+    return getBranchDisplayName(rawBranchParam || selectedBranchId, branches);
+  }, [rawBranchParam, selectedBranchId, branches]);
 
   const timeString = now.toLocaleTimeString('ru-RU', {
     timeZone: 'Europe/Moscow',
@@ -265,7 +330,15 @@ export function TVBoard() {
   return (
     <div className="tv-root">
       {/* ── FLASH OVERLAY ── */}
-      {flash && <FlashOverlay key={flashKeyRef.current} ticket={flash.ticket} windowId={flash.windowId} />}
+      {flash && (
+        <FlashOverlay
+          key={flashKeyRef.current}
+          ticket={flash.ticket}
+          windowId={flash.windowId}
+          isRepeat={flash.isRepeat}
+          onClose={() => setFlash(null)}
+        />
+      )}
 
       {/* ── TOP BAR ── */}
       <header className="tv-topbar">
@@ -309,24 +382,33 @@ export function TVBoard() {
           </div>
 
           <div className="tv-calls-grid">
-            {calls.map((c) => (
-              <div key={`${c.windowId}-${c.ticketNumber}`} className="tv-call-card">
-                {/* Ticket */}
-                <div className="tv-call-ticket-col">
-                  <div className="tv-call-label">ТАЛОН</div>
-                  <div className="tv-call-ticket">{c.ticketNumber}</div>
-                </div>
+            {calls.map((c) => {
+              const isCardFlashing =
+                flash &&
+                flash.ticket === c.ticketNumber &&
+                String(flash.windowId) === String(c.windowId);
+              return (
+                <div
+                  key={`${c.windowId}-${c.ticketNumber}`}
+                  className={`tv-call-card ${isCardFlashing ? 'tv-call-card--active' : ''}`}
+                >
+                  {/* Ticket */}
+                  <div className="tv-call-ticket-col">
+                    <div className="tv-call-label">ТАЛОН</div>
+                    <div className="tv-call-ticket">{c.ticketNumber}</div>
+                  </div>
 
-                {/* Sber-style Arrow */}
-                <SberArrow />
+                  {/* Sber-style Arrow */}
+                  <SberArrow />
 
-                {/* Window */}
-                <div className="tv-call-window-col">
-                  <div className="tv-call-label">ОКНО</div>
-                  <div className="tv-call-window">{c.windowId}</div>
+                  {/* Window */}
+                  <div className="tv-call-window-col">
+                    <div className="tv-call-label">ОКНО</div>
+                    <div className="tv-call-window">{c.windowId}</div>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
 
             {calls.length === 0 && (
               <div className="tv-empty">
@@ -565,6 +647,15 @@ const tvStyles = `
 .tv-call-card:hover {
   transform: scale(1.01);
   box-shadow: 0 8px 24px rgba(0,59,115,0.08);
+}
+.tv-call-card--active {
+  border-color: #F59E0B !important;
+  box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.3), 0 8px 32px rgba(245, 158, 11, 0.25) !important;
+  animation: tv-card-pulse 1.2s ease-in-out infinite;
+}
+@keyframes tv-card-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.02); }
 }
 .tv-call-ticket-col,
 .tv-call-window-col {

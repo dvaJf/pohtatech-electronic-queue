@@ -10,6 +10,109 @@ interface ProductHeaderProps {
   currentPath: string;
 }
 
+interface LiveClockIconProps {
+  hours: number;
+  minutes: number;
+  className?: string;
+  size?: number;
+}
+
+/**
+ * Интерактивный циферблат часов с вращающимися часовой и минутной стрелками (только часовая и минутная стрелки).
+ * Отображает реальное московское время.
+ */
+export function LiveClockIcon({ hours, minutes, className = 'w-5 h-5', size = 22 }: LiveClockIconProps) {
+  // Часовая стрелка: 30° в час + 0.5° в минуту (плавный ход по текущей минуте)
+  const hourAngle = ((hours % 12) + minutes / 60) * 30;
+  // Минутная стрелка: 6° в минуту
+  const minuteAngle = minutes * 6;
+
+  // Точки для остальных 8 часов по радиусу 7.8 от центра (11, 11)
+  const hourDots = [
+    { cx: 14.9, cy: 4.25 },
+    { cx: 17.75, cy: 7.1 },
+    { cx: 17.75, cy: 14.9 },
+    { cx: 14.9, cy: 17.75 },
+    { cx: 7.1, cy: 17.75 },
+    { cx: 4.25, cy: 14.9 },
+    { cx: 4.25, cy: 7.1 },
+    { cx: 7.1, cy: 4.25 },
+  ];
+
+  return (
+    <svg
+      viewBox="0 0 22 22"
+      width={size}
+      height={size}
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      aria-hidden="true"
+    >
+      {/* Внешний ободок и подложка циферблата */}
+      <circle
+        cx="11"
+        cy="11"
+        r="10"
+        stroke="currentColor"
+        strokeWidth="1.25"
+        strokeOpacity="0.45"
+        fill="currentColor"
+        fillOpacity="0.08"
+      />
+      <circle
+        cx="11"
+        cy="11"
+        r="8.2"
+        stroke="currentColor"
+        strokeWidth="0.6"
+        strokeOpacity="0.18"
+      />
+
+      {/* 4 кардинальные отметки (12, 3, 6, 9) */}
+      <line x1="11" y1="2.4" x2="11" y2="4.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeOpacity="0.85" />
+      <line x1="19.6" y1="11" x2="17.6" y2="11" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeOpacity="0.85" />
+      <line x1="11" y1="19.6" x2="11" y2="17.6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeOpacity="0.85" />
+      <line x1="2.4" y1="11" x2="4.4" y2="11" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeOpacity="0.85" />
+
+      {/* Точки остальных часов */}
+      {hourDots.map((dot, idx) => (
+        <circle key={idx} cx={dot.cx} cy={dot.cy} r="0.5" fill="currentColor" fillOpacity="0.4" />
+      ))}
+
+      {/* Часовая стрелка (короче, плотная белая) */}
+      <line
+        x1="11"
+        y1="11"
+        x2="11"
+        y2="6.2"
+        stroke="white"
+        strokeWidth="1.9"
+        strokeLinecap="round"
+        transform={`rotate(${hourAngle.toFixed(1)} 11 11)`}
+        style={{ transition: 'transform 0.4s cubic-bezier(0.4, 1.4, 0.6, 1)' }}
+      />
+
+      {/* Минутная стрелка (длиннее, небесно-голубая) */}
+      <line
+        x1="11"
+        y1="11"
+        x2="11"
+        y2="3.8"
+        stroke="#7DD3FC"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        transform={`rotate(${minuteAngle.toFixed(1)} 11 11)`}
+        style={{ transition: 'transform 0.4s cubic-bezier(0.4, 1.4, 0.6, 1)' }}
+      />
+
+      {/* Центральный осевой шарнир */}
+      <circle cx="11" cy="11" r="1.3" fill="#38BDF8" />
+      <circle cx="11" cy="11" r="0.5" fill="#002B55" />
+    </svg>
+  );
+}
+
 export function ProductHeader({ currentPath }: ProductHeaderProps) {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
@@ -32,6 +135,7 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
     try { return localStorage.getItem('pochta_a11y_contrast') === 'true'; } catch { return false; }
   });
   const [timeStr, setTimeStr] = useState('');
+  const [clockTime, setClockTime] = useState({ hours: 0, minutes: 0 });
   const [geoStatus, setGeoStatus] = useState<'prompt' | 'locating' | 'granted' | 'denied' | 'unavailable'>('prompt');
   const accessibilityActive = scale !== 100 || contrast;
 
@@ -225,13 +329,23 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
   useEffect(() => {
     const updateTime = () => {
       const now = new Date();
-      setTimeStr(
-        now.toLocaleTimeString('ru-RU', {
-          timeZone: 'Europe/Moscow',
-          hour: '2-digit',
-          minute: '2-digit',
-        })
-      );
+      const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Europe/Moscow',
+        hour12: false,
+        hour: 'numeric',
+        minute: 'numeric',
+      }).formatToParts(now);
+
+      let h = 0;
+      let m = 0;
+      for (const p of parts) {
+        if (p.type === 'hour') h = parseInt(p.value, 10);
+        if (p.type === 'minute') m = parseInt(p.value, 10);
+      }
+      setClockTime({ hours: h, minutes: m });
+
+      const pad = (n: number) => n.toString().padStart(2, '0');
+      setTimeStr(`${pad(h)}:${pad(m)}`);
     };
     updateTime();
     const interval = setInterval(updateTime, 1000);
@@ -298,9 +412,30 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
               </button>
             </div>
 
-            <div className="hidden items-center gap-1.5 whitespace-nowrap px-1 text-xs font-medium tabular-nums text-blue-100/70 lg:flex" title="Московское время (Europe/Moscow)">
-              <ClockCircleIcon className="h-[18px] w-[18px]" />
-              <span>{timeStr || 'МСК'}</span>
+            {/* Часы: точное московское время (Europe/Moscow) */}
+            <div
+              className="hidden h-11 items-center gap-2.5 rounded-xl border border-white/15 bg-white/[0.045] px-3 select-none cursor-default md:flex"
+              title="Московское время (Europe/Moscow)"
+              aria-label={`Московское время: ${timeStr || 'МСК'}`}
+              role="status"
+            >
+              <LiveClockIcon
+                hours={clockTime.hours}
+                minutes={clockTime.minutes}
+                className="h-5 w-5 text-blue-200 shrink-0"
+                size={20}
+              />
+              <div className="h-4 w-px bg-white/20" aria-hidden="true" />
+              <span className="font-mono text-xs font-bold tracking-wider text-white tabular-nums">
+                {timeStr || '--:--'}
+              </span>
+              <div className="flex items-center gap-1.5 rounded-md bg-white/10 px-1.5 py-0.5 border border-white/10">
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-400"></span>
+                </span>
+                <span className="text-[10px] font-mono font-semibold text-blue-200/90">МСК</span>
+              </div>
             </div>
 
             {currentUser ? (
@@ -452,9 +587,24 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
             {/* Header info */}
             <div className="flex items-center justify-between pb-2 border-b border-white/15 text-xs text-blue-200">
               <span className="font-bold text-white">Меню сервиса</span>
-              <div className="flex items-center gap-1 text-[11px] font-mono">
-                <ClockCircleIcon className="w-3 h-3 text-[#86BBFF]" />
-                <span>{timeStr || 'МСК'}</span>
+              <div
+                className="flex items-center gap-2 rounded-lg border border-white/15 bg-white/10 px-2.5 py-1 text-xs text-white cursor-default"
+                title="Московское время (Europe/Moscow)"
+                role="status"
+              >
+                <LiveClockIcon
+                  hours={clockTime.hours}
+                  minutes={clockTime.minutes}
+                  className="w-4 h-4 text-sky-300 shrink-0"
+                  size={16}
+                />
+                <span className="font-mono font-bold tracking-wider text-white tabular-nums text-[11px]">
+                  {timeStr || '--:--'}
+                </span>
+                <div className="flex items-center gap-1 rounded bg-white/10 px-1 py-0.5 text-[9px] font-mono font-semibold text-blue-200">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400"></span>
+                  МСК
+                </div>
               </div>
             </div>
 

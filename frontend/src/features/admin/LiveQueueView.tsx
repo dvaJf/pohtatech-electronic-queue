@@ -3,6 +3,7 @@ import './admin.css';
 import { AdminWindow, AdminQueueTicket } from '../../api/admin/types';
 import { formatMoscowTime } from '../../utils/time';
 import { PochtaEmblem } from '../../components/common/PochtaBrand';
+import { getBranchPostalCode } from '../../utils/branchSlug';
 import {
   Tv,
   ListFilter,
@@ -24,6 +25,7 @@ interface LiveQueueViewProps {
   windows: AdminWindow[];
   queue: AdminQueueTicket[];
   branchName?: string;
+  branchId?: string;
   onRefresh?: () => Promise<void> | void;
   isRefreshing?: boolean;
 }
@@ -35,6 +37,7 @@ export const LiveQueueView: React.FC<LiveQueueViewProps> = ({
   windows,
   queue,
   branchName = 'Отделение Почты России',
+  branchId,
   onRefresh,
   isRefreshing = false,
 }) => {
@@ -146,6 +149,20 @@ export const LiveQueueView: React.FC<LiveQueueViewProps> = ({
                 <span>Оперативный реестр</span>
               </button>
             </div>
+
+            {/* Direct Link to dedicated branch TV board */}
+            {branchId && (
+              <a
+                href={`/tv/${getBranchPostalCode(branchId, branchName)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-3 py-1.5 rounded-xl border border-blue-200 bg-blue-50/70 hover:bg-blue-100/80 text-[#003B73] transition-all flex items-center gap-1.5 text-xs font-bold shadow-2xs"
+                title="Открыть экран табло для этого отделения в отдельной вкладке или на ТВ"
+              >
+                <Tv className="w-4 h-4 text-[#003B73]" />
+                <span>Открыть на ТВ</span>
+              </a>
+            )}
 
             {/* Refresh Button */}
             {onRefresh && (

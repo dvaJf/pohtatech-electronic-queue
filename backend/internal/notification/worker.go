@@ -101,18 +101,6 @@ func (w *OutboxWorker) ProcessOnce(ctx context.Context) (int, error) {
 		if msg.ID == "" {
 			msg.ID = item.ID
 		}
-		// Appointment payloads intentionally carry business metadata only; delivery
-		// routing remains in protected outbox columns and must survive reconstruction.
-		if msg.Channel == "" {
-			msg.Channel = item.Channel
-		}
-		if msg.Destination == "" {
-			msg.Destination = item.Destination
-		}
-		if (item.EventType == domain.NotificationAppointmentConfirmation || item.EventType == domain.NotificationAppointmentReminder) && msg.Body == "" {
-			// Appointment metadata is stored in the outbox payload, not in logs.
-			msg.Body = item.Payload
-		}
 
 		start := time.Now()
 		sendErr := w.sender.Send(ctx, msg)
@@ -140,7 +128,7 @@ func (w *OutboxWorker) ProcessOnce(ctx context.Context) (int, error) {
 			if maxAttempts <= 0 {
 				maxAttempts = w.cfg.MaxAttempts
 			}
-			isFinal := newAttempts >= maxAttempts || IsPermanent(sendErr)
+			isFinal := newAttempts >= maxAttempts
 
 			// Exponential backoff: initial * 2^(attempts-1)
 			backoffMultiplier := 1 << (newAttempts - 1)
@@ -155,13 +143,6 @@ func (w *OutboxWorker) ProcessOnce(ctx context.Context) (int, error) {
 					"error", err.Error(),
 				)
 			} else {
-				if isFinal && item.SubscriptionID != nil && (item.Channel == domain.NotificationChannelWebPush || item.Channel == domain.NotificationChannelTelegram) {
-					if subscriptions, ok := w.repo.(interface {
-						DisableSubscriptionByID(context.Context, string) error
-					}); ok {
-						_ = subscriptions.DisableSubscriptionByID(ctx, *item.SubscriptionID)
-					}
-				}
 				logLevel := slog.LevelWarn
 				resultStr := "RETRYING"
 				if isFinal {

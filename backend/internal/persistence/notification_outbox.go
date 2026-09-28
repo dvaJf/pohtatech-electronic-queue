@@ -19,59 +19,34 @@ func (p *Postgres) enqueueCallNotification(ctx context.Context, tx pgx.Tx, t dom
 		winNumber = t.Window.Number
 	}
 
-	occurrence := t.ID
-	if t.CalledAt != nil {
-		occurrence += ":" + t.CalledAt.UTC().Format(time.RFC3339Nano)
-	}
-	return p.enqueueChannelDeliveries(ctx, tx, t, domain.NotificationTicketCalled, occurrence, winNumber, 0)
-}
-
-// enqueueChannelDeliveries is intentionally called from the existing queue transaction.
-// It fans one business occurrence out to active recipients without any network operation.
-func (p *Postgres) enqueueChannelDeliveries(ctx context.Context, tx pgx.Tx, t domain.Ticket, event domain.NotificationEventType, occurrence string, windowNumber, ahead int) error {
-	type recipient struct{ id, channel, destination string }
-	rows, err := tx.Query(ctx, `SELECT id::text,channel,destination FROM notification_subscriptions WHERE ticket_id=$1::uuid AND enabled=true`, t.ID)
+	var outboxID string
+	err := tx.QueryRow(ctx, `
+		INSERT INTO notification_outbox (ticket_id, branch_id, event_type, payload, status, next_attempt_at, created_at)
+		VALUES ($1::uuid, $2::uuid, $3, '{}'::jsonb, 'PENDING', clock_timestamp(), clock_timestamp())
+		RETURNING id::text
+	`, t.ID, t.BranchID, string(domain.NotificationTicketCalled)).Scan(&outboxID)
 	if err != nil {
 		return dbError(err)
 	}
-	var recipients []recipient
-	for rows.Next() {
-		var r recipient
-		if err := rows.Scan(&r.id, &r.channel, &r.destination); err != nil {
-			rows.Close()
-			return dbError(err)
-		}
-		recipients = append(recipients, r)
+
+	msg := domain.NotificationMessage{
+		ID:           outboxID,
+		TicketID:     t.ID,
+		BranchID:     t.BranchID,
+		PublicNumber: t.PublicNumber,
+		WindowNumber: winNumber,
+		EventType:    domain.NotificationTicketCalled,
+		CreatedAt:    time.Now().UTC(),
 	}
-	rows.Close()
-	// Retain the prior demo delivery for tickets created before a client selects a channel.
-	if len(recipients) == 0 {
-		recipients = []recipient{{id: "legacy", channel: string(domain.NotificationChannelDemo)}}
+
+	payload, err := json.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("marshal outbox payload: %w", err)
 	}
-	for _, r := range recipients {
-		key := fmt.Sprintf("%s:%s:%s:%s", event, occurrence, r.channel, r.id)
-		var id string
-		err := tx.QueryRow(ctx, `INSERT INTO notification_outbox(ticket_id,branch_id,event_type,channel,subscription_id,destination,dedupe_key,payload,status,available_at,next_attempt_at,created_at) VALUES($1::uuid,$2::uuid,$3,$4,NULLIF($5,'legacy')::uuid,NULLIF($6,''),$7,'{}'::jsonb,'PENDING',clock_timestamp(),clock_timestamp(),clock_timestamp()) ON CONFLICT(dedupe_key) DO NOTHING RETURNING id::text`, t.ID, t.BranchID, string(event), r.channel, r.id, r.destination, key).Scan(&id)
-		if errors.Is(err, pgx.ErrNoRows) {
-			continue
-		}
-		if err != nil {
-			return dbError(err)
-		}
-		msg := domain.NotificationMessage{ID: id, TicketID: t.ID, BranchID: t.BranchID, PublicNumber: t.PublicNumber, WindowNumber: windowNumber, EventType: event, Channel: domain.NotificationChannel(r.channel), Destination: r.destination, CreatedAt: time.Now().UTC()}
-		if event == domain.NotificationTicketNearTurn {
-			msg.Body = fmt.Sprintf("Перед вами осталось %d человека. Пора заходить в отделение.", ahead)
-		}
-		if event == domain.NotificationTicketCalled {
-			msg.Body = fmt.Sprintf("Талон %s вызван к окну №%d.", t.PublicNumber, windowNumber)
-		}
-		payload, err := json.Marshal(msg)
-		if err != nil {
-			return err
-		}
-		if _, err = tx.Exec(ctx, `UPDATE notification_outbox SET payload=$1::jsonb WHERE id=$2::uuid`, payload, id); err != nil {
-			return dbError(err)
-		}
+
+	_, err = tx.Exec(ctx, `UPDATE notification_outbox SET payload=$1::jsonb WHERE id=$2::uuid`, payload, outboxID)
+	if err != nil {
+		return dbError(err)
 	}
 	return nil
 }
@@ -86,17 +61,17 @@ func (p *Postgres) FetchPendingNotifications(ctx context.Context, limit int, now
 		WITH claimable AS (
 			SELECT id
 			FROM notification_outbox
-			WHERE status = 'PENDING' AND available_at <= $1::timestamptz AND next_attempt_at <= $1::timestamptz
+			WHERE status = 'PENDING' AND next_attempt_at <= $1::timestamptz
 			ORDER BY next_attempt_at ASC, id ASC
 			LIMIT $2
 			FOR UPDATE SKIP LOCKED
 		)
 		UPDATE notification_outbox o
-		SET next_attempt_at = $1::timestamptz + interval '30 seconds', claimed_until = $1::timestamptz + interval '30 seconds'
+		SET next_attempt_at = $1::timestamptz + interval '30 seconds'
 		FROM claimable
 		WHERE o.id = claimable.id
 		RETURNING o.id::text, o.ticket_id::text, o.branch_id::text, o.event_type, o.payload::text,
-		          o.status, o.attempts, o.max_attempts, o.next_attempt_at, o.created_at, o.sent_at, o.last_error, o.channel, o.subscription_id::text, o.destination, o.available_at
+		          o.status, o.attempts, o.max_attempts, o.next_attempt_at, o.created_at, o.sent_at, o.last_error
 	`, now, limit)
 	if err != nil {
 		return nil, dbError(err)
@@ -110,9 +85,6 @@ func (p *Postgres) FetchPendingNotifications(ctx context.Context, limit int, now
 		var status string
 		var sentAt *time.Time
 		var lastErr *string
-		var subscriptionID *string
-		var destination *string
-		var channel string
 
 		if err := rows.Scan(
 			&item.ID,
@@ -127,7 +99,6 @@ func (p *Postgres) FetchPendingNotifications(ctx context.Context, limit int, now
 			&item.CreatedAt,
 			&sentAt,
 			&lastErr,
-			&channel, &subscriptionID, &destination, &item.AvailableAt,
 		); err != nil {
 			return nil, dbError(err)
 		}
@@ -135,11 +106,6 @@ func (p *Postgres) FetchPendingNotifications(ctx context.Context, limit int, now
 		item.Status = domain.NotificationStatus(status)
 		item.SentAt = sentAt
 		item.LastError = lastErr
-		item.Channel = domain.NotificationChannel(channel)
-		item.SubscriptionID = subscriptionID
-		if destination != nil {
-			item.Destination = *destination
-		}
 		items = append(items, item)
 	}
 	return items, nil
@@ -149,7 +115,7 @@ func (p *Postgres) FetchPendingNotifications(ctx context.Context, limit int, now
 func (p *Postgres) MarkNotificationSent(ctx context.Context, id string, sentAt time.Time) error {
 	_, err := p.pool.Exec(ctx, `
 		UPDATE notification_outbox
-		SET status = 'SENT', sent_at = $1::timestamptz, attempts = attempts + 1, claimed_until=NULL
+		SET status = 'SENT', sent_at = $1::timestamptz, attempts = attempts + 1
 		WHERE id = $2::uuid
 	`, sentAt, id)
 	if err != nil {
@@ -166,7 +132,7 @@ func (p *Postgres) MarkNotificationFailed(ctx context.Context, id string, errStr
 	}
 	_, err := p.pool.Exec(ctx, `
 		UPDATE notification_outbox
-		SET status = $1, attempts = attempts + 1, last_error = $2, next_attempt_at = $3::timestamptz, claimed_until=NULL
+		SET status = $1, attempts = attempts + 1, last_error = $2, next_attempt_at = $3::timestamptz
 		WHERE id = $4::uuid
 	`, newStatus, errStr, nextAttempt, id)
 	if err != nil {
@@ -306,11 +272,31 @@ func (p *Postgres) enqueueNearTurnForTopCandidates(ctx context.Context, tx pgx.T
 	}
 	rows.Close()
 
-	for i, c := range cands {
-		t := domain.Ticket{ID: c.id, BranchID: c.branchID, PublicNumber: c.publicNum}
-		// Existing queue-cycle identity remains the business occurrence; only delivery dedupe gains channel+recipient.
-		if err := p.enqueueChannelDeliveries(ctx, activeTx, t, domain.NotificationTicketNearTurn, fmt.Sprintf("%s:%d", c.id, c.cycleID), 0, i+1); err != nil {
-			return err
+	for _, c := range cands {
+		dedupeKey := fmt.Sprintf("TICKET_NEAR_TURN:%s:%d", c.id, c.cycleID)
+		var outboxID string
+		err := activeTx.QueryRow(ctx, `
+			INSERT INTO notification_outbox (ticket_id, branch_id, event_type, dedupe_key, payload, status, next_attempt_at, created_at)
+			VALUES ($1::uuid, $2::uuid, $3, $4, '{}'::jsonb, 'PENDING', clock_timestamp(), clock_timestamp())
+			ON CONFLICT (dedupe_key) DO NOTHING
+			RETURNING id::text
+		`, c.id, c.branchID, string(domain.NotificationTicketNearTurn), dedupeKey).Scan(&outboxID)
+		if err != nil {
+			// Either error or ON CONFLICT returned no row (already enqueued for this cycle)
+			continue
+		}
+
+		msg := domain.NotificationMessage{
+			ID:           outboxID,
+			TicketID:     c.id,
+			BranchID:     c.branchID,
+			PublicNumber: c.publicNum,
+			WindowNumber: 0,
+			EventType:    domain.NotificationTicketNearTurn,
+			CreatedAt:    time.Now().UTC(),
+		}
+		if payload, pErr := json.Marshal(msg); pErr == nil {
+			_, _ = activeTx.Exec(ctx, `UPDATE notification_outbox SET payload=$1::jsonb WHERE id=$2::uuid`, payload, outboxID)
 		}
 	}
 	return commit()
@@ -436,9 +422,39 @@ func (p *Postgres) EnqueueNearTurnIfEligible(ctx context.Context, ticketID strin
 		return dbError(err)
 	}
 
-	_ = publicNum
-	if err = p.enqueueChannelDeliveries(ctx, tx, domain.Ticket{ID: tIDStr, BranchID: branchID, PublicNumber: publicNum}, domain.NotificationTicketNearTurn, fmt.Sprintf("%s:%d", tIDStr, cycleID), 0, rank); err != nil {
-		return err
+	dedupeKey := fmt.Sprintf("TICKET_NEAR_TURN:%s:%d", tIDStr, cycleID)
+	var outboxID string
+	err = tx.QueryRow(ctx, `
+		INSERT INTO notification_outbox (ticket_id, branch_id, event_type, dedupe_key, payload, status, next_attempt_at, created_at)
+		VALUES ($1::uuid, $2::uuid, $3, $4, '{}'::jsonb, 'PENDING', clock_timestamp(), clock_timestamp())
+		ON CONFLICT (dedupe_key) DO NOTHING
+		RETURNING id::text
+	`, tID, branchID, string(domain.NotificationTicketNearTurn), dedupeKey).Scan(&outboxID)
+	if errors.Is(err, pgx.ErrNoRows) || outboxID == "" {
+		// Already enqueued for this cycle
+		return tx.Commit(ctx)
+	}
+	if err != nil {
+		return dbError(err)
+	}
+
+	msg := domain.NotificationMessage{
+		ID:           outboxID,
+		TicketID:     tIDStr,
+		BranchID:     branchID,
+		PublicNumber: publicNum,
+		WindowNumber: 0,
+		EventType:    domain.NotificationTicketNearTurn,
+		CreatedAt:    time.Now().UTC(),
+	}
+	payload, err := json.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("marshal near-turn payload: %w", err)
+	}
+
+	_, err = tx.Exec(ctx, `UPDATE notification_outbox SET payload=$1::jsonb WHERE id=$2::uuid`, payload, outboxID)
+	if err != nil {
+		return dbError(err)
 	}
 
 	return tx.Commit(ctx)

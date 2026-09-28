@@ -102,14 +102,11 @@ def check_eta(ticket):
         assert eta['sampleSize'] == 0 and not eta['usedFallback']
     return eta
 
-def sprint4(run, operator, chief, verify_login_rate_limit=False):
+def sprint4(run):
+    operator, chief = login('OPERATOR'), login('CHIEF')
     assert api('GET', '/auth/me', token=operator)[0]['role'] == 'employee'
     assert api('GET', '/auth/me', token=chief)[0]['role'] == 'opc_chief'
-    # The invalid-login assertion exercises the limiter once per release process.
-    # Repeating it in every run makes a legitimate multi-run release hit the
-    # product's per-IP rate limit rather than test a queue scenario.
-    if verify_login_rate_limit:
-        api('POST', '/auth/login', {'email': 'missing-' + str(uuid.uuid4()), 'password': 'invalid'}, status=401)
+    api('POST', '/auth/login', {'email': 'missing-' + str(uuid.uuid4()), 'password': 'invalid'}, status=401)
     api('GET', f'/operator/branches/{BRANCH}/windows', status=401)
     api('GET', f'/admin/branches/{BRANCH}/queue-policy', status=401)
     api('GET', '/admin/users', token=operator, status=403)
@@ -154,6 +151,9 @@ def sprint4(run, operator, chief, verify_login_rate_limit=False):
     api('GET', f'/tickets/{unknown}/eta', status=404)
     api('GET', '/tickets/invalid/eta', status=400)
     api('POST', f'/branches/{unknown}/tickets/qr', {'serviceId': SERVICE}, key=str(uuid.uuid4()), status=404)
+    api('POST', '/auth/logout', token=operator)
+    api('GET', '/auth/me', token=operator, status=401)
+    api('POST', '/auth/logout', token=chief)
     print(f'Sprint 4 Run {run}: PASS; concurrent CallNext 10/10', flush=True)
 
 def restart():
@@ -194,13 +194,8 @@ def main():
                 print(sprint + ': PASS', flush=True)
         finally:
             api('POST','/auth/logout',token=token)
-    operator, chief = login('OPERATOR'), login('CHIEF')
-    try:
-        for run in range(1,args.runs+1):
-            sprint4(run, operator, chief, verify_login_rate_limit=(run == 1))
-    finally:
-        api('POST', '/auth/logout', token=operator)
-        api('POST', '/auth/logout', token=chief)
+    for run in range(1,args.runs+1):
+        sprint4(run)
     if args.restart:
         restart()
 

@@ -3,7 +3,6 @@ module postcode/backend
 go 1.25.0
 
 require (
-	github.com/SherClockHolmes/webpush-go v1.4.0
 	github.com/go-chi/chi/v5 v5.2.3
 	github.com/golang-migrate/migrate/v4 v4.18.2
 	github.com/jackc/pgx/v5 v5.7.4
@@ -12,7 +11,6 @@ require (
 require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect

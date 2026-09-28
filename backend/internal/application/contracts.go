@@ -10,16 +10,16 @@ import (
 )
 
 var (
-	ErrNotFound               = errors.New("not found")
-	ErrInvalidState           = errors.New("invalid state")
-	ErrWindowClosed           = fmt.Errorf("window closed: %w", ErrInvalidState)
-	ErrWindowBusy             = errors.New("window busy")
-	ErrNoEligibleTickets      = errors.New("no eligible tickets")
-	ErrNotEligibleYet         = errors.New("not eligible yet")
+	ErrNotFound            = errors.New("not found")
+	ErrInvalidState        = errors.New("invalid state")
+	ErrWindowClosed        = fmt.Errorf("window closed: %w", ErrInvalidState)
+	ErrWindowBusy          = errors.New("window busy")
+	ErrNoEligibleTickets   = errors.New("no eligible tickets")
+	ErrNotEligibleYet      = errors.New("not eligible yet")
 	ErrNoOpenCompatibleWindow = errors.New("no open compatible window")
-	ErrIdempotencyConflict    = errors.New("idempotency conflict")
-	ErrForbidden              = errors.New("forbidden")
-	ErrUnauthorized           = errors.New("unauthorized")
+	ErrIdempotencyConflict = errors.New("idempotency conflict")
+	ErrForbidden           = errors.New("forbidden")
+	ErrUnauthorized        = errors.New("unauthorized")
 )
 
 type CreateQRTicketCommand struct {
@@ -44,13 +44,11 @@ type CreateLiveTicketResult struct {
 }
 
 type CreateAppointmentCommand struct {
-	BranchID          string
-	ServiceID         string
-	ScheduledAt       time.Time
-	IdempotencyKey    string
-	ClientID          *string
-	NotificationEmail string
-	NotificationPhone string
+	BranchID       string
+	ServiceID      string
+	ScheduledAt    time.Time
+	IdempotencyKey string
+	ClientID       *string
 }
 
 // UpdateWindowServicesCommand replaces the set of services a postal window is
@@ -138,6 +136,7 @@ type ReportIncidentCommand struct {
 	Category    string
 	Description string
 }
+
 
 var ErrPolicyVersionConflict = errors.New("queue policy version conflict")
 

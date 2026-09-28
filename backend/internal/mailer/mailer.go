@@ -32,9 +32,6 @@ func ConfigFromEnv() Config {
 		port = "465"
 	}
 	user := strings.TrimSpace(os.Getenv("SMTP_USER"))
-	if user == "" {
-		user = strings.TrimSpace(os.Getenv("SMTP_USERNAME"))
-	}
 	pass := strings.TrimSpace(os.Getenv("SMTP_PASSWORD"))
 	from := strings.TrimSpace(os.Getenv("SMTP_FROM"))
 	if from == "" {
@@ -63,31 +60,8 @@ type Mailer struct {
 	cfg Config
 }
 
-var ErrNotConfigured = fmt.Errorf("smtp is not configured")
-
 func New(cfg Config) *Mailer {
 	return &Mailer{cfg: cfg}
-}
-
-// SendAppointmentConfirmation sends a compact multipart confirmation after the
-// outbox worker claims an appointment delivery. It never runs in a booking transaction.
-func (m *Mailer) SendAppointmentConfirmation(ctx context.Context, to, number, scheduledAt, service, branch, address string) error {
-	if m.cfg.User == "" || m.cfg.Password == "" || m.cfg.Host == "" {
-		return ErrNotConfigured
-	}
-	to = strings.TrimSpace(strings.ToLower(to))
-	if to == "" || !strings.Contains(to, "@") {
-		return fmt.Errorf("invalid recipient")
-	}
-	plain := fmt.Sprintf("Подтверждение записи — Почта России\n\nНомер: %s\nДата и время: %s\nУслуга: %s\nОтделение: %s\nАдрес: %s\n\nПожалуйста, приходите за несколько минут до записи.", number, scheduledAt, service, branch, address)
-	html := fmt.Sprintf("<html><body><h2>Подтверждение записи — Почта России</h2><p><b>Номер:</b> %s</p><p><b>Дата и время:</b> %s</p><p><b>Услуга:</b> %s</p><p><b>Отделение:</b> %s<br><b>Адрес:</b> %s</p><p>Пожалуйста, приходите за несколько минут до записи.</p></body></html>", number, scheduledAt, service, branch, address)
-	boundary := fmt.Sprintf("pochta-%d", time.Now().UnixNano())
-	raw := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: =?UTF-8?B?0J/QvtC00YLQstC10YDQttC00LXQvdC40LUg0LfQsNC/0LjRgdC4IOKAlCDQn9C+0YfRgtCwINCg0L7RgdGB0LjQuA==?=\r\nMIME-Version: 1.0\r\nContent-Type: multipart/alternative; boundary=\"%s\"\r\n\r\n--%s\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n%s\r\n--%s\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n%s\r\n--%s--\r\n", m.cfg.From, to, boundary, boundary, plain, boundary, html, boundary)
-	addr := net.JoinHostPort(m.cfg.Host, m.cfg.Port)
-	if err := smtp.SendMail(addr, smtp.PlainAuth("", m.cfg.User, m.cfg.Password, m.cfg.Host), m.cfg.User, []string{to}, []byte(raw)); err != nil {
-		return fmt.Errorf("smtp send: %w", err)
-	}
-	return nil
 }
 
 func (m *Mailer) SendConfirmationEmail(ctx context.Context, toEmail, code, token, customBaseURL string) error {

@@ -128,8 +128,6 @@ type CreateAppointmentRequest struct {
 	BranchID    string `json:"branchId"`
 	ServiceID   string `json:"serviceId"`
 	ScheduledAt string `json:"scheduledAt"`
-	Email       string `json:"email,omitempty"`
-	Phone       string `json:"phone,omitempty"`
 }
 
 type AppointmentResponse struct {
@@ -175,13 +173,11 @@ func (a *API) CreateAppointment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result, err := a.usecases.CreateAppointment(r.Context(), application.CreateAppointmentCommand{
-		BranchID:          branchID,
-		ServiceID:         req.ServiceID,
-		ScheduledAt:       scheduledAt,
-		IdempotencyKey:    idempotencyKey,
-		ClientID:          clientID,
-		NotificationEmail: strings.TrimSpace(req.Email),
-		NotificationPhone: strings.TrimSpace(req.Phone),
+		BranchID:       branchID,
+		ServiceID:      req.ServiceID,
+		ScheduledAt:    scheduledAt,
+		IdempotencyKey: idempotencyKey,
+		ClientID:       clientID,
 	})
 	if err != nil {
 		if errors.Is(err, application.ErrInvalidState) {

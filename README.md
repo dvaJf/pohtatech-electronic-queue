@@ -289,12 +289,6 @@ API системы стандартизировано по спецификац�
 
 PostCode Challenge 2026 • Команда «5 указателей»
 
-## Multi-channel notifications
-
-Notification delivery uses the existing Transactional Outbox: a queue event creates per-recipient rows, and the worker dispatches Telegram, Web Push, SMS and email after commit. Telegram uses a 256-bit, hashed, one-time 15-minute binding token and validates webhook requests with `TELEGRAM_WEBHOOK_SECRET`. Browser permission is requested only from the ticket-card button; `public/sw.js` handles push display and click focus.
-
-SMS supports the configured Android Gateway, SMS Aero or SMS.ru adapters; without credentials it is a **DEMO SMS ADAPTER**. SMTP delivery requires SMTP configuration; otherwise email is sent to the configured demo receiver. Configure `TELEGRAM_*`, `WEB_PUSH_VAPID_*`, and `SMTP_*` in the environment. Provider credentials and private destinations are never included in application logs.
-
 
 ## Подготовка к финалу
 

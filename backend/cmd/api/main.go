@@ -18,6 +18,7 @@ import (
 	"postcode/backend/internal/notification"
 	"postcode/backend/internal/observability"
 	"postcode/backend/internal/persistence"
+	"postcode/backend/internal/sms"
 )
 
 func main() { os.Exit(run()) }
@@ -150,11 +151,37 @@ func run() int {
 		}
 	}()
 
-	// Background notification outbox worker. Individual optional adapters decide
-	// whether they are configured; an absent demo receiver must not disable SMTP,
-	// Telegram, or Web Push.
-	{
-		sender := notification.NewMultiSender(cfg.NotificationProviderURL, cfg.NotificationTimeout)
+	// Background SMS reminder worker: dispatch reminders 30m prior to appointment
+	smsClient := sms.NewClient(logger)
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				remCtx, remCancel := context.WithTimeout(ctx, 10*time.Second)
+				reminders, err := usecases.FindPendingSMSAppointments(remCtx, 35)
+				if err == nil {
+					for _, rem := range reminders {
+						msg := fmt.Sprintf("Напоминание: у вас запись в Почту России (%s) через 30 минут. Талон: %s", rem.BranchName, rem.PublicNumber)
+						if sendErr := smsClient.Send(remCtx, rem.Phone, msg); sendErr == nil {
+							_ = usecases.MarkSMSAppointmentReminderSent(remCtx, rem.TicketID)
+							logger.Info("SMS appointment reminder sent", "ticket_id", rem.TicketID, "phone", rem.Phone)
+						} else {
+							logger.Warn("Failed to send appointment reminder SMS", "ticket_id", rem.TicketID, "error", sendErr)
+						}
+					}
+				}
+				remCancel()
+			}
+		}
+	}()
+
+	// Background notification outbox worker
+	if cfg.NotificationProviderURL != "" {
+		sender := notification.NewHTTPSender(cfg.NotificationProviderURL, cfg.NotificationTimeout)
 		workerCfg := notification.WorkerConfig{
 			PollInterval:   cfg.NotificationRetryInterval,
 			InitialBackoff: cfg.NotificationRetryInterval,
@@ -169,6 +196,8 @@ func run() int {
 			"poll_interval", cfg.NotificationRetryInterval,
 			"max_attempts", cfg.NotificationMaxAttempts,
 		)
+	} else {
+		logger.Info("Notification subsystem disabled (NOTIFICATION_PROVIDER_URL empty)")
 	}
 
 	server := &http.Server{Addr: ":" + cfg.HTTPPort, Handler: httpapi.NewRouter(pool, usecases, logger, cfg.AllowedOrigin), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}

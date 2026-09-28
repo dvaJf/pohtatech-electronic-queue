@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as api from '../../api/client/clientApi';
 import { getMe } from '../../api/authApi';
-import { Appointment, Branch, Service, Ticket, TicketStatus, TicketSource, QueuePosition, TicketETA, NotificationCapabilities, NotificationChannel, NotificationSubscription } from '../../api/client/types';
-import { CalendarClock, Ticket as TicketIcon, ListChecks, ChevronLeft, ChevronRight, MapPin, Clock, Check, Sparkles, Building2, AlertCircle, CheckCircle2, Navigation, X, Search, Zap, Star, Loader2, MapPinOff, Bell, Send, MessageCircle, Mail } from 'lucide-react';
+import { Appointment, Branch, Service, Ticket, TicketStatus, TicketSource, QueuePosition, TicketETA } from '../../api/client/types';
+import { CalendarClock, Ticket as TicketIcon, ListChecks, ChevronLeft, ChevronRight, MapPin, Clock, Check, Sparkles, Building2, AlertCircle, CheckCircle2, Navigation, X, Search, Zap, Star, Loader2, MapPinOff } from 'lucide-react';
 import './client.css';
 import './kiosk.css';
 import { formatMoscowDateTime, parseMoscowDatetimeLocal, toMoscowDatetimeLocal } from '../../utils/time';
@@ -20,8 +20,6 @@ import { updateNearbyVisits, dismissNearbyVisit, type NearbyVisitState } from '.
 import { VisitRatingSheet } from './rating/VisitRatingSheet';
 import { shouldOfferVisitRating } from './rating/visitRatingPolicy';
 import { BRANCH_PAGE_SIZES, BranchPage, BranchPageSize, getLandmarkPresentation, paginateBranches } from './branchOptions';
-
-// calculateSmartRouting is the product-level routing policy represented by smartRouting below.
 
 const POLL_INTERVAL_MS = 2000;
 const terminalStatuses = new Set<TicketStatus>(['COMPLETED', 'CANCELLED', 'NO_SHOW']);
@@ -108,25 +106,6 @@ function friendlyError(error: unknown, fallback: string): string {
 
 function StatusBadge({ status, source }: { status: TicketStatus; source?: TicketSource }) {
   return <span className={`cx-badge cx-badge-${status.toLowerCase()}`}>{statusMessage(status, source)}</span>;
-}
-
-function NotificationControls({ ticket }: { ticket: Ticket }) {
-  const [phone, setPhone] = useState(''); const [email, setEmail] = useState(''); const [notice, setNotice] = useState(''); const [busy, setBusy] = useState<string | null>(null);
-  const [subscriptions, setSubscriptions] = useState<NotificationSubscription[]>([]);
-  const [capabilities, setCapabilities] = useState<NotificationCapabilities | null>(null);
-  const token = ticket.managementToken || undefined;
-  const refresh = useCallback(async () => { try { const [caps, items] = await Promise.all([api.getNotificationCapabilities(), token ? api.listNotificationSubscriptions(ticket.id, token) : Promise.resolve([])]); setCapabilities(caps); setSubscriptions(items); } catch { setNotice('Не удалось обновить статус уведомлений'); } }, [ticket.id, token]);
-  useEffect(() => { void refresh(); }, [refresh]);
-  const connected = (channel: NotificationChannel) => subscriptions.find(item => item.channel === channel && item.enabled);
-  const disconnect = async (channel: NotificationChannel) => { const item = connected(channel); if (!item) return; setBusy(channel); try { await api.removeNotificationSubscription(ticket.id, channel, item.id, token); await refresh(); } catch (e) { setNotice(friendlyError(e, 'Не удалось отключить уведомления')); } finally { setBusy(null); } };
-  const telegram = async () => { setBusy('TELEGRAM'); try { const url = await api.telegramLink(ticket.id, token); window.open(url, '_blank', 'noopener,noreferrer'); setNotice('Откройте Telegram и отправьте команду /start. Статус обновится автоматически.'); } catch (e) { setNotice(friendlyError(e, 'Не удалось подключить Telegram')); } finally { setBusy(null); } };
-  const save = async (channel: 'SMS' | 'EMAIL', value: string) => { const valid = channel === 'SMS' ? /^(?:\+7|7|8)\D*\d/.test(value) : /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value); if (!valid) { setNotice(channel === 'SMS' ? 'Введите корректный номер телефона.' : 'Введите корректный email.'); return; } setBusy(channel); try { await api.saveNotificationSubscription(ticket.id, channel, value, token); await refresh(); } catch (e) { setNotice(friendlyError(e, 'Не удалось сохранить уведомления')); } finally { setBusy(null); } };
-  const push = async () => { if (!('serviceWorker' in navigator) || !('PushManager' in window)) { setNotice('Этот браузер не поддерживает системные уведомления.'); return; } if (Notification.permission === 'denied') { setNotice('Уведомления запрещены в настройках браузера.'); return; } const key = import.meta.env.VITE_WEB_PUSH_VAPID_PUBLIC_KEY as string | undefined; if (!capabilities?.webPush.enabled || !key) { setNotice('Уведомления браузера временно недоступны.'); return; } setBusy('WEB_PUSH'); try { if (await Notification.requestPermission() !== 'granted') { setNotice('Уведомления запрещены в настройках браузера.'); return; } const reg = await navigator.serviceWorker.ready; const bytes = Uint8Array.from(atob(key.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0)); const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: bytes }); await api.saveNotificationSubscription(ticket.id, 'WEB_PUSH', JSON.stringify(sub), token); await refresh(); } catch { setNotice('Не удалось включить уведомления браузера. Повторите попытку.'); } finally { setBusy(null); } };
-  const action = (channel: NotificationChannel, label: string, onClick: () => void, unavailable = false) => connected(channel) ? <button type="button" className="cx-notification-link" disabled={busy !== null} onClick={() => disconnect(channel)}>Отключить</button> : <button type="button" className="cx-btn cx-btn-secondary" disabled={busy !== null || unavailable} onClick={onClick}>{busy === channel ? <Loader2 className="w-4 h-4 animate-spin" /> : label}</button>;
-  const row = (icon: React.ReactNode, title: string, description: string, channel: NotificationChannel, content: React.ReactNode, unavailable?: string) => <div className="cx-notification-row"><div className="cx-notification-icon">{icon}</div><div className="cx-notification-main"><strong>{title}</strong><p>{connected(channel) ? `✓ ${connected(channel)?.destination || 'Подключено'}` : unavailable || description}</p>{content}</div></div>;
-  const smsForm = <div className="cx-notification-form"><label className="sr-only" htmlFor={`sms-${ticket.id}`}>Номер телефона для SMS</label><input id={`sms-${ticket.id}`} value={phone} onChange={e => setPhone(e.target.value)} placeholder="+7 999 000-00-00"/><button type="button" className="cx-btn cx-btn-secondary" disabled={busy !== null} onClick={() => save('SMS', phone)}>{busy === 'SMS' ? <Loader2 className="w-4 h-4 animate-spin"/> : 'Подключить SMS'}</button></div>;
-  const emailForm = <div className="cx-notification-form"><label className="sr-only" htmlFor={`email-${ticket.id}`}>Email для подтверждения записи</label><input id={`email-${ticket.id}`} type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="name@example.com"/><button type="button" className="cx-btn cx-btn-secondary" disabled={busy !== null} onClick={() => save('EMAIL', email)}>{busy === 'EMAIL' ? <Loader2 className="w-4 h-4 animate-spin"/> : 'Получить подтверждение'}</button></div>;
-  return <section className="cx-notifications" aria-label="Уведомления по талону"><div className="cx-notifications-heading"><Bell size={18}/><div><h3>Уведомления</h3><p>Сообщим, когда очередь приблизится или вас вызовут к окну.</p></div></div>{row(<Send size={18}/>, 'Telegram', 'Получать сообщения о движении очереди.', 'TELEGRAM', action('TELEGRAM', 'Подключить Telegram', telegram, !capabilities?.telegram.enabled), capabilities && !capabilities.telegram.enabled ? 'Telegram временно недоступен.' : undefined)}{row(<Bell size={18}/>, 'Уведомления браузера', 'Системные уведомления даже при свёрнутой вкладке.', 'WEB_PUSH', action('WEB_PUSH', 'Включить', push, !capabilities?.webPush.enabled), capabilities && !capabilities.webPush.enabled ? 'Уведомления браузера временно недоступны.' : undefined)}{row(<MessageCircle size={18}/>, 'SMS', capabilities?.sms.mode === 'demo' ? 'Демонстрационный режим: сообщения не отправляются на телефон.' : 'Уведомление перед записью и при приближении очереди.', 'SMS', connected('SMS') ? action('SMS', '', () => {}) : smsForm)}{ticket.source === 'APPOINTMENT' && row(<Mail size={18}/>, 'Email', capabilities?.email.mode === 'demo' ? 'Email доступен только в демонстрационном режиме.' : 'Подтверждение предварительной записи.', 'EMAIL', connected('EMAIL') ? action('EMAIL', '', () => {}) : emailForm)}{notice && <p className="cx-notification-status" role="status" aria-live="polite">{notice}</p>}</section>;
 }
 
 function ErrorBanner({ message, onClose }: { message: string; onClose: () => void }) {
@@ -2264,8 +2243,6 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                         </div>
                       )}
                     </div>
-
-                    {!terminalStatuses.has(ticket.status) && <NotificationControls ticket={ticket} />}
 
                     {ticket.status === 'SCHEDULED' && ticket.source === 'APPOINTMENT' && (
                       <div className="p-3 my-2 rounded-2xl bg-blue-50/80 border border-blue-200/70 text-xs text-[#003B73] flex items-center gap-2">

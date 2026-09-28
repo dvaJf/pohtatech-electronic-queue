@@ -6,63 +6,6 @@ info:
 servers:
   - url: /api/v1
 paths:
-  /auth/confirm-code:
-    post: { summary: Confirm email by code, responses: { '200': { description: Confirmed } } }
-  /auth/resend-code:
-    post: { summary: Resend email confirmation code, responses: { '200': { description: Code resent } } }
-  /auth/profile/phone/send-code:
-    post: { summary: Send phone verification code, responses: { '200': { description: Code sent } } }
-  /auth/profile/phone/verify-code:
-    post: { summary: Verify phone code, responses: { '200': { description: Phone verified } } }
-  /auth/oauth/{provider}/login:
-    get:
-      summary: Start OAuth login
-      parameters: [{ name: provider, in: path, required: true, schema: { type: string } }]
-      responses: { '302': { description: Redirect } }
-  /auth/oauth/{provider}/callback:
-    get:
-      summary: OAuth callback
-      parameters: [{ name: provider, in: path, required: true, schema: { type: string } }]
-      responses: { '302': { description: Redirect } }
-  /notification-capabilities:
-    get:
-      summary: Available notification provider modes
-      responses: { '200': { description: Provider capabilities } }
-  /tickets/{ticketId}/notifications:
-    get:
-      summary: List masked notification subscriptions for a ticket
-      parameters:
-        - { name: ticketId, in: path, required: true, schema: { type: string, format: uuid } }
-        - { name: X-Ticket-Manage-Token, in: header, required: true, schema: { type: string } }
-      responses: { '200': { description: Subscriptions }, '403': { $ref: '#/components/responses/Forbidden' } }
-  /tickets/{ticketId}/notifications/telegram/link:
-    post:
-      summary: Create one-time Telegram deep link
-      parameters:
-        - { name: ticketId, in: path, required: true, schema: { type: string, format: uuid } }
-        - { name: X-Ticket-Manage-Token, in: header, required: true, schema: { type: string } }
-      responses: { '201': { description: Deep link created }, '403': { $ref: '#/components/responses/Forbidden' } }
-  /tickets/{ticketId}/notifications/{channel}:
-    put:
-      summary: Enable SMS, email, or Web Push delivery for a ticket
-      parameters:
-        - { name: ticketId, in: path, required: true, schema: { type: string, format: uuid } }
-        - { name: channel, in: path, required: true, schema: { type: string, enum: [SMS, EMAIL, WEB_PUSH] } }
-        - { name: X-Ticket-Manage-Token, in: header, required: true, schema: { type: string } }
-      responses: { '200': { description: Subscription saved }, '403': { $ref: '#/components/responses/Forbidden' } }
-  /tickets/{ticketId}/notifications/{channel}/{subscriptionId}:
-    delete:
-      summary: Disable a ticket notification subscription
-      parameters:
-        - { name: ticketId, in: path, required: true, schema: { type: string, format: uuid } }
-        - { name: channel, in: path, required: true, schema: { type: string, enum: [TELEGRAM, SMS, EMAIL, WEB_PUSH] } }
-        - { name: subscriptionId, in: path, required: true, schema: { type: string, format: uuid } }
-        - { name: X-Ticket-Manage-Token, in: header, required: true, schema: { type: string } }
-      responses: { '204': { description: Subscription disabled }, '403': { $ref: '#/components/responses/Forbidden' } }
-  /integrations/telegram/webhook:
-    post:
-      summary: Telegram integration webhook; validates X-Telegram-Bot-Api-Secret-Token
-      responses: { '200': { description: Update accepted }, '401': { description: Invalid webhook secret } }
   /branches/{branchId}/windows:
     $ref: '#/paths/~1admin~1branches~1{branchId}~1windows'
   /windows/{windowId}:
@@ -2204,3 +2147,4 @@ components:
         createdAt:
           type: string
           format: date-time
+

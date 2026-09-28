@@ -1,6 +1,5 @@
 import React from 'react';
-import { Calendar, Clock } from 'lucide-react';
-import { YandexIcon } from '../../../components/common/YandexIcon';
+import { Calendar } from 'lucide-react';
 import type { DayScheduleItem } from './branchSchedule';
 import { getMoscowTimeComponents } from '../../../utils/workload';
 
@@ -28,10 +27,6 @@ export function WeeklyScheduleView({
         <div className="flex items-center gap-1.5 text-xs font-extrabold text-[#031E56]">
           <Calendar size={13} className="text-[#052F85]" />
           <span>Расписание на неделю</span>
-        </div>
-        <div className="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-500 bg-white px-2 py-0.5 rounded-full border border-slate-200 shadow-2xs">
-          <YandexIcon size={10} className="shrink-0" />
-          <span>Яндекс Карты</span>
         </div>
       </div>
 
@@ -81,11 +76,6 @@ export function WeeklyScheduleView({
             </div>
           );
         })}
-      </div>
-
-      <div className="pt-1 text-[10px] text-slate-400 flex items-center justify-between">
-        <span>Время работы указано по МСК</span>
-        <span className="text-emerald-700 font-bold">Официальное расписание</span>
       </div>
     </div>
   );

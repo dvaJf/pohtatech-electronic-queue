@@ -109,14 +109,21 @@ test('BranchMapModal and ClientWorkspace sort closed branches below open branche
   assert.match(workspaceSource, /Отделение закрыто\s*\{scheduleStatus\.closedUntilText\}/);
 });
 
-test('WeeklyScheduleView renders 7-day schedule with shortened days and day off markers', async () => {
+test('WeeklyScheduleView renders 7-day schedule with shortened days and day off markers without redundant badges', async () => {
   const scheduleSource = await readFile(new URL('../src/features/client/map/WeeklyScheduleView.tsx', import.meta.url), 'utf8');
 
   // Badges and text
   assert.match(scheduleSource, /Расписание на неделю/);
-  assert.match(scheduleSource, /Яндекс Карты/);
   assert.match(scheduleSource, /Сегодня/);
   assert.match(scheduleSource, /Сокращённый/);
   assert.match(scheduleSource, /Выходной/);
-  assert.match(scheduleSource, /Официальное расписание/);
+
+  // Redundant badges from screenshots 3 & 4 removed
+  assert.doesNotMatch(scheduleSource, /Яндекс Карты/);
+  assert.doesNotMatch(scheduleSource, /Официальное расписание/);
+});
+
+test('DetailedBranchCard hides waiting count and queue time when branch is closed', async () => {
+  const modalSource = await readFile(new URL('../src/features/client/map/BranchMapModal.tsx', import.meta.url), 'utf8');
+  assert.match(modalSource, /!scheduleStatus\.isClosed\s*&&\s*\(\(\)\s*=>/);
 });

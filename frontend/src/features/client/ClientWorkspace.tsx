@@ -22,6 +22,7 @@ import { VisitRatingSheet } from './rating/VisitRatingSheet';
 import { shouldOfferVisitRating } from './rating/visitRatingPolicy';
 import { BRANCH_PAGE_SIZES, BranchPage, BranchPageSize, getLandmarkPresentation, paginateBranches } from './branchOptions';
 import { saveClientServiceRecord, resolveOperatorName } from './serviceHistory';
+import { YandexIcon } from '../../components/common/YandexIcon';
 
 // calculateSmartRouting is the product-level routing policy represented by smartRouting below.
 
@@ -426,6 +427,12 @@ function BranchCard({
             <span>Ближайшее к вам</span>
           </span>
         )}
+        {location?.rating && location.rating > 0 ? (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-800" title="Рейтинг Яндекс Карт">
+            <YandexIcon size={11} className="shrink-0" />
+            <span>{location.rating.toFixed(1)} · Яндекс Карты</span>
+          </span>
+        ) : null}
         {ratingAverage !== null && typeof ratingAverage === 'number' ? (
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700">
             <Star size={10} className="fill-amber-400 text-amber-400" />

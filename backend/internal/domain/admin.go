@@ -3,12 +3,12 @@ package domain
 import "time"
 
 type AdminMetrics struct {
-	WaitingClientsCount int `json:"waitingClientsCount"`
-	AvgWaitTimeMinutes  int `json:"avgWaitTimeMinutes"`
-	MaxWaitTimeMinutes  int `json:"maxWaitTimeMinutes"`
-	ServedTodayCount    int `json:"servedTodayCount"`
-	ActiveWindowsCount  int `json:"activeWindowsCount"`
-	TotalWindowsCount   int `json:"totalWindowsCount"`
+	WaitingClientsCount int      `json:"waitingClientsCount"`
+	AvgWaitTimeMinutes  int      `json:"avgWaitTimeMinutes"`
+	MaxWaitTimeMinutes  int      `json:"maxWaitTimeMinutes"`
+	ServedTodayCount    int      `json:"servedTodayCount"`
+	ActiveWindowsCount  int      `json:"activeWindowsCount"`
+	TotalWindowsCount   int      `json:"totalWindowsCount"`
 	P90WaitMinutes      *float64 `json:"p90WaitMinutes,omitempty"`
 }
 
@@ -36,7 +36,7 @@ type AdminQueueTicket struct {
 
 type OperatorQueue struct {
 	Items []AdminQueueTicket `json:"items"`
-	Total int `json:"total"`
+	Total int                `json:"total"`
 }
 
 type PriorityRule struct {
@@ -71,30 +71,30 @@ type AnomalyPage struct {
 }
 
 type AdminBranchOverview struct {
-	BranchID   string             `json:"branchId"`
-	BranchName string             `json:"branchName"`
-	Metrics    AdminMetrics       `json:"metrics"`
-	Windows    []AdminWindow      `json:"windows"`
-	Queue      []AdminQueueTicket `json:"queue"`
-	Priorities []PriorityRule     `json:"priorities"`
-	Anomalies  []AnomalyTicket    `json:"anomalies"`
+	BranchID             string                `json:"branchId"`
+	BranchName           string                `json:"branchName"`
+	Metrics              AdminMetrics          `json:"metrics"`
+	Windows              []AdminWindow         `json:"windows"`
+	Queue                []AdminQueueTicket    `json:"queue"`
+	Priorities           []PriorityRule        `json:"priorities"`
+	Anomalies            []AnomalyTicket       `json:"anomalies"`
+	Quality              BranchQuality         `json:"quality"`
 	WindowRecommendation *WindowRecommendation `json:"windowRecommendation,omitempty"`
 }
 
 type WindowRecommendation struct {
-	RecommendedCount int `json:"recommendedCount"`
-	Reason string `json:"reason"`
-	Severity string `json:"severity"`
-	P90WaitMinutes float64 `json:"p90WaitMinutes"`
+	RecommendedCount int     `json:"recommendedCount"`
+	Reason           string  `json:"reason"`
+	Severity         string  `json:"severity"`
+	P90WaitMinutes   float64 `json:"p90WaitMinutes"`
 }
 
 type OperatorIncident struct {
-	ID          string     `json:"id"`
-	BranchID    string     `json:"branchId"`
-	WindowID    *string    `json:"windowId,omitempty"`
-	OperatorID  *string    `json:"operatorId,omitempty"`
-	Category    string     `json:"category"`
-	Description string     `json:"description"`
-	CreatedAt   time.Time  `json:"createdAt"`
+	ID          string    `json:"id"`
+	BranchID    string    `json:"branchId"`
+	WindowID    *string   `json:"windowId,omitempty"`
+	OperatorID  *string   `json:"operatorId,omitempty"`
+	Category    string    `json:"category"`
+	Description string    `json:"description"`
+	CreatedAt   time.Time `json:"createdAt"`
 }
-

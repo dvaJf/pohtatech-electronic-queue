@@ -21,7 +21,7 @@ func (a *API) ListBranches(w http.ResponseWriter, r *http.Request) {
 	}
 	res := ListBranchesResponse{Items: make([]BranchDTO, len(branches))}
 	for i, b := range branches {
-		res.Items[i] = BranchDTO{ID: b.ID, Name: b.Name, Address: b.Address, WorkHours: b.WorkHours, TimezoneOffset: b.TimezoneOffset, Latitude: b.Latitude, Longitude: b.Longitude, IsDemo: b.IsDemo}
+		res.Items[i] = BranchDTO{ID: b.ID, Name: b.Name, Address: b.Address, WorkHours: b.WorkHours, TimezoneOffset: b.TimezoneOffset, Latitude: b.Latitude, Longitude: b.Longitude, IsDemo: b.IsDemo, RatingAverage: b.RatingAverage, RatingCount: b.RatingCount}
 	}
 	writeJSONResponse(w, http.StatusOK, res)
 }
@@ -83,6 +83,26 @@ func (a *API) GetTicket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSONResponse(w, http.StatusOK, mapTicket(ticket))
+}
+
+type SubmitFeedbackRequest struct {
+	Rating  int    `json:"rating"`
+	Comment string `json:"comment"`
+}
+
+// SubmitFeedback accepts no branch id: a protected completed ticket determines it.
+func (a *API) SubmitFeedback(w http.ResponseWriter, r *http.Request) {
+	var req SubmitFeedbackRequest
+	if err := decodeRequest(r, &req); err != nil || req.Rating < 1 || req.Rating > 5 || len([]rune(req.Comment)) > 500 {
+		writeJSONError(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "rating must be from 1 to 5; comment is at most 500 characters")
+		return
+	}
+	ctx := persistence.WithManagementToken(r.Context(), r.Header.Get("X-Ticket-Manage-Token"))
+	if err := a.usecases.SubmitFeedback(ctx, chi.URLParam(r, "ticketId"), req.Rating, strings.TrimSpace(req.Comment)); err != nil {
+		a.respondError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 type CreateLiveTicketRequest struct {

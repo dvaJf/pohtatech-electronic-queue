@@ -105,6 +105,18 @@ export interface AdminBranchOverview {
   queue: AdminQueueTicket[];
   priorities: PriorityRule[];
   anomalies: AnomalyTicket[];
+  quality: {
+    ratingAverage: number | null;
+    ratingCount: number;
+    current30Average: number | null;
+    current30Count: number;
+    previous30Average: number | null;
+    previous30Count: number;
+    delta: number | null;
+    distribution: Record<'1' | '2' | '3' | '4' | '5', number>;
+    lowRatingCount: number;
+    recentFeedback: Array<{ rating: number; comment: string; createdAt: string }>;
+  };
   windowRecommendation?: {
     recommendedCount: number;
     reason: string;

@@ -111,33 +111,21 @@ function getCompletedTicketMetadata(ticket: Ticket) {
   };
 }
 
-interface VisitRatingRecord {
-  ticketId: string;
-  rating: number;
-  comment: string;
-  branchId: string;
-  submittedAt: string;
-}
-
 interface VisitRatingHistory {
   pending: Ticket[];
-  reviewed: string[];
   dismissed: string[];
-  ratings: VisitRatingRecord[];
 }
 
 function visitRatingKeyFor(scope: string): string { return `${STORAGE_VISIT_RATINGS_KEY}:${scope}`; }
 
 function getVisitRatingHistory(scope: string): VisitRatingHistory {
-  const empty: VisitRatingHistory = { pending: [], reviewed: [], dismissed: [], ratings: [] };
+  const empty: VisitRatingHistory = { pending: [], dismissed: [] };
   try {
     const value = JSON.parse(localStorage.getItem(visitRatingKeyFor(scope)) || 'null');
     if (!value || typeof value !== 'object') return empty;
     return {
       pending: Array.isArray(value.pending) ? value.pending.filter((item: Ticket) => item?.status === 'COMPLETED' && typeof item.id === 'string') : [],
-      reviewed: Array.isArray(value.reviewed) ? value.reviewed.filter((id: unknown): id is string => typeof id === 'string') : [],
       dismissed: Array.isArray(value.dismissed) ? value.dismissed.filter((id: unknown): id is string => typeof id === 'string') : [],
-      ratings: Array.isArray(value.ratings) ? value.ratings : [],
     };
   } catch { return empty; }
 }
@@ -321,7 +309,8 @@ interface BranchCardProps {
   isClosest?: boolean;
   timeSavedMinutes?: number;
   location?: BranchLocation;
-  rating?: number;
+  ratingAverage?: number | null;
+  ratingCount?: number;
 }
 
 interface RecommendationListBranch {
@@ -387,7 +376,7 @@ function BranchCard({
   isClosest,
   timeSavedMinutes,
   location,
-  rating,
+  ratingAverage, ratingCount,
 }: BranchCardProps) {
   const [photoFailed, setPhotoFailed] = useState(false);
   const photoUrl = location?.photos?.[0];
@@ -437,12 +426,12 @@ function BranchCard({
             <span>Ближайшее к вам</span>
           </span>
         )}
-        {rating && (
+        {ratingAverage !== null && typeof ratingAverage === 'number' ? (
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700">
             <Star size={10} className="fill-amber-400 text-amber-400" />
-            <span>{rating.toFixed(1)} · Яндекс Карты</span>
+            <span>{ratingAverage.toFixed(1)} · {ratingCount ?? 0} оценок</span>
           </span>
-        )}
+        ) : <span className="text-[10px] font-semibold text-slate-500">Нет оценок</span>}
       </div>
 
       <div className="flex items-start justify-between gap-2 w-full">
@@ -1051,7 +1040,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
       const waitMin = isUsableDurationMinutes(rawWaitMin, MAX_QUEUE_WAIT_MINUTES) ? rawWaitMin : undefined;
       const totalMin = calculateBranchTotalTime(travelMin, waitMin);
       return { ...b, loc, distanceMeters: dMeters, travelMinutes: travelMin,
-        waitMinutes: waitMin, totalMinutes: totalMin, metro: loc?.metro, rating: loc?.rating };
+        waitMinutes: waitMin, totalMinutes: totalMin, metro: loc?.metro };
     });
 
     const sortedByDist = list.filter(b => b.distanceMeters !== undefined).sort((a, b) => a.distanceMeters! - b.distanceMeters!);
@@ -1259,7 +1248,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
         } else {
           if (nextTicket.status === 'COMPLETED') {
             const history = getVisitRatingHistory(scope);
-            if (shouldOfferVisitRating(nextTicket.status, nextTicket.id, history.reviewed, history.dismissed)
+            if (shouldOfferVisitRating(nextTicket.status, nextTicket.id, [], history.dismissed)
                 && !history.pending.some(item => item.id === nextTicket.id)) {
               history.pending = [...history.pending, nextTicket];
               saveVisitRatingHistory(scope, history);
@@ -1529,14 +1518,18 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
     return () => window.clearTimeout(timer);
   }, [kiosk, kioskTicket]);
 
-  const finishVisitRating = (kind: 'reviewed' | 'dismissed', rating?: number, comment = '') => {
+  const finishVisitRating = async (kind: 'reviewed' | 'dismissed', rating?: number, comment = '') => {
     const ticket = visitRatingQueue[0];
     if (!ticket) return;
     const history = getVisitRatingHistory(ownerScope);
     history.pending = history.pending.filter(item => item.id !== ticket.id);
     if (kind === 'reviewed' && typeof rating === 'number') {
-      if (!history.reviewed.includes(ticket.id)) history.reviewed.push(ticket.id);
-      history.ratings.push({ ticketId: ticket.id, rating, comment, branchId: ticket.branchId, submittedAt: new Date().toISOString() });
+      try {
+        await api.submitFeedback(ticket.id, rating, comment, ticket.managementToken || getSavedMgmtTokens(ownerScope)[ticket.id]);
+      } catch (err) {
+        setError(friendlyError(err, 'Не удалось отправить оценку'));
+        return;
+      }
     } else if (!history.dismissed.includes(ticket.id)) history.dismissed.push(ticket.id);
     saveVisitRatingHistory(ownerScope, history);
     setVisitRatingQueue(history.pending);
@@ -1913,7 +1906,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                     isClosest={closestBranch?.id === b.id}
                     timeSavedMinutes={timeSavedMinutes}
                     location={b.loc}
-                    rating={b.rating}
+                    ratingAverage={b.ratingAverage} ratingCount={b.ratingCount}
                   />
                 ))
               )}
@@ -2155,7 +2148,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                     isClosest={closestBranch?.id === b.id}
                     timeSavedMinutes={timeSavedMinutes}
                     location={b.loc}
-                    rating={b.rating}
+                    ratingAverage={b.ratingAverage} ratingCount={b.ratingCount}
                   />
                 ))
               )}

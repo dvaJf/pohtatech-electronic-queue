@@ -132,6 +132,8 @@ export function convertLocationToMapBranch(loc: BranchLocation): MapBranch {
 
   return {
     id: loc.id,
+    ratingAverage: null,
+    ratingCount: 0,
     code: loc.code,
     name: loc.name,
     address: loc.address,
@@ -318,7 +320,7 @@ export function BranchMapModal({
     const workload = workloads[b.id];
     return [{ ...convertLocationToMapBranch(loc), ...b, id: b.id,
       address: b.address || loc.address, workHours: b.workHours || loc.workHours,
-      rating: loc.rating > 0 ? loc.rating : null, reviewsCount: loc.reviewCount,
+      rating: b.ratingAverage, reviewsCount: b.ratingCount,
       liveWaitMinutes: liveWaitMinutes(workload) ?? null,
       waitingCount: workload?.currentWaiting ?? null }];
   }), [incomingBranches, workloads]);

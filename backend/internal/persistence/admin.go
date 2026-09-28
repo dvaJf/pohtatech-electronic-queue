@@ -57,6 +57,48 @@ func (p *Postgres) GetAdminOverview(ctx context.Context, branchID string) (domai
 		return overview, dbError(err)
 	}
 
+	// Quality is scoped to this branch and uses feedback timestamps for the two
+	// adjacent 30-day windows. FILTER keeps this one aggregate round-trip.
+	q := domain.BranchQuality{Distribution: map[string]int{"1": 0, "2": 0, "3": 0, "4": 0, "5": 0}, RecentFeedback: []domain.RecentFeedback{}}
+	var one, two, three, four, five int
+	err = p.pool.QueryRow(ctx, `
+		SELECT AVG(f.rating)::double precision, COUNT(f.id),
+		 AVG(f.rating) FILTER (WHERE f.created_at >= CURRENT_TIMESTAMP - INTERVAL '30 days')::double precision,
+		 COUNT(f.id) FILTER (WHERE f.created_at >= CURRENT_TIMESTAMP - INTERVAL '30 days'),
+		 AVG(f.rating) FILTER (WHERE f.created_at >= CURRENT_TIMESTAMP - INTERVAL '60 days' AND f.created_at < CURRENT_TIMESTAMP - INTERVAL '30 days')::double precision,
+		 COUNT(f.id) FILTER (WHERE f.created_at >= CURRENT_TIMESTAMP - INTERVAL '60 days' AND f.created_at < CURRENT_TIMESTAMP - INTERVAL '30 days'),
+		 COUNT(f.id) FILTER (WHERE f.rating=1), COUNT(f.id) FILTER (WHERE f.rating=2), COUNT(f.id) FILTER (WHERE f.rating=3), COUNT(f.id) FILTER (WHERE f.rating=4), COUNT(f.id) FILTER (WHERE f.rating=5),
+		 COUNT(f.id) FILTER (WHERE f.rating <= 2)
+		FROM tickets t JOIN ticket_feedback f ON f.ticket_id=t.id WHERE t.branch_id=$1 AND t.status='COMPLETED'`, id).Scan(
+		&q.RatingAverage, &q.RatingCount, &q.Current30Average, &q.Current30Count, &q.Previous30Average, &q.Previous30Count,
+		&one, &two, &three, &four, &five, &q.LowRatingCount)
+	if err != nil {
+		return overview, dbError(err)
+	}
+	q.Distribution["1"], q.Distribution["2"], q.Distribution["3"], q.Distribution["4"], q.Distribution["5"] = one, two, three, four, five
+	if q.Current30Average != nil && q.Previous30Average != nil {
+		delta := *q.Current30Average - *q.Previous30Average
+		q.Delta = &delta
+	}
+	rowsFeedback, err := p.pool.Query(ctx, `SELECT f.rating, f.comment, f.created_at FROM tickets t JOIN ticket_feedback f ON f.ticket_id=t.id WHERE t.branch_id=$1 AND t.status='COMPLETED' AND f.comment <> '' ORDER BY f.created_at DESC LIMIT 5`, id)
+	if err != nil {
+		return overview, dbError(err)
+	}
+	for rowsFeedback.Next() {
+		var f domain.RecentFeedback
+		if err = rowsFeedback.Scan(&f.Rating, &f.Comment, &f.CreatedAt); err != nil {
+			rowsFeedback.Close()
+			return overview, dbError(err)
+		}
+		q.RecentFeedback = append(q.RecentFeedback, f)
+	}
+	if err = rowsFeedback.Err(); err != nil {
+		rowsFeedback.Close()
+		return overview, dbError(err)
+	}
+	rowsFeedback.Close()
+	overview.Quality = q
+
 	// 2. Ticket metrics — single query
 	// Fix: ::int cast applied to the full AVG/MAX expressions, not to the filter predicate.
 	err = p.pool.QueryRow(ctx, `
@@ -178,20 +220,28 @@ func (p *Postgres) GetAdminOverview(ctx context.Context, branchID string) (domai
 	if overview.Metrics.P90WaitMinutes != nil {
 		closedCount := 0
 		for _, window := range overview.Windows {
-			if window.Status == domain.WindowStatusClosed { closedCount++ }
+			if window.Status == domain.WindowStatusClosed {
+				closedCount++
+			}
 		}
 		p90 := *overview.Metrics.P90WaitMinutes
 		shouldRecommend := p90 > 12 || (float64(overview.Metrics.AvgWaitTimeMinutes) > 8 && overview.Metrics.WaitingClientsCount > overview.Metrics.ActiveWindowsCount*3)
 		if shouldRecommend && closedCount > 0 {
 			recommended := int(math.Ceil((p90 - 8) / 5))
-			if recommended < 1 { recommended = 1 }
-			if recommended > closedCount { recommended = closedCount }
+			if recommended < 1 {
+				recommended = 1
+			}
+			if recommended > closedCount {
+				recommended = closedCount
+			}
 			severity := "warning"
-			if p90 > 15 { severity = "critical" }
+			if p90 > 15 {
+				severity = "critical"
+			}
 			overview.WindowRecommendation = &domain.WindowRecommendation{
 				RecommendedCount: recommended,
-				Reason: fmt.Sprintf("P90=%.0f мин > SLA 12, риск нарушения — рекомендуем открыть %d окно", p90, recommended),
-				Severity: severity, P90WaitMinutes: p90,
+				Reason:           fmt.Sprintf("P90=%.0f мин > SLA 12, риск нарушения — рекомендуем открыть %d окно", p90, recommended),
+				Severity:         severity, P90WaitMinutes: p90,
 			}
 		}
 	}
@@ -311,7 +361,9 @@ func (p *Postgres) GetAdminOverview(ctx context.Context, branchID string) (domai
 func (p *Postgres) ListAnomalies(ctx context.Context, branchID string, limit, offset int) (domain.AnomalyPage, error) {
 	var page domain.AnomalyPage
 	id, err := p.branch(ctx, branchID)
-	if err != nil { return page, err }
+	if err != nil {
+		return page, err
+	}
 
 	var ticketCount, incidentCount int
 	const anomalyFilter = `branch_id = $1 AND (
@@ -319,7 +371,9 @@ func (p *Postgres) ListAnomalies(ctx context.Context, branchID string, limit, of
 		OR (status = 'NO_SHOW' AND (queue_entered_at AT TIME ZONE 'Europe/Moscow')::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Moscow')::date)
 	)`
 	err = p.pool.QueryRow(ctx, `SELECT COUNT(*) FROM tickets WHERE `+anomalyFilter, id).Scan(&ticketCount)
-	if err != nil { return page, dbError(err) }
+	if err != nil {
+		return page, dbError(err)
+	}
 
 	_ = p.pool.QueryRow(ctx, `SELECT COUNT(*) FROM operator_incidents WHERE branch_id = $1`, id).Scan(&incidentCount)
 	page.Total = ticketCount + incidentCount
@@ -349,7 +403,9 @@ func (p *Postgres) ListAnomalies(ctx context.Context, branchID string, limit, of
 		) combined
 		ORDER BY event_time DESC, id DESC
 		LIMIT $2 OFFSET $3`, id, limit, offset)
-	if err != nil { return page, dbError(err) }
+	if err != nil {
+		return page, dbError(err)
+	}
 	defer rows.Close()
 	page.Items = make([]domain.AnomalyTicket, 0, limit)
 	for rows.Next() {
@@ -363,7 +419,6 @@ func (p *Postgres) ListAnomalies(ctx context.Context, branchID string, limit, of
 	}
 	return page, dbError(rows.Err())
 }
-
 
 // loadPriorityRules reads persisted rules; falls back to defaults if none exist.
 func (p *Postgres) loadPriorityRules(ctx context.Context, id pgtype.UUID) ([]domain.PriorityRule, error) {
@@ -590,5 +645,3 @@ func (p *Postgres) ReportIncident(ctx context.Context, cmd application.ReportInc
 	}
 	return res, nil
 }
-
-

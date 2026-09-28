@@ -32,7 +32,7 @@ const (
 	// migrationHead is the last migration in ../../migrations. Bump it together with
 	// every new migration, otherwise the whole integration suite fails on the version
 	// guard instead of the behaviour it is meant to protect.
-	migrationHead = 23
+	migrationHead = 24
 
 	// Absolute versions replayed by the migration tests. They must not be expressed as
 	// a step count from the head: adding 000007+ silently shifted every relative

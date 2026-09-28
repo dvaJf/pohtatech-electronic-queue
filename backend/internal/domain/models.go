@@ -39,6 +39,26 @@ type Branch struct {
 	Address        string   `json:"address"`
 	WorkHours      string   `json:"workHours"`
 	TimezoneOffset int      `json:"timezoneOffset"`
+	RatingAverage  *float64 `json:"ratingAverage"`
+	RatingCount    int      `json:"ratingCount"`
+}
+
+type BranchQuality struct {
+	RatingAverage     *float64         `json:"ratingAverage"`
+	RatingCount       int              `json:"ratingCount"`
+	Current30Average  *float64         `json:"current30Average"`
+	Current30Count    int              `json:"current30Count"`
+	Previous30Average *float64         `json:"previous30Average"`
+	Previous30Count   int              `json:"previous30Count"`
+	Delta             *float64         `json:"delta"`
+	Distribution      map[string]int   `json:"distribution"`
+	LowRatingCount    int              `json:"lowRatingCount"`
+	RecentFeedback    []RecentFeedback `json:"recentFeedback"`
+}
+type RecentFeedback struct {
+	Rating    int       `json:"rating"`
+	Comment   string    `json:"comment"`
+	CreatedAt time.Time `json:"createdAt"`
 }
 type Service struct {
 	ID   string `json:"id"`

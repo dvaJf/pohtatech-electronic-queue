@@ -110,7 +110,9 @@ func scanTicket(row pgx.Row) (domain.Ticket, error) {
 	return t, nil
 }
 func (p *Postgres) ListBranches(ctx context.Context) ([]domain.Branch, error) {
-	rows, err := p.pool.Query(ctx, `SELECT id::text, name, address, work_hours, timezone_offset, latitude, longitude, is_demo FROM branches ORDER BY name, id`)
+	rows, err := p.pool.Query(ctx, `SELECT b.id::text,b.name,b.address,b.work_hours,b.timezone_offset,b.latitude,b.longitude,b.is_demo,AVG(f.rating)::double precision,COUNT(f.id)
+		FROM branches b LEFT JOIN tickets t ON t.branch_id=b.id AND t.status='COMPLETED' LEFT JOIN ticket_feedback f ON f.ticket_id=t.id
+		GROUP BY b.id,b.name,b.address,b.work_hours,b.timezone_offset,b.latitude,b.longitude,b.is_demo ORDER BY b.name,b.id`)
 	if err != nil {
 		return nil, dbError(err)
 	}
@@ -118,7 +120,7 @@ func (p *Postgres) ListBranches(ctx context.Context) ([]domain.Branch, error) {
 	out := []domain.Branch{}
 	for rows.Next() {
 		var b domain.Branch
-		if err = rows.Scan(&b.ID, &b.Name, &b.Address, &b.WorkHours, &b.TimezoneOffset, &b.Latitude, &b.Longitude, &b.IsDemo); err != nil {
+		if err = rows.Scan(&b.ID, &b.Name, &b.Address, &b.WorkHours, &b.TimezoneOffset, &b.Latitude, &b.Longitude, &b.IsDemo, &b.RatingAverage, &b.RatingCount); err != nil {
 			return nil, dbError(err)
 		}
 		out = append(out, b)

@@ -6,6 +6,8 @@ export type Branch = {
   name: string;
   address?: string;
   workHours?: string;
+  ratingAverage: number | null;
+  ratingCount: number;
 };
 
 export type BranchListResponse = {

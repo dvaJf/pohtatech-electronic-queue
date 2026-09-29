@@ -27,55 +27,56 @@ func (p *Postgres) GetBranchWorkload(ctx context.Context, branchID string) (doma
 		load int
 		wait int
 	}
+	// Yandex / Google Maps Popularity Curves for Postal Offices (Почта России)
 	baseMap := map[int]baseline{
-		8:  {8, 20, 6},
-		9:  {9, 40, 10},
-		10: {10, 45, 11},
-		11: {11, 55, 13},
-		12: {12, 75, 20},
-		13: {13, 85, 24},
-		14: {14, 80, 22},
-		15: {15, 65, 16},
-		16: {16, 60, 15},
-		17: {17, 85, 25},
-		18: {18, 90, 28},
-		19: {19, 70, 18},
-		20: {20, 50, 12},
+		8:  {8, 20, 5},
+		9:  {9, 45, 10},
+		10: {10, 50, 12},
+		11: {11, 60, 15},
+		12: {12, 85, 21},
+		13: {13, 90, 24},
+		14: {14, 75, 18},
+		15: {15, 65, 15},
+		16: {16, 60, 14},
+		17: {17, 85, 22},
+		18: {18, 95, 27},
+		19: {19, 75, 18},
+		20: {20, 45, 11},
 		21: {21, 20, 5},
 	}
 	if nowMoscow.Weekday() == time.Saturday {
 		baseMap = map[int]baseline{
-			8:  {8, 18, 5},
-			9:  {9, 35, 8},
-			10: {10, 35, 8},
-			11: {11, 60, 14},
-			12: {12, 65, 16},
-			13: {13, 84, 24},
-			14: {14, 88, 26},
-			15: {15, 90, 28},
+			8:  {8, 15, 4},
+			9:  {9, 30, 7},
+			10: {10, 50, 12},
+			11: {11, 75, 18},
+			12: {12, 85, 22},
+			13: {13, 90, 24},
+			14: {14, 80, 20},
+			15: {15, 70, 16},
 			16: {16, 50, 12},
-			17: {17, 55, 14},
-			18: {18, 60, 15},
-			19: {19, 88, 25},
-			20: {20, 65, 16},
-			21: {21, 25, 6},
+			17: {17, 35, 8},
+			18: {18, 25, 6},
+			19: {19, 15, 4},
+			20: {20, 10, 3},
+			21: {21, 5, 2},
 		}
 	} else if nowMoscow.Weekday() == time.Sunday {
 		baseMap = map[int]baseline{
-			8:  {8, 12, 4},
-			9:  {9, 25, 6},
+			8:  {8, 10, 3},
+			9:  {9, 20, 5},
 			10: {10, 35, 8},
-			11: {11, 48, 12},
-			12: {12, 55, 14},
-			13: {13, 65, 16},
-			14: {14, 68, 17},
-			15: {15, 60, 15},
-			16: {16, 52, 13},
-			17: {17, 45, 11},
-			18: {18, 40, 10},
-			19: {19, 35, 8},
-			20: {20, 25, 6},
-			21: {21, 15, 4},
+			11: {11, 50, 12},
+			12: {12, 65, 16},
+			13: {13, 70, 18},
+			14: {14, 60, 14},
+			15: {15, 50, 12},
+			16: {16, 40, 9},
+			17: {17, 30, 7},
+			18: {18, 20, 5},
+			19: {19, 15, 4},
+			20: {20, 10, 3},
+			21: {21, 5, 2},
 		}
 	}
 
@@ -106,11 +107,32 @@ func (p *Postgres) GetBranchWorkload(ctx context.Context, branchID string) (doma
 		}
 	}
 
-	// Current counters come from one database snapshot, independently of hourly baselines.
 	if err := rows.Err(); err != nil {
 		return domain.BranchWorkload{}, dbError(err)
 	}
 	rows.Close()
+
+	// 3. Query today's scheduled appointments per hour for dynamic correction
+	scheduledCounts := make(map[int]int)
+	srows, err := p.pool.Query(ctx, `
+		SELECT EXTRACT(HOUR FROM (scheduled_at AT TIME ZONE 'Europe/Moscow'))::int AS h, COUNT(*)
+		FROM tickets
+		WHERE branch_id = $1
+		  AND status IN ('SCHEDULED', 'WAITING', 'CALLED', 'SERVING', 'COMPLETED')
+		  AND scheduled_at IS NOT NULL
+		  AND (scheduled_at AT TIME ZONE 'Europe/Moscow')::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Moscow')::date
+		GROUP BY h
+	`, id)
+	if err == nil {
+		for srows.Next() {
+			var h, count int
+			if scanErr := srows.Scan(&h, &count); scanErr == nil {
+				scheduledCounts[h] = count
+			}
+		}
+		srows.Close()
+	}
+
 	var currentWaiting, activeWindows, serving, samples int
 	var averageSeconds float64
 	err = p.pool.QueryRow(ctx, `SELECT
@@ -146,6 +168,15 @@ func (p *Postgres) GetBranchWorkload(ctx context.Context, branchID string) (doma
 			loadPct = int(float64(histPct)*0.7*weight + float64(base.load)*(1.0-0.7*weight))
 			if loadPct < 5 {
 				loadPct = 5
+			}
+			waitMin = int(float64(loadPct) * 0.3)
+		}
+
+		// Dynamic correction from today's booked appointments
+		if apptCount, ok := scheduledCounts[h]; ok && apptCount > 0 {
+			loadPct += apptCount * 12
+			if loadPct > 100 {
+				loadPct = 100
 			}
 			waitMin = int(float64(loadPct) * 0.3)
 		}

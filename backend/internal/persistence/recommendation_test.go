@@ -35,12 +35,12 @@ func TestFormatWindowsRu(t *testing.T) {
 	}
 }
 
-func TestCalculateWindowRecommendation_NoClosedWindows(t *testing.T) {
+func TestCalculateWindowRecommendation_AllWindowsOpenHighQueue(t *testing.T) {
 	p := &Postgres{}
 	p90 := 45.0
 	overview := domain.AdminBranchOverview{
 		Metrics: domain.AdminMetrics{
-			WaitingClientsCount: 10,
+			WaitingClientsCount: 15,
 			ActiveWindowsCount:  4,
 			TotalWindowsCount:   4,
 			P90WaitMinutes:      &p90,
@@ -54,8 +54,11 @@ func TestCalculateWindowRecommendation_NoClosedWindows(t *testing.T) {
 	}
 
 	p.calculateWindowRecommendation(context.Background(), "test-branch", &overview)
-	if overview.WindowRecommendation != nil {
-		t.Fatalf("expected nil recommendation when 0 windows are closed, got %+v", overview.WindowRecommendation)
+	if overview.WindowRecommendation == nil {
+		t.Fatalf("expected recommendation to create and open new windows when 0 windows are closed but queue is high")
+	}
+	if overview.WindowRecommendation.RecommendedCount < 1 {
+		t.Fatalf("expected recommended count >= 1, got %d", overview.WindowRecommendation.RecommendedCount)
 	}
 }
 

@@ -85,10 +85,13 @@ func (s *MultiSender) telegram(ctx context.Context, m domain.NotificationMessage
 		return nil
 	}
 	targetChatID := strings.TrimSpace(m.Destination)
-	if targetChatID == "" || targetChatID == "Telegram" || targetChatID == "ID" {
+	if targetChatID == "" || targetChatID == "Telegram" || targetChatID == "ID" || strings.HasPrefix(targetChatID, "@") {
 		if envChatID := strings.TrimSpace(os.Getenv("TELEGRAM_CHAT_ID")); envChatID != "" {
 			targetChatID = envChatID
 		}
+	}
+	if targetChatID == "" || targetChatID == "Telegram" || targetChatID == "ID" || strings.HasPrefix(targetChatID, "@") {
+		return PermanentError{fmt.Errorf("telegram destination '%s' is not a numeric chat_id (use Telegram bot link to bind)", m.Destination)}
 	}
 	body, _ := json.Marshal(map[string]string{"chat_id": targetChatID, "text": telegramText(m)})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.telegram.org/bot"+token+"/sendMessage", bytes.NewReader(body))

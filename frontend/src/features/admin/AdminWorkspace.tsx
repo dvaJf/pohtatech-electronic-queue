@@ -47,6 +47,7 @@ export const AdminWorkspace: React.FC = () => {
 
   // Real backend overview data
   const [overview, setOverview] = useState<AdminBranchOverview | null>(null);
+  const [openingRecommended, setOpeningRecommended] = useState(false);
 
   // Initial branches fetch
   useEffect(() => {
@@ -325,18 +326,37 @@ export const AdminWorkspace: React.FC = () => {
                       <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
                       <div>
                         <div className="font-bold text-sm">Рекомендация по нагрузке</div>
-                        <div className="text-xs mt-1">{overview.windowRecommendation.reason}</div>
+                        <div className="text-xs mt-1 font-medium">{overview.windowRecommendation.reason}</div>
                       </div>
                     </div>
                     <button
                       type="button"
-                      className="px-3 py-2 rounded-xl border border-current text-xs font-bold hover:bg-white/60"
+                      disabled={openingRecommended}
+                      className="px-3 py-2 rounded-xl border border-current text-xs font-bold hover:bg-white/60 transition-all disabled:opacity-50 flex items-center gap-1.5"
                       onClick={async () => {
-                        const closed = overview.windows.filter((window) => window.status === 'CLOSED').slice(0, overview.windowRecommendation!.recommendedCount);
-                        for (const window of closed) await handleToggleWindow(window.id, window.status);
+                        if (!overview?.windowRecommendation || openingRecommended) return;
+                        setOpeningRecommended(true);
+                        try {
+                          const closed = overview.windows.filter((window) => window.status === 'CLOSED').slice(0, overview.windowRecommendation.recommendedCount);
+                          for (const window of closed) {
+                            await api.changeWindowStatus(window.id, 'OPEN');
+                          }
+                          if (selectedBranchId) {
+                            const updated = await api.getOverview(selectedBranchId);
+                            setOverview(updated);
+                          }
+                        } catch {
+                          // ignore
+                        } finally {
+                          setOpeningRecommended(false);
+                        }
                       }}
                     >
-                      Открыть рекомендованные ({overview.windowRecommendation.recommendedCount})
+                      {openingRecommended ? (
+                        <span>Открытие...</span>
+                      ) : (
+                        <span>Открыть рекомендованные ({overview.windowRecommendation.recommendedCount})</span>
+                      )}
                     </button>
                   </div>
                 )}

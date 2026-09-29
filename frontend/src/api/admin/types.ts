@@ -122,5 +122,7 @@ export interface AdminBranchOverview {
     reason: string;
     severity: 'warning' | 'critical';
     p90WaitMinutes: number;
+    upcomingLoadPercent?: number;
+    waitingClientsCount?: number;
   } | null;
 }

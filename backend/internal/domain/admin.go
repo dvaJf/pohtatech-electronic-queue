@@ -83,10 +83,12 @@ type AdminBranchOverview struct {
 }
 
 type WindowRecommendation struct {
-	RecommendedCount int     `json:"recommendedCount"`
-	Reason           string  `json:"reason"`
-	Severity         string  `json:"severity"`
-	P90WaitMinutes   float64 `json:"p90WaitMinutes"`
+	RecommendedCount    int     `json:"recommendedCount"`
+	Reason              string  `json:"reason"`
+	Severity            string  `json:"severity"`
+	P90WaitMinutes      float64 `json:"p90WaitMinutes"`
+	UpcomingLoadPercent int     `json:"upcomingLoadPercent,omitempty"`
+	WaitingClientsCount int     `json:"waitingClientsCount,omitempty"`
 }
 
 type OperatorIncident struct {

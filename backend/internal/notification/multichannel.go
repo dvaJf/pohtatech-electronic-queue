@@ -81,9 +81,16 @@ func telegramText(m domain.NotificationMessage) string {
 func (s *MultiSender) telegram(ctx context.Context, m domain.NotificationMessage) error {
 	token := strings.TrimSpace(os.Getenv("TELEGRAM_BOT_TOKEN"))
 	if token == "" {
-		return fmt.Errorf("telegram provider is not configured")
+		fmt.Printf("[TELEGRAM NOTIFICATION] Ticket %s to destination '%s':\n%s\n", m.PublicNumber, m.Destination, telegramText(m))
+		return nil
 	}
-	body, _ := json.Marshal(map[string]string{"chat_id": m.Destination, "text": telegramText(m)})
+	targetChatID := strings.TrimSpace(m.Destination)
+	if targetChatID == "" || targetChatID == "Telegram" || targetChatID == "ID" {
+		if envChatID := strings.TrimSpace(os.Getenv("TELEGRAM_CHAT_ID")); envChatID != "" {
+			targetChatID = envChatID
+		}
+	}
+	body, _ := json.Marshal(map[string]string{"chat_id": targetChatID, "text": telegramText(m)})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.telegram.org/bot"+token+"/sendMessage", bytes.NewReader(body))
 	if err != nil {
 		return err

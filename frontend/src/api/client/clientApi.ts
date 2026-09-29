@@ -212,7 +212,7 @@ export async function telegramLink(ticketId: string, token?: string): Promise<st
   const result = await request<{ url: string }>(`/tickets/${encodeURIComponent(ticketId)}/notifications/telegram/link`, { method: 'POST', headers: managementHeaders(token) });
   return result.url;
 }
-export async function saveNotificationSubscription(ticketId: string, channel: Exclude<NotificationChannel, 'TELEGRAM'>, destination: string, token?: string): Promise<NotificationSubscription> {
+export async function saveNotificationSubscription(ticketId: string, channel: NotificationChannel, destination: string, token?: string): Promise<NotificationSubscription> {
   return request(`/tickets/${encodeURIComponent(ticketId)}/notifications/${channel}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', ...managementHeaders(token) }, body: JSON.stringify({ destination }) });
 }
 export async function removeNotificationSubscription(ticketId: string, channel: NotificationChannel, subscriptionId: string, token?: string): Promise<void> {

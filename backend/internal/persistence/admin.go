@@ -217,34 +217,8 @@ func (p *Postgres) GetAdminOverview(ctx context.Context, branchID string) (domai
 		}
 		overview.Windows = append(overview.Windows, aw)
 	}
-	if overview.Metrics.P90WaitMinutes != nil {
-		closedCount := 0
-		for _, window := range overview.Windows {
-			if window.Status == domain.WindowStatusClosed {
-				closedCount++
-			}
-		}
-		p90 := *overview.Metrics.P90WaitMinutes
-		shouldRecommend := p90 > 12 || (float64(overview.Metrics.AvgWaitTimeMinutes) > 8 && overview.Metrics.WaitingClientsCount > overview.Metrics.ActiveWindowsCount*3)
-		if shouldRecommend && closedCount > 0 {
-			recommended := int(math.Ceil((p90 - 8) / 5))
-			if recommended < 1 {
-				recommended = 1
-			}
-			if recommended > closedCount {
-				recommended = closedCount
-			}
-			severity := "warning"
-			if p90 > 15 {
-				severity = "critical"
-			}
-			overview.WindowRecommendation = &domain.WindowRecommendation{
-				RecommendedCount: recommended,
-				Reason:           fmt.Sprintf("P90=%.0f мин > SLA 12, риск нарушения — рекомендуем открыть %d окно", p90, recommended),
-				Severity:         severity, P90WaitMinutes: p90,
-			}
-		}
-	}
+	p.calculateWindowRecommendation(ctx, branchID, &overview)
+
 
 	// 8. Queue (WAITING, CALLED, SERVING) — single query
 	qrows, err := p.pool.Query(ctx, `
@@ -645,3 +619,189 @@ func (p *Postgres) ReportIncident(ctx context.Context, cmd application.ReportInc
 	}
 	return res, nil
 }
+
+func formatWindowsRu(n int) string {
+	absN := n % 100
+	if absN >= 11 && absN <= 19 {
+		return fmt.Sprintf("%d окон", n)
+	}
+	switch absN % 10 {
+	case 1:
+		return fmt.Sprintf("%d окно", n)
+	case 2, 3, 4:
+		return fmt.Sprintf("%d окна", n)
+	default:
+		return fmt.Sprintf("%d окон", n)
+	}
+}
+
+// calculateWindowRecommendation determines how many service windows should be opened
+// based on current queue load (waiting clients, SLA wait times) and statistical workload in the nearest hour.
+func (p *Postgres) calculateWindowRecommendation(ctx context.Context, branchID string, overview *domain.AdminBranchOverview) {
+	closedCount := 0
+	for _, window := range overview.Windows {
+		if window.Status == domain.WindowStatusClosed {
+			closedCount++
+		}
+	}
+	if closedCount == 0 {
+		return
+	}
+
+	waitingCount := overview.Metrics.WaitingClientsCount
+	openCount := overview.Metrics.ActiveWindowsCount
+	totalCount := overview.Metrics.TotalWindowsCount
+	if totalCount <= 0 {
+		totalCount = len(overview.Windows)
+	}
+
+	var p90 float64
+	hasP90 := false
+	if overview.Metrics.P90WaitMinutes != nil {
+		p90 = *overview.Metrics.P90WaitMinutes
+		hasP90 = true
+	}
+	avgWait := float64(overview.Metrics.AvgWaitTimeMinutes)
+
+	// 1. Current load calculation ("загрузка сейчас")
+	// Target capacity: average service time is ~5 min. Within SLA of 12 min, 1 window handles ~2.4 clients.
+	windowsForCurrent := 0
+	if waitingCount > 0 {
+		targetForQueue := int(math.Ceil(float64(waitingCount) / 2.5))
+		if targetForQueue > openCount {
+			windowsForCurrent = targetForQueue - openCount
+		}
+		if hasP90 && p90 > 12.0 {
+			p90Deficit := int(math.Ceil((p90 - 10.0) / 5.0))
+			if p90Deficit > windowsForCurrent {
+				windowsForCurrent = p90Deficit
+			}
+		}
+		if avgWait > 8.0 && waitingCount > openCount*2 {
+			waitDeficit := int(math.Ceil(float64(waitingCount-openCount) / 2.0))
+			if waitDeficit > windowsForCurrent {
+				windowsForCurrent = waitDeficit
+			}
+		}
+	}
+
+	// 2. Statistical load in the nearest hour ("статистическая загрузка в ближайший час")
+	windowsForUpcoming := 0
+	var upcomingWorkload *domain.HourlyWorkload
+	if p.pool != nil {
+		if wl, err := p.GetBranchWorkload(ctx, branchID); err == nil {
+			nowMSK := time.Now().In(time.FixedZone("MSK", 3*3600))
+			currHour := nowMSK.Hour()
+			nextHour := currHour + 1
+			if nextHour > 21 {
+				nextHour = currHour
+			}
+			if nextHour < 8 {
+				nextHour = 8
+			}
+
+			for i := range wl.Hourly {
+				if wl.Hourly[i].Hour == nextHour {
+					upcomingWorkload = &wl.Hourly[i]
+					break
+				}
+			}
+			if upcomingWorkload == nil {
+				for i := range wl.Hourly {
+					if wl.Hourly[i].Hour == currHour {
+						upcomingWorkload = &wl.Hourly[i]
+						break
+					}
+				}
+			}
+
+			if upcomingWorkload != nil {
+				loadPct := upcomingWorkload.LoadPercent
+				waitMin := upcomingWorkload.WaitMinutes
+
+				// Windows needed statistically to keep wait time within SLA during the upcoming hour
+				targetStat := int(math.Round(float64(totalCount) * float64(loadPct) / 100.0))
+				if upcomingWorkload.IsPeak && targetStat < int(math.Ceil(float64(totalCount)*0.7)) {
+					targetStat = int(math.Ceil(float64(totalCount) * 0.7))
+				}
+				if waitMin > 12 {
+					statDeficit := int(math.Ceil(float64(waitMin-10) / 5.0))
+					if openCount+statDeficit > targetStat {
+						targetStat = openCount + statDeficit
+					}
+				}
+				if targetStat > openCount {
+					windowsForUpcoming = targetStat - openCount
+				}
+			}
+		}
+	}
+
+	// 3. Combined recommendation
+	if windowsForCurrent == 0 && windowsForUpcoming == 0 {
+		return
+	}
+
+	recommended := windowsForCurrent
+	if windowsForUpcoming > recommended {
+		recommended = windowsForUpcoming
+	}
+	// If both current queue is pressured and upcoming hour is high load, compound pressure
+	if windowsForCurrent >= 1 && windowsForUpcoming >= 1 && recommended < closedCount {
+		recommended++
+	}
+
+	if recommended > closedCount {
+		recommended = closedCount
+	}
+	if recommended < 1 {
+		recommended = 1
+	}
+
+	// 4. Severity & reason construction
+	severity := "warning"
+	if (hasP90 && p90 > 15.0 && waitingCount > openCount) ||
+		(waitingCount >= openCount*3 && waitingCount > 3) ||
+		(upcomingWorkload != nil && upcomingWorkload.LoadPercent >= 80 && openCount <= totalCount/2) {
+		severity = "critical"
+	}
+
+	var reason string
+	recText := formatWindowsRu(recommended)
+	if windowsForCurrent > 0 && upcomingWorkload != nil {
+		if hasP90 && p90 > 12.0 {
+			reason = fmt.Sprintf("Текущая очередь: %d чел. (P90=%.0f мин > SLA 12), прогноз нагрузки на след. час: %d%% — рекомендуем открыть %s", waitingCount, p90, upcomingWorkload.LoadPercent, recText)
+		} else {
+			reason = fmt.Sprintf("Текущая очередь: %d чел., прогноз нагрузки на след. час: %d%% — рекомендуем открыть %s для соблюдения SLA 12 мин", waitingCount, upcomingWorkload.LoadPercent, recText)
+		}
+	} else if windowsForCurrent > 0 {
+		if hasP90 && p90 > 12.0 {
+			reason = fmt.Sprintf("P90=%.0f мин > SLA 12 (в очереди %d чел.) при %d откр. окнах — рекомендуем открыть %s", p90, waitingCount, openCount, recText)
+		} else {
+			reason = fmt.Sprintf("Высокая текущая очередь: %d чел. на %d откр. окон — рекомендуем открыть %s для соблюдения SLA 12 мин", waitingCount, openCount, recText)
+		}
+	} else if upcomingWorkload != nil {
+		if upcomingWorkload.IsPeak || upcomingWorkload.WaitMinutes > 12 {
+			reason = fmt.Sprintf("Прогноз пиковой нагрузки в ближайший час: %d%% (ожидание до %d мин > SLA 12) — рекомендуем открыть %s заранее", upcomingWorkload.LoadPercent, upcomingWorkload.WaitMinutes, recText)
+		} else {
+			reason = fmt.Sprintf("Прогноз роста нагрузки в ближайший час: %d%% (при %d откр. окнах) — рекомендуем открыть %s заранее", upcomingWorkload.LoadPercent, openCount, recText)
+		}
+	} else {
+		reason = fmt.Sprintf("Рекомендуем открыть %s для распределения нагрузки отделения", recText)
+	}
+
+	p90Val := p90
+	if !hasP90 && upcomingWorkload != nil {
+		p90Val = float64(upcomingWorkload.WaitMinutes)
+	}
+
+	overview.WindowRecommendation = &domain.WindowRecommendation{
+		RecommendedCount:    recommended,
+		Reason:              reason,
+		Severity:            severity,
+		P90WaitMinutes:      p90Val,
+		UpcomingLoadPercent: func() int { if upcomingWorkload != nil { return upcomingWorkload.LoadPercent }; return 0 }(),
+		WaitingClientsCount: waitingCount,
+	}
+}
+

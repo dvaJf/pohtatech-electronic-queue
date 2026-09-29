@@ -1635,6 +1635,7 @@ components:
               maxItems: 20
               items: { type: integer, minimum: 0 }
         calculatedAt: { type: string, format: date-time }
+        source: { type: string, enum: [ml, baseline], nullable: true }
     UserRole:
       type: string
       enum: [client, employee, opc_chief, terminal]

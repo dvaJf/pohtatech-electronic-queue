@@ -29,3 +29,15 @@ window_close:
 
 alerts:
   overdue_after_minutes: 5
+
+ml:
+  eta:
+    enabled: false
+    url: http://ml-service:8090
+    timeout_ms: 300
+    circuit_breaker_threshold: 3
+    circuit_breaker_cooldown_seconds: 10
+    cache_ttl_seconds: 5
+  noshow:
+    enabled: false
+    max_abs_adjustment: 15

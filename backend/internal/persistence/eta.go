@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"postcode/backend/internal/application"
 	"postcode/backend/internal/domain"
 )
 
@@ -45,12 +46,49 @@ func (p *Postgres) GetTicketETA(ctx context.Context, ticketID string) (domain.Ti
 	}
 	out.UsedFallback = out.SampleSize < 3
 	samples := make([]int, 0, len(durations))
-	for _, duration := range durations { samples = append(samples, int(math.Floor(duration))) }
+	for _, duration := range durations {
+		samples = append(samples, int(math.Floor(duration)))
+	}
 	weighted := weightedAverage(durations)
 	median := percentile(durations, 0.5)
 	p90 := percentile(durations, 0.9)
 	if out.UsedFallback {
 		weighted = 300
+	}
+	// ML is deliberately limited to the service-duration estimate. The queue
+	// position and window simulation below remain the deterministic baseline.
+	mlPolicy := p.GetPolicy().ML.ETA
+	if mlPolicy.Enabled && p.predictor != nil {
+		var branchID, serviceID, source string
+		var servedCount int
+		err = tx.QueryRow(ctx, `
+			SELECT t.branch_id::text, t.service_id::text, t.source,
+			       (SELECT count(*) FROM tickets h
+			        WHERE h.branch_id=t.branch_id AND h.status='COMPLETED'
+			          AND h.completed_at IS NOT NULL
+			          AND h.service_started_at IS NOT NULL
+			          AND h.completed_at > h.service_started_at
+			          AND extract(epoch FROM (h.completed_at-h.service_started_at)) <= 7200
+			          AND h.completed_at < $2
+			          AND (h.completed_at AT TIME ZONE 'Europe/Moscow')::date =
+			              ($2 AT TIME ZONE 'Europe/Moscow')::date)
+			FROM tickets t WHERE t.id=$1::uuid`, ticketID, out.CalculatedAt).Scan(&branchID, &serviceID, &source, &servedCount)
+		if err == nil {
+			rollingFeature := average
+			if out.SampleSize < 3 {
+				rollingFeature = 300
+			}
+			features := application.ETAPredictFeatures{TicketID: ticketID, ServiceID: serviceID, BranchID: branchID, Hour: localHour(out.CalculatedAt), Weekday: moscowWeekday(out.CalculatedAt), Source: source, ServedCount: servedCount, RollingAvgSeconds: rollingFeature}
+			values, _, predictErr := p.predictor.Predict(ctx, []application.ETAPredictFeatures{features}, mlPolicy)
+			if predictErr == nil && len(values) == 1 {
+				weighted = values[0]
+				out.Source = "ml"
+			} else {
+				out.Source = "baseline"
+			}
+		} else {
+			out.Source = "baseline"
+		}
 	}
 	out.Distribution = &domain.ETADistribution{Avg: int(math.Floor(average)), WeightedAvg: int(math.Floor(weighted)), Median: int(math.Floor(median)), P90: int(math.Floor(p90)), Samples: samples}
 	out.WeightedWaitSeconds = intPtr(int(math.Floor(weighted)))
@@ -142,23 +180,45 @@ func (p *Postgres) GetTicketETA(ctx context.Context, ticketID string) (domain.Ti
 	return out, nil
 }
 
+func moscowLocation() *time.Location {
+	loc, err := time.LoadLocation("Europe/Moscow")
+	if err != nil {
+		return time.FixedZone("MSK", 3*60*60)
+	}
+	return loc
+}
+func localHour(t time.Time) int     { return t.In(moscowLocation()).Hour() }
+func moscowWeekday(t time.Time) int { return (int(t.In(moscowLocation()).Weekday()) + 6) % 7 }
+
 func intPtr(value int) *int { return &value }
 
 func weightedAverage(values []float64) float64 {
-	if len(values) == 0 { return 0 }
+	if len(values) == 0 {
+		return 0
+	}
 	var weightedSum, weightSum float64
-	for i, value := range values { weight := float64(len(values)-i); weightedSum += value * weight; weightSum += weight }
+	for i, value := range values {
+		weight := float64(len(values) - i)
+		weightedSum += value * weight
+		weightSum += weight
+	}
 	return weightedSum / weightSum
 }
 
 func percentile(values []float64, fraction float64) float64 {
-	if len(values) == 0 { return 0 }
+	if len(values) == 0 {
+		return 0
+	}
 	ordered := append([]float64(nil), values...)
 	sort.Float64s(ordered)
-	if len(ordered) == 1 { return ordered[0] }
+	if len(ordered) == 1 {
+		return ordered[0]
+	}
 	position := fraction * float64(len(ordered)-1)
 	lower, upper := int(math.Floor(position)), int(math.Ceil(position))
-	if lower == upper { return ordered[lower] }
+	if lower == upper {
+		return ordered[lower]
+	}
 	return ordered[lower] + (ordered[upper]-ordered[lower])*(position-float64(lower))
 }
 

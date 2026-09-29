@@ -149,7 +149,7 @@ export function UserProfileModal({ isOpen, onClose, user, onUserUpdate }: UserPr
     }
     return false;
   });
-  const [pushNotice, setPushNotice] = useState<string | null>(null);
+  const [pushNotice, setPushNotice] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
 
   const handleConnectTelegram = (username?: string) => {
     const uname = (username || tgInputVal).trim().replace(/^@/, '');
@@ -181,7 +181,8 @@ export function UserProfileModal({ isOpen, onClose, user, onUserUpdate }: UserPr
 
   const handleEnableBrowserPush = async () => {
     if (typeof window === 'undefined' || !('Notification' in window)) {
-      setPushNotice('Ваш браузер не поддерживает системные уведомления.');
+      setPushNotice({ text: 'Ваш браузер не поддерживает системные уведомления.', type: 'error' });
+      setTimeout(() => setPushNotice(null), 4000);
       return;
     }
     try {
@@ -213,15 +214,15 @@ export function UserProfileModal({ isOpen, onClose, user, onUserUpdate }: UserPr
             } catch {}
           }
         }
-        setPushNotice('Уведомления в браузере успешно включены!');
+        setPushNotice({ text: 'Уведомления в браузере успешно включены!', type: 'success' });
         setTimeout(() => setPushNotice(null), 3500);
       } else if (perm === 'denied') {
-        setPushNotice('Уведомления заблокированы в браузере. Разрешите их в настройках сайта.');
+        setPushNotice({ text: 'Уведомления заблокированы в браузере. Разрешите их в настройках сайта.', type: 'error' });
         setTimeout(() => setPushNotice(null), 4000);
       }
     } catch {
-      setPushNotice('Не удалось запросить разрешение на уведомления.');
-      setTimeout(() => setPushNotice(null), 3000);
+      setPushNotice({ text: 'Не удалось запросить разрешение на уведомления.', type: 'error' });
+      setTimeout(() => setPushNotice(null), 3500);
     }
   };
 
@@ -244,7 +245,7 @@ export function UserProfileModal({ isOpen, onClose, user, onUserUpdate }: UserPr
         }
       } catch {}
     }
-    setPushNotice('Уведомления в браузере отключены.');
+    setPushNotice({ text: 'Уведомления в браузере отключены.', type: 'info' });
     setTimeout(() => setPushNotice(null), 2500);
   };
 
@@ -306,7 +307,7 @@ export function UserProfileModal({ isOpen, onClose, user, onUserUpdate }: UserPr
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="bg-[#003B73] px-6 py-5 text-white flex items-center justify-between">
+        <div className="bg-[#003B73] px-4 sm:px-6 py-4 sm:py-5 text-white flex items-center justify-between">
           <div className="flex items-center gap-3">
             <PochtaEmblem className="w-8 h-8 shrink-0" bg="#FFFFFF" fg="#003B73" />
             <div>
@@ -324,17 +325,17 @@ export function UserProfileModal({ isOpen, onClose, user, onUserUpdate }: UserPr
           </button>
         </div>
 
-        <div className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
+        <div className="p-4 sm:p-6 space-y-5 sm:space-y-6 max-h-[80vh] overflow-y-auto">
           {/* User Info Card */}
           <div className="p-4 bg-slate-50 border border-slate-200/80 rounded-2xl space-y-3">
-            <div className="flex items-center justify-between">
-              <div>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="min-w-0">
                 <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">Роль в системе</span>
                 <span className="text-sm font-black text-slate-800">
                   {user.role === 'opc_chief' ? 'Начальник отделения (ОПС)' : user.role === 'employee' ? 'Оператор' : 'Клиент'}
                 </span>
               </div>
-              <span className="px-2.5 py-1 rounded-full bg-blue-100 text-[#003B73] text-[11px] font-bold">
+              <span className="px-2.5 py-1 rounded-full bg-blue-100 text-[#003B73] text-[11px] font-bold whitespace-nowrap shrink-0">
                 Аккаунт активен
               </span>
             </div>
@@ -447,12 +448,12 @@ export function UserProfileModal({ isOpen, onClose, user, onUserUpdate }: UserPr
 
           {/* Каналы уведомлений: Telegram и Браузерные уведомления */}
           <div className="space-y-4">
-            <div className="flex items-center justify-between text-slate-900 font-bold text-sm">
-              <div className="flex items-center gap-2">
-                <Bell className="w-4 h-4 text-[#054FA6]" />
-                <span>Уведомления и оповещения</span>
+            <div className="flex flex-wrap items-center justify-between gap-2 text-slate-900 font-bold text-sm">
+              <div className="flex items-center gap-2 min-w-0">
+                <Bell className="w-4 h-4 text-[#054FA6] shrink-0" />
+                <span className="leading-snug">Уведомления и оповещения</span>
               </div>
-              <span className="px-2 py-0.5 rounded-full bg-blue-50 text-[#003B73] border border-blue-200/60 text-[11px] font-bold">
+              <span className="px-2 py-0.5 rounded-full bg-blue-50 text-[#003B73] border border-blue-200/60 text-[11px] font-bold whitespace-nowrap shrink-0">
                 Telegram • Push • SMS
               </span>
             </div>
@@ -469,46 +470,60 @@ export function UserProfileModal({ isOpen, onClose, user, onUserUpdate }: UserPr
             )}
 
             {pushNotice && (
-              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 font-medium flex items-center gap-2 animate-fade-in">
-                <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
-                <span>{pushNotice}</span>
+              <div
+                className={`p-3 rounded-xl text-xs font-medium flex items-center gap-2 animate-fade-in ${
+                  pushNotice.type === 'error'
+                    ? 'bg-rose-50 border border-rose-200 text-rose-800'
+                    : pushNotice.type === 'info'
+                    ? 'bg-blue-50 border border-blue-200 text-[#003B73]'
+                    : 'bg-emerald-50 border border-emerald-200 text-emerald-800'
+                }`}
+              >
+                {pushNotice.type === 'error' ? (
+                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                ) : pushNotice.type === 'info' ? (
+                  <Bell className="w-4 h-4 shrink-0 text-[#054FA6]" />
+                ) : (
+                  <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
+                )}
+                <span>{pushNotice.text}</span>
               </div>
             )}
 
             {/* Telegram Channel Card */}
             <div className="p-4 bg-slate-50 border border-slate-200/90 rounded-2xl space-y-3">
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex items-center gap-3">
+              <div className="flex items-start gap-3">
+                <div className="shrink-0 mt-0.5">
                   <TelegramIcon size={28} />
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-slate-900">Telegram-уведомления</span>
-                      {telegramConnected ? (
-                        <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">
-                          ✓ Подключено
-                        </span>
-                      ) : (
-                        <span className="px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 text-[10px] font-bold">
-                          Не подключено
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">
-                      Мгновенные сообщения о приближении очереди и вызове в Telegram.
-                    </p>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex flex-wrap items-center justify-between gap-1.5">
+                    <span className="text-xs font-bold text-slate-900">Telegram-уведомления</span>
+                    {telegramConnected ? (
+                      <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold whitespace-nowrap shrink-0">
+                        ✓ Подключено
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 text-[10px] font-bold whitespace-nowrap shrink-0">
+                        Не подключено
+                      </span>
+                    )}
                   </div>
+                  <p className="text-[11px] text-slate-500 mt-1 leading-snug">
+                    Мгновенные сообщения о приближении очереди и вызове в Telegram.
+                  </p>
                 </div>
               </div>
 
               {telegramConnected ? (
-                <div className="pt-2 border-t border-slate-200/70 flex items-center justify-between">
-                  <span className="text-xs text-emerald-700 font-semibold">
+                <div className="pt-2 border-t border-slate-200/70 flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-xs text-emerald-700 font-semibold leading-tight">
                     ✓ Telegram-уведомления активны
                   </span>
                   <button
                     type="button"
                     onClick={handleDisconnectTelegram}
-                    className="px-2.5 py-1.5 text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-lg font-bold transition-colors border border-slate-200"
+                    className="px-3 py-1.5 text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-lg font-bold transition-colors border border-rose-200/80 shrink-0"
                   >
                     Отключить
                   </button>
@@ -527,7 +542,7 @@ export function UserProfileModal({ isOpen, onClose, user, onUserUpdate }: UserPr
                     <button
                       type="button"
                       onClick={() => setShowTgInput(!showTgInput)}
-                      className="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-semibold rounded-xl transition-colors"
+                      className="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-semibold rounded-xl transition-colors whitespace-nowrap"
                     >
                       {showTgInput ? 'Отмена' : 'Указать @юзернейм'}
                     </button>
@@ -553,7 +568,7 @@ export function UserProfileModal({ isOpen, onClose, user, onUserUpdate }: UserPr
                           type="button"
                           onClick={() => handleConnectTelegram(tgInputVal)}
                           disabled={!tgInputVal.trim()}
-                          className="px-3 py-1.5 bg-[#003B73] hover:bg-[#054FA6] disabled:opacity-50 text-white text-xs font-bold rounded-lg transition-colors"
+                          className="px-3 py-1.5 bg-[#003B73] hover:bg-[#054FA6] disabled:opacity-50 text-white text-xs font-bold rounded-lg transition-colors shrink-0"
                         >
                           Сохранить
                         </button>
@@ -566,45 +581,47 @@ export function UserProfileModal({ isOpen, onClose, user, onUserUpdate }: UserPr
 
             {/* Browser Push Channel Card */}
             <div className="p-4 bg-slate-50 border border-slate-200/90 rounded-2xl space-y-3">
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-7 h-7 rounded-xl bg-blue-100 flex items-center justify-center text-[#003B73] shrink-0">
-                    <Bell className="w-4 h-4" />
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-xl bg-blue-100 flex items-center justify-center text-[#003B73] shrink-0 mt-0.5">
+                  <Bell className="w-4 h-4" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex flex-wrap items-center justify-between gap-1.5">
+                    <span className="text-xs font-bold text-slate-900">Уведомления в браузере</span>
+                    {browserPermission === 'granted' && browserPushEnabled ? (
+                      <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold whitespace-nowrap shrink-0">
+                        ✓ Включено
+                      </span>
+                    ) : browserPermission === 'denied' ? (
+                      <span className="px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 text-[10px] font-bold whitespace-nowrap shrink-0">
+                        Заблокировано
+                      </span>
+                    ) : browserPermission === 'unsupported' ? (
+                      <span className="px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 text-[10px] font-bold whitespace-nowrap shrink-0">
+                        Не поддерживается
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 text-[10px] font-bold whitespace-nowrap shrink-0">
+                        Не включено
+                      </span>
+                    )}
                   </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-slate-900">Уведомления в браузере</span>
-                      {browserPermission === 'granted' && browserPushEnabled ? (
-                        <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">
-                          ✓ Включено
-                        </span>
-                      ) : browserPermission === 'denied' ? (
-                        <span className="px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 text-[10px] font-bold">
-                          Заблокировано
-                        </span>
-                      ) : (
-                        <span className="px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 text-[10px] font-bold">
-                          Не включено
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">
-                      Всплывающие уведомления на компьютере или телефоне даже при свёрнутой вкладке.
-                    </p>
-                  </div>
+                  <p className="text-[11px] text-slate-500 mt-1 leading-snug">
+                    Всплывающие уведомления на компьютере или телефоне даже при свёрнутой вкладке.
+                  </p>
                 </div>
               </div>
 
               <div className="pt-2 border-t border-slate-200/70">
                 {browserPermission === 'granted' && browserPushEnabled ? (
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-emerald-700 font-semibold">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-xs text-emerald-700 font-semibold leading-tight">
                       ✓ Системные уведомления активны
                     </span>
                     <button
                       type="button"
                       onClick={handleDisableBrowserPush}
-                      className="px-2.5 py-1.5 text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-lg font-bold transition-colors"
+                      className="px-3 py-1.5 text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-lg font-bold transition-colors border border-rose-200/80 shrink-0"
                     >
                       Отключить
                     </button>
@@ -612,6 +629,11 @@ export function UserProfileModal({ isOpen, onClose, user, onUserUpdate }: UserPr
                 ) : browserPermission === 'denied' ? (
                   <div className="text-[11px] text-amber-800 bg-amber-50 p-2.5 rounded-xl border border-amber-200 leading-relaxed">
                     Уведомления запрещены в настройках браузера. Чтобы включить, нажмите на значок настроек сайта в левой части адресной строки браузера и выберите «Разрешить уведомления».
+                  </div>
+                ) : browserPermission === 'unsupported' ? (
+                  <div className="text-[11px] text-rose-800 bg-rose-50 p-2.5 rounded-xl border border-rose-200 leading-relaxed flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                    <span>Ваш браузер не поддерживает системные уведомления.</span>
                   </div>
                 ) : (
                   <button
@@ -628,28 +650,26 @@ export function UserProfileModal({ isOpen, onClose, user, onUserUpdate }: UserPr
 
             {/* SMS Channel Card */}
             <div className="p-4 bg-slate-50 border border-slate-200/90 rounded-2xl space-y-3">
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-7 h-7 rounded-xl bg-blue-100 flex items-center justify-center text-[#003B73] shrink-0">
-                    <Phone className="w-4 h-4" />
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-xl bg-blue-100 flex items-center justify-center text-[#003B73] shrink-0 mt-0.5">
+                  <Phone className="w-4 h-4" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex flex-wrap items-center justify-between gap-1.5">
+                    <span className="text-xs font-bold text-slate-900">СМС-напоминания</span>
+                    {user.phoneVerified && !isEditing ? (
+                      <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold whitespace-nowrap shrink-0">
+                        ✓ Подключено
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold whitespace-nowrap shrink-0">
+                        В разработке
+                      </span>
+                    )}
                   </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-slate-900">СМС-напоминания</span>
-                      {user.phoneVerified && !isEditing ? (
-                        <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">
-                          ✓ Подключено
-                        </span>
-                      ) : (
-                        <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold">
-                          В разработке
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">
-                      Привяжите номер телефона, чтобы получать СМС за 30 минут до вашей записи в отделение.
-                    </p>
-                  </div>
+                  <p className="text-[11px] text-slate-500 mt-1 leading-snug">
+                    Привяжите номер телефона, чтобы получать СМС за 30 минут до вашей записи в отделение.
+                  </p>
                 </div>
               </div>
 

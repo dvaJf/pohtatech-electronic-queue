@@ -163,6 +163,7 @@ func run() int {
 		}
 		worker := notification.NewOutboxWorker(usecases, sender, logger, workerCfg)
 		go worker.Start(ctx)
+		notification.StartTelegramPoller(ctx, usecases, logger)
 		logger.Info("Notification outbox worker started",
 			"provider_url", cfg.NotificationProviderURL,
 			"timeout", cfg.NotificationTimeout,

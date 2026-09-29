@@ -245,6 +245,21 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
   useEffect(() => { void refresh(); }, [refresh]);
   const connected = (channel: NotificationChannel) => subscriptions.find(item => item.channel === channel && item.enabled);
   const unavailable = (channel: 'telegram' | 'webPush' | 'email') => capabilities ? !capabilities[channel].enabled : true;
+
+  // Auto-subscribe Telegram if user enabled it in their profile
+  useEffect(() => {
+    if (typeof localStorage !== 'undefined' && localStorage.getItem('user_telegram_connected') === 'true') {
+      const isTicketTgDisabled = localStorage.getItem(`ticket_telegram_disabled:${ticket.id}`) === 'true';
+      if (!isTicketTgDisabled && token && capabilities?.telegram?.enabled && !connected('TELEGRAM') && busy !== 'TELEGRAM') {
+        const uname = localStorage.getItem('user_telegram_username') || '';
+        const dest = uname ? `@${uname}` : 'Telegram';
+        api.saveNotificationSubscription(ticket.id, 'TELEGRAM', dest, token)
+          .then(() => refresh())
+          .catch(() => {});
+      }
+    }
+  }, [ticket.id, token, capabilities?.telegram?.enabled, subscriptions.length, busy]);
+
   const managementUnavailable = 'Для этого талона управление уведомлениями недоступно. Создайте новый талон.';
   const disconnect = async (channel: NotificationChannel) => {
     if (channel === 'WEB_PUSH') {
@@ -252,6 +267,11 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
         localStorage.setItem(`ticket_webpush_disabled:${ticket.id}`, 'true');
       }
       setTicketPushDisabled(true);
+    }
+    if (channel === 'TELEGRAM') {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(`ticket_telegram_disabled:${ticket.id}`, 'true');
+      }
     }
     const item = connected(channel);
     if (!item) {
@@ -273,7 +293,31 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
       setBusy(null);
     }
   };
-  const telegram = async () => { setBusy('TELEGRAM'); setTelegramError(false); try { const url = await api.telegramLink(ticket.id, token); window.open(url, '_blank', 'noopener,noreferrer'); setNotice('Откройте Telegram и отправьте команду /start. Статус обновится автоматически.'); } catch (e) { setTelegramError(true); setNotice(friendlyError(e, 'Не удалось подключить Telegram')); } finally { setBusy(null); } };
+  const telegram = async () => {
+    setBusy('TELEGRAM');
+    setTelegramError(false);
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem(`ticket_telegram_disabled:${ticket.id}`);
+    }
+    try {
+      const url = await api.telegramLink(ticket.id, token);
+      window.open(url, '_blank', 'noopener,noreferrer');
+      const uname = typeof localStorage !== 'undefined' ? (localStorage.getItem('user_telegram_username') || '') : '';
+      const dest = uname ? `@${uname}` : 'Telegram';
+      try {
+        await api.saveNotificationSubscription(ticket.id, 'TELEGRAM', dest, token);
+        await refresh();
+      } catch {
+        // Fall back to link-based subscription if direct upsert is not ready
+      }
+      setNotice('Откройте Telegram и отправьте команду /start. Статус обновится автоматически.');
+    } catch (e) {
+      setTelegramError(true);
+      setNotice(friendlyError(e, 'Не удалось подключить Telegram'));
+    } finally {
+      setBusy(null);
+    }
+  };
   const save = async (channel: 'EMAIL', value: string) => { const valid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value); if (!valid) { setNotice('Введите корректный email.'); return; } setBusy(channel); try { await api.saveNotificationSubscription(ticket.id, channel, value, token); await refresh(); } catch (e) { setNotice(friendlyError(e, 'Не удалось сохранить уведомления')); } finally { setBusy(null); } };
   const push = async () => {
     if (typeof localStorage !== 'undefined' && localStorage.getItem('user_browser_push_enabled') !== 'true') {

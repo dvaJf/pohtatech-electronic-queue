@@ -42,7 +42,7 @@ func (a *API) NotificationCapabilities(w http.ResponseWriter, r *http.Request) {
 		webPushData["vapidPublicKey"] = strings.TrimSpace(os.Getenv("WEB_PUSH_VAPID_PUBLIC_KEY"))
 	}
 	writeJSONResponse(w, http.StatusOK, map[string]any{
-		"telegram": map[string]any{"enabled": configured("TELEGRAM_BOT_TOKEN", "TELEGRAM_BOT_USERNAME"), "mode": "real"},
+		"telegram": map[string]any{"enabled": configured("TELEGRAM_BOT_USERNAME") || configured("TELEGRAM_BOT_TOKEN"), "mode": map[bool]string{true: "real", false: "demo"}[configured("TELEGRAM_BOT_TOKEN")]},
 		"webPush":  webPushData,
 		"sms":      map[string]any{"enabled": true, "mode": map[bool]string{true: "real", false: "demo"}[smsReal]},
 		"email":    map[string]any{"enabled": true, "mode": map[bool]string{true: "smtp", false: "demo"}[configured("SMTP_HOST", "SMTP_PASSWORD") && (configured("SMTP_USERNAME") || configured("SMTP_USER"))]},
@@ -99,7 +99,7 @@ func (a *API) PutNotificationSubscription(w http.ResponseWriter, r *http.Request
 		return
 	}
 	ch := domain.NotificationChannel(strings.ToUpper(chi.URLParam(r, "channel")))
-	if ch != domain.NotificationChannelSMS && ch != domain.NotificationChannelEmail && ch != domain.NotificationChannelWebPush {
+	if ch != domain.NotificationChannelSMS && ch != domain.NotificationChannelEmail && ch != domain.NotificationChannelWebPush && ch != domain.NotificationChannelTelegram {
 		writeJSONError(w, r, 400, "VALIDATION_ERROR", "Unsupported channel")
 		return
 	}
@@ -127,6 +127,15 @@ func (a *API) DeleteNotificationSubscription(w http.ResponseWriter, r *http.Requ
 func maskDestination(ch domain.NotificationChannel, v string) string {
 	if ch == domain.NotificationChannelWebPush {
 		return "Подписка браузера"
+	}
+	if ch == domain.NotificationChannelTelegram {
+		if strings.HasPrefix(v, "@") {
+			return v
+		}
+		if len(v) > 4 {
+			return "ID: " + v[:2] + "***" + v[len(v)-2:]
+		}
+		return "Telegram (" + v + ")"
 	}
 	if ch == domain.NotificationChannelEmail {
 		p := strings.Split(v, "@")

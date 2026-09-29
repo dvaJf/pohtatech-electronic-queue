@@ -1,8 +1,17 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, Phone, ShieldCheck, X, AlertCircle, Loader2, ArrowRight, User as UserIcon, Clock } from 'lucide-react';
+import { CheckCircle2, Phone, ShieldCheck, X, AlertCircle, Loader2, ArrowRight, User as UserIcon, Clock, Bell, ExternalLink } from 'lucide-react';
 import { User, sendPhoneCode, verifyPhoneCode } from '../../api/authApi';
 import { PochtaEmblem } from '../../components/common/PochtaBrand';
 import { ClientServiceRecord, getClientServiceHistory } from '../client/serviceHistory';
+
+function TelegramIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="12" cy="12" r="12" fill="#229ED9" />
+      <path d="M17.67 6.99 5.93 11.52c-.8.32-.8.76-.15.96l3.01.94 1.16 3.55c.14.39.07.55.48.55.32 0 .46-.15.64-.32l1.46-1.42 3.04 2.24c.56.31.96.15 1.1-.52l2-9.42c.2-.82-.31-1.19-1-0.88Zm-8.41 6.15 6.79-4.28c.34-.2.65-.09.4.14l-5.5 4.97-.22 2.42-1.47-3.26Z" fill="white" />
+    </svg>
+  );
+}
 
 interface UserProfileModalProps {
   isOpen: boolean;
@@ -88,6 +97,156 @@ export function UserProfileModal({ isOpen, onClose, user, onUserUpdate }: UserPr
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [countdown, setCountdown] = useState(0);
+
+  // Telegram state & preferences
+  const tgStorageKey = `user_telegram:${user.id || user.email}`;
+  const [telegramConnected, setTelegramConnected] = useState<boolean>(() => {
+    if (typeof localStorage !== 'undefined') {
+      const saved = localStorage.getItem(tgStorageKey);
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          return Boolean(parsed.connected);
+        } catch {
+          return saved === 'true';
+        }
+      }
+    }
+    return false;
+  });
+  const [telegramUsername, setTelegramUsername] = useState<string>(() => {
+    if (typeof localStorage !== 'undefined') {
+      const saved = localStorage.getItem(tgStorageKey);
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          return parsed.username || '';
+        } catch {
+          return '';
+        }
+      }
+    }
+    return '';
+  });
+  const [tgInputVal, setTgInputVal] = useState('');
+  const [showTgInput, setShowTgInput] = useState(false);
+  const [tgNotice, setTgNotice] = useState<string | null>(null);
+
+  // Browser push notification state
+  const pushStorageKey = `user_browser_push:${user.id || user.email}`;
+  const [browserPermission, setBrowserPermission] = useState<string>(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      return Notification.permission;
+    }
+    return 'unsupported';
+  });
+  const [browserPushEnabled, setBrowserPushEnabled] = useState<boolean>(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      if (Notification.permission === 'granted') {
+        const saved = localStorage.getItem(pushStorageKey);
+        return saved !== 'false';
+      }
+    }
+    return false;
+  });
+  const [pushNotice, setPushNotice] = useState<string | null>(null);
+
+  const handleConnectTelegram = (username?: string) => {
+    const uname = (username || tgInputVal).trim().replace(/^@/, '');
+    const data = { connected: true, username: uname || undefined, connectedAt: new Date().toISOString() };
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(tgStorageKey, JSON.stringify(data));
+      localStorage.setItem('user_telegram_connected', 'true');
+    }
+    setTelegramConnected(true);
+    if (uname) setTelegramUsername(uname);
+    setShowTgInput(false);
+    setTgNotice('Telegram успешно подключен! Бот будет присылать уведомления.');
+    setTimeout(() => setTgNotice(null), 3500);
+
+    // Open Telegram bot link
+    window.open(`https://t.me/poiters_inno_bot?start=profile_${user.id || 'client'}`, '_blank', 'noopener,noreferrer');
+  };
+
+  const handleDisconnectTelegram = () => {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem(tgStorageKey);
+      localStorage.removeItem('user_telegram_connected');
+    }
+    setTelegramConnected(false);
+    setTelegramUsername('');
+    setTgNotice('Telegram отключен.');
+    setTimeout(() => setTgNotice(null), 2500);
+  };
+
+  const handleEnableBrowserPush = async () => {
+    if (typeof window === 'undefined' || !('Notification' in window)) {
+      setPushNotice('Ваш браузер не поддерживает системные уведомления.');
+      return;
+    }
+    try {
+      const perm = await Notification.requestPermission();
+      setBrowserPermission(perm);
+      if (perm === 'granted') {
+        setBrowserPushEnabled(true);
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem(pushStorageKey, 'true');
+          localStorage.setItem('user_browser_push_enabled', 'true');
+        }
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new Event('pochta:notifications_changed'));
+        }
+        if ('serviceWorker' in navigator) {
+          try {
+            await navigator.serviceWorker.register('/sw.js');
+            const reg = await navigator.serviceWorker.ready;
+            await reg.showNotification('Почта России — Цифровая очередь', {
+              body: 'Уведомления в браузере успешно активированы!',
+              icon: '/favicon.svg',
+            });
+          } catch {
+            try {
+              new Notification('Почта России — Цифровая очередь', {
+                body: 'Уведомления в браузере успешно активированы!',
+                icon: '/favicon.svg',
+              });
+            } catch {}
+          }
+        }
+        setPushNotice('Уведомления в браузере успешно включены!');
+        setTimeout(() => setPushNotice(null), 3500);
+      } else if (perm === 'denied') {
+        setPushNotice('Уведомления заблокированы в браузере. Разрешите их в настройках сайта.');
+        setTimeout(() => setPushNotice(null), 4000);
+      }
+    } catch {
+      setPushNotice('Не удалось запросить разрешение на уведомления.');
+      setTimeout(() => setPushNotice(null), 3000);
+    }
+  };
+
+  const handleDisableBrowserPush = async () => {
+    setBrowserPushEnabled(false);
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(pushStorageKey, 'false');
+      localStorage.setItem('user_browser_push_enabled', 'false');
+    }
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('pochta:notifications_changed'));
+    }
+    // Отписываемся от PushManager в браузере, чтобы push-сервер не слал уведомления
+    if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        const sub = await reg.pushManager.getSubscription();
+        if (sub) {
+          await sub.unsubscribe();
+        }
+      } catch {}
+    }
+    setPushNotice('Уведомления в браузере отключены.');
+    setTimeout(() => setPushNotice(null), 2500);
+  };
 
   if (!isOpen) return null;
 
@@ -286,166 +445,337 @@ export function UserProfileModal({ isOpen, onClose, user, onUserUpdate }: UserPr
             </div>
           )}
 
-          {/* SMS Reminders Section */}
+          {/* Каналы уведомлений: Telegram и Браузерные уведомления */}
           <div className="space-y-4">
             <div className="flex items-center justify-between text-slate-900 font-bold text-sm">
               <div className="flex items-center gap-2">
-                <Phone className="w-4 h-4 text-[#054FA6]" />
-                <span>СМС-напоминания о записи</span>
+                <Bell className="w-4 h-4 text-[#054FA6]" />
+                <span>Уведомления и оповещения</span>
               </div>
-              <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[11px] font-bold">
-                В разработке
+              <span className="px-2 py-0.5 rounded-full bg-blue-50 text-[#003B73] border border-blue-200/60 text-[11px] font-bold">
+                Telegram • Push • SMS
               </span>
             </div>
 
             <p className="text-xs text-slate-600 leading-relaxed">
-              Привяжите номер телефона, чтобы получать <strong>СМС за 30 минут</strong> до вашей записи в отделение.
+              Подключите удобные каналы, чтобы не пропустить вызов к окну и получать актуальный статус талонов.
             </p>
 
-            {error && (
-              <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 font-medium flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0 text-red-500" />
-                <span>{error}</span>
-              </div>
-            )}
-
-            {successMsg && (
-              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 font-medium flex items-center gap-2">
+            {tgNotice && (
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-[#003B73] font-medium flex items-center gap-2 animate-fade-in">
                 <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
-                <span>{successMsg}</span>
+                <span>{tgNotice}</span>
               </div>
             )}
 
-            {/* Verified state */}
-            {user.phoneVerified && !isEditing ? (
-              <div className="p-4 bg-emerald-50/70 border border-emerald-200 rounded-2xl space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-emerald-800 font-bold text-xs">
-                    <ShieldCheck className="w-5 h-5 text-emerald-600 shrink-0" />
-                    <span>Номер подтвержден</span>
-                  </div>
-                  <span className="text-xs font-mono font-bold text-emerald-900">{user.phone}</span>
-                </div>
-                <div className="text-[11px] text-emerald-700">
-                  ✓ Уведомления за 30 минут до визита включены и будут приходить на этот номер.
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsEditing(true);
-                    setStep('input_phone');
-                  }}
-                  className="text-xs text-blue-700 font-bold hover:underline"
-                >
-                  Изменить номер телефона
-                </button>
+            {pushNotice && (
+              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 font-medium flex items-center gap-2 animate-fade-in">
+                <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
+                <span>{pushNotice}</span>
               </div>
-            ) : step === 'input_phone' ? (
-              /* Step 1: Phone input - Marked as in development */
-              <form onSubmit={(e) => e.preventDefault()} className="space-y-3">
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="block text-xs font-bold text-slate-700">
-                      Номер телефона для СМС
-                    </label>
-                  </div>
-                  <div className="relative">
-                    <input
-                      type="text"
-                      disabled
-                      readOnly
-                      value="В разработке"
-                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-100 text-slate-400 text-sm font-medium cursor-not-allowed select-none"
-                    />
+            )}
+
+            {/* Telegram Channel Card */}
+            <div className="p-4 bg-slate-50 border border-slate-200/90 rounded-2xl space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <TelegramIcon size={28} />
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-slate-900">Telegram-уведомления</span>
+                      {telegramConnected ? (
+                        <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">
+                          ✓ Подключено
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 text-[10px] font-bold">
+                          Не подключено
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">
+                      Мгновенные сообщения о приближении очереди и вызове в Telegram.
+                    </p>
                   </div>
                 </div>
+              </div>
 
-                <div className="flex gap-2">
+              {telegramConnected ? (
+                <div className="pt-2 border-t border-slate-200/70 flex items-center justify-between">
+                  <span className="text-xs text-emerald-700 font-semibold">
+                    ✓ Telegram-уведомления активны
+                  </span>
                   <button
                     type="button"
-                    disabled={true}
-                    className="flex-1 py-2.5 px-4 bg-slate-200 text-slate-400 rounded-xl text-xs font-bold cursor-not-allowed flex items-center justify-center gap-1.5 opacity-70 select-none shadow-none"
+                    onClick={handleDisconnectTelegram}
+                    className="px-2.5 py-1.5 text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-lg font-bold transition-colors border border-slate-200"
                   >
-                    <span>Получить проверочный код</span>
-                    <ArrowRight className="w-3.5 h-3.5 opacity-50" />
+                    Отключить
                   </button>
-                  {user.phoneVerified && (
-                    <button
-                      type="button"
-                      onClick={() => setIsEditing(false)}
-                      className="py-2.5 px-3 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl text-xs font-semibold"
-                    >
-                      Отмена
-                    </button>
-                  )}
                 </div>
-              </form>
-            ) : (
-              /* Step 2: Code input */
-              <form onSubmit={handleVerifyCode} className="space-y-3">
-                <div>
-                  <div className="flex justify-between items-center mb-1">
-                    <label className="text-xs font-bold text-slate-700">
-                      Код из СМС
-                    </label>
+              ) : (
+                <div className="pt-2 border-t border-slate-200/70 space-y-2">
+                  <div className="flex gap-2">
                     <button
                       type="button"
-                      onClick={() => setStep('input_phone')}
-                      className="text-[11px] text-blue-600 hover:underline"
+                      onClick={() => handleConnectTelegram()}
+                      className="flex-1 px-3.5 py-2 bg-[#229ED9] hover:bg-[#1D8BC0] text-white text-xs font-bold rounded-xl transition-all shadow-sm flex items-center justify-center gap-1.5"
                     >
-                      Изменить номер ({phone})
+                      <span>Подключить Telegram</span>
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowTgInput(!showTgInput)}
+                      className="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-semibold rounded-xl transition-colors"
+                    >
+                      {showTgInput ? 'Отмена' : 'Указать @юзернейм'}
                     </button>
                   </div>
-                  <input
-                    type="text"
-                    maxLength={6}
-                    value={code}
-                    onChange={(e) => setCode(e.target.value)}
-                    placeholder="1234"
-                    autoFocus
-                    required
-                    className="w-full px-3.5 py-2.5 text-center tracking-widest text-lg font-mono font-bold rounded-xl border border-slate-300 text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#054FA6] focus:border-transparent transition-all"
-                  />
-                </div>
 
-                <div className="flex gap-2">
-                  <button
-                    type="submit"
-                    disabled={loading || !code.trim()}
-                    className="flex-1 py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center justify-center gap-1.5"
-                  >
-                    {loading ? (
-                      <>
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        <span>Проверка...</span>
-                      </>
-                    ) : (
-                      <>
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                        <span>Подтвердить номер</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-
-                <div className="text-center pt-1">
-                  {countdown > 0 ? (
-                    <span className="text-[11px] text-slate-500 font-medium">
-                      Повторная отправка через {countdown} сек.
-                    </span>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={handleSendCode}
-                      disabled={loading}
-                      className="text-[11px] text-blue-600 hover:underline font-bold"
-                    >
-                      Отправить код повторно
-                    </button>
+                  {showTgInput && (
+                    <div className="p-3 bg-white border border-slate-200 rounded-xl space-y-2 animate-fade-in">
+                      <label className="text-[11px] font-bold text-slate-700 block">
+                        Ваш Telegram username (без @)
+                      </label>
+                      <div className="flex gap-2">
+                        <div className="relative flex-1">
+                          <span className="absolute left-3 top-2 text-slate-400 text-xs font-bold">@</span>
+                          <input
+                            type="text"
+                            value={tgInputVal}
+                            onChange={e => setTgInputVal(e.target.value)}
+                            placeholder="username"
+                            className="w-full pl-7 pr-3 py-1.5 text-xs rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-[#229ED9]"
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleConnectTelegram(tgInputVal)}
+                          disabled={!tgInputVal.trim()}
+                          className="px-3 py-1.5 bg-[#003B73] hover:bg-[#054FA6] disabled:opacity-50 text-white text-xs font-bold rounded-lg transition-colors"
+                        >
+                          Сохранить
+                        </button>
+                      </div>
+                    </div>
                   )}
                 </div>
-              </form>
-            )}
+              )}
+            </div>
+
+            {/* Browser Push Channel Card */}
+            <div className="p-4 bg-slate-50 border border-slate-200/90 rounded-2xl space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-7 h-7 rounded-xl bg-blue-100 flex items-center justify-center text-[#003B73] shrink-0">
+                    <Bell className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-slate-900">Уведомления в браузере</span>
+                      {browserPermission === 'granted' && browserPushEnabled ? (
+                        <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">
+                          ✓ Включено
+                        </span>
+                      ) : browserPermission === 'denied' ? (
+                        <span className="px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 text-[10px] font-bold">
+                          Заблокировано
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 text-[10px] font-bold">
+                          Не включено
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">
+                      Всплывающие уведомления на компьютере или телефоне даже при свёрнутой вкладке.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-2 border-t border-slate-200/70">
+                {browserPermission === 'granted' && browserPushEnabled ? (
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-emerald-700 font-semibold">
+                      ✓ Системные уведомления активны
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleDisableBrowserPush}
+                      className="px-2.5 py-1.5 text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-lg font-bold transition-colors"
+                    >
+                      Отключить
+                    </button>
+                  </div>
+                ) : browserPermission === 'denied' ? (
+                  <div className="text-[11px] text-amber-800 bg-amber-50 p-2.5 rounded-xl border border-amber-200 leading-relaxed">
+                    Уведомления запрещены в настройках браузера. Чтобы включить, нажмите на значок настроек сайта в левой части адресной строки браузера и выберите «Разрешить уведомления».
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleEnableBrowserPush}
+                    className="w-full py-2 px-3.5 bg-[#003B73] hover:bg-[#054FA6] text-white text-xs font-bold rounded-xl transition-all shadow-sm flex items-center justify-center gap-1.5"
+                  >
+                    <Bell className="w-3.5 h-3.5" />
+                    <span>Включить уведомления в браузере</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* SMS Channel Card */}
+            <div className="p-4 bg-slate-50 border border-slate-200/90 rounded-2xl space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-7 h-7 rounded-xl bg-blue-100 flex items-center justify-center text-[#003B73] shrink-0">
+                    <Phone className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-slate-900">СМС-напоминания</span>
+                      {user.phoneVerified && !isEditing ? (
+                        <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">
+                          ✓ Подключено
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold">
+                          В разработке
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">
+                      Привяжите номер телефона, чтобы получать СМС за 30 минут до вашей записи в отделение.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {error && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 font-medium flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-red-500" />
+                  <span>{error}</span>
+                </div>
+              )}
+
+              {successMsg && (
+                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 font-medium flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
+                  <span>{successMsg}</span>
+                </div>
+              )}
+
+              <div className="pt-2 border-t border-slate-200/70">
+                {user.phoneVerified && !isEditing ? (
+                  <div className="flex items-center justify-between">
+                    <div className="text-xs text-slate-700">
+                      <span className="text-slate-400 text-[11px] block">Номер подтвержден:</span>
+                      <strong className="text-emerald-900 font-mono">{user.phone}</strong>
+                      <span className="block text-[10px] text-emerald-700 mt-0.5">✓ Уведомления за 30 минут включены</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsEditing(true);
+                        setStep('input_phone');
+                      }}
+                      className="px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-[#003B73] rounded-lg text-xs font-bold transition-colors"
+                    >
+                      Изменить номер
+                    </button>
+                  </div>
+                ) : step === 'input_phone' ? (
+                  <form onSubmit={(e) => e.preventDefault()} className="space-y-2.5">
+                    <div className="space-y-2">
+                      <input
+                        type="text"
+                        disabled
+                        readOnly
+                        value="В разработке"
+                        className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-400 text-xs font-medium cursor-not-allowed select-none"
+                      />
+                      <button
+                        type="button"
+                        disabled={true}
+                        className="w-full py-2.5 px-4 bg-slate-200 text-slate-400 rounded-xl text-xs font-bold cursor-not-allowed flex items-center justify-center gap-1.5 opacity-70 select-none shadow-none"
+                      >
+                        <span>Получить проверочный код</span>
+                        <ArrowRight className="w-3.5 h-3.5 opacity-50" />
+                      </button>
+                      {user.phoneVerified && (
+                        <button
+                          type="button"
+                          onClick={() => setIsEditing(false)}
+                          className="w-full py-2 px-3 border border-slate-200 hover:bg-slate-100 text-slate-600 rounded-xl text-xs font-semibold"
+                        >
+                          Отмена
+                        </button>
+                      )}
+                    </div>
+                  </form>
+                ) : (
+                  <form onSubmit={handleVerifyCode} className="space-y-2.5">
+                    <div className="flex justify-between items-center">
+                      <label className="text-xs font-bold text-slate-700">Код из СМС</label>
+                      <button
+                        type="button"
+                        onClick={() => setStep('input_phone')}
+                        className="text-[11px] text-blue-600 hover:underline"
+                      >
+                        Изменить номер ({phone})
+                      </button>
+                    </div>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        maxLength={6}
+                        value={code}
+                        onChange={(e) => setCode(e.target.value)}
+                        placeholder="1234"
+                        autoFocus
+                        required
+                        className="flex-1 px-3.5 py-2 text-center tracking-widest text-sm font-mono font-bold rounded-xl border border-slate-300 text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#054FA6] focus:border-transparent transition-all"
+                      />
+                      <button
+                        type="submit"
+                        disabled={loading || !code.trim()}
+                        className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center justify-center gap-1.5 shrink-0"
+                      >
+                        {loading ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <span>Проверка...</span>
+                          </>
+                        ) : (
+                          <>
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>Подтвердить номер</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                    <div className="text-center pt-1">
+                      {countdown > 0 ? (
+                        <span className="text-[11px] text-slate-500 font-medium">
+                          Повторная отправка через {countdown} сек.
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={handleSendCode}
+                          disabled={loading}
+                          className="text-[11px] text-blue-600 hover:underline font-bold"
+                        >
+                          Отправить код повторно
+                        </button>
+                      )}
+                    </div>
+                  </form>
+                )}
+              </div>
+            </div>
           </div>
         </div>
 

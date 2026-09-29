@@ -452,7 +452,10 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
                   className="absolute right-0 top-[calc(100%+6px)] z-50 w-56 rounded-xl border border-white/15 bg-[#082E5A] p-1.5 text-white shadow-xl">
                   <div className="truncate px-3 py-2 text-xs text-blue-100/65" title={currentUser.email}>
                     {currentUser.fio && <span className="block font-bold text-white truncate">{currentUser.fio}</span>}
-                    {currentUser.email}<span className="block">{roleLabel}</span>
+                    <div className="flex items-center justify-between gap-1.5 mt-0.5">
+                      <span className="truncate">{currentUser.email}</span>
+                      <span className="px-2 py-0.5 rounded-full bg-white text-[#003B73] text-[9px] font-extrabold uppercase shadow-sm tracking-wider whitespace-nowrap shrink-0">{roleLabel}</span>
+                    </div>
                   </div>
                   <button role="menuitem" type="button" onClick={() => { setAccountMenuOpen(false); setIsProfileOpen(true); }} className="flex min-h-11 w-full items-center rounded-lg border-0 bg-transparent px-3 text-left text-xs text-white hover:bg-white/10">Профиль</button>
                   <button role="menuitem" type="button" onClick={() => { setAccountMenuOpen(false); setA11yOpen(true); }} className="flex min-h-11 w-full items-center rounded-lg border-0 bg-transparent px-3 text-left text-xs text-white hover:bg-white/10">Настройки</button>
@@ -627,12 +630,12 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
             {/* Пользователь / Войти */}
             {currentUser ? (
               <div className="p-2.5 rounded-xl bg-white/10 border border-white/15 space-y-2">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-1.5 min-w-0">
                     <span className="text-xs font-bold text-white truncate max-w-[150px]">{currentUser.email}</span>
                     {currentUser.phoneVerified && <CheckCircleIcon className="w-3.5 h-3.5 text-emerald-300 shrink-0" />}
                   </div>
-                  <span className="text-[9px] font-mono text-blue-200 uppercase bg-blue-900/60 px-1.5 py-0.5 rounded">
+                  <span className="text-[10px] font-extrabold text-[#003B73] uppercase bg-white px-2.5 py-0.5 rounded-full shadow-sm tracking-wider whitespace-nowrap shrink-0">
                     {currentUser.role === 'opc_chief' ? 'Начальник' : currentUser.role === 'employee' ? 'Оператор' : 'Клиент'}
                   </span>
                 </div>

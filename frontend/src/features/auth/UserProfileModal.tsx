@@ -492,38 +492,38 @@ export function UserProfileModal({ isOpen, onClose, user, onUserUpdate }: UserPr
 
             {/* Telegram Channel Card */}
             <div className="p-4 bg-slate-50 border border-slate-200/90 rounded-2xl space-y-3">
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex items-center gap-3">
+              <div className="flex items-start gap-3">
+                <div className="shrink-0 mt-0.5">
                   <TelegramIcon size={28} />
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-xs font-bold text-slate-900">Telegram-уведомления</span>
-                      {telegramConnected ? (
-                        <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold whitespace-nowrap">
-                          ✓ Подключено
-                        </span>
-                      ) : (
-                        <span className="px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 text-[10px] font-bold whitespace-nowrap">
-                          Не подключено
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">
-                      Мгновенные сообщения о приближении очереди и вызове в Telegram.
-                    </p>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex flex-wrap items-center justify-between gap-1.5">
+                    <span className="text-xs font-bold text-slate-900">Telegram-уведомления</span>
+                    {telegramConnected ? (
+                      <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold whitespace-nowrap shrink-0">
+                        ✓ Подключено
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 text-[10px] font-bold whitespace-nowrap shrink-0">
+                        Не подключено
+                      </span>
+                    )}
                   </div>
+                  <p className="text-[11px] text-slate-500 mt-1 leading-snug">
+                    Мгновенные сообщения о приближении очереди и вызове в Telegram.
+                  </p>
                 </div>
               </div>
 
               {telegramConnected ? (
-                <div className="pt-2 border-t border-slate-200/70 flex items-center justify-between">
-                  <span className="text-xs text-emerald-700 font-semibold">
+                <div className="pt-2 border-t border-slate-200/70 flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-xs text-emerald-700 font-semibold leading-tight">
                     ✓ Telegram-уведомления активны
                   </span>
                   <button
                     type="button"
                     onClick={handleDisconnectTelegram}
-                    className="px-2.5 py-1.5 text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-lg font-bold transition-colors border border-slate-200"
+                    className="px-3 py-1.5 text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-lg font-bold transition-colors border border-rose-200/80 shrink-0"
                   >
                     Отключить
                   </button>
@@ -542,7 +542,7 @@ export function UserProfileModal({ isOpen, onClose, user, onUserUpdate }: UserPr
                     <button
                       type="button"
                       onClick={() => setShowTgInput(!showTgInput)}
-                      className="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-semibold rounded-xl transition-colors"
+                      className="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-semibold rounded-xl transition-colors whitespace-nowrap"
                     >
                       {showTgInput ? 'Отмена' : 'Указать @юзернейм'}
                     </button>
@@ -568,7 +568,7 @@ export function UserProfileModal({ isOpen, onClose, user, onUserUpdate }: UserPr
                           type="button"
                           onClick={() => handleConnectTelegram(tgInputVal)}
                           disabled={!tgInputVal.trim()}
-                          className="px-3 py-1.5 bg-[#003B73] hover:bg-[#054FA6] disabled:opacity-50 text-white text-xs font-bold rounded-lg transition-colors"
+                          className="px-3 py-1.5 bg-[#003B73] hover:bg-[#054FA6] disabled:opacity-50 text-white text-xs font-bold rounded-lg transition-colors shrink-0"
                         >
                           Сохранить
                         </button>
@@ -581,49 +581,47 @@ export function UserProfileModal({ isOpen, onClose, user, onUserUpdate }: UserPr
 
             {/* Browser Push Channel Card */}
             <div className="p-4 bg-slate-50 border border-slate-200/90 rounded-2xl space-y-3">
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-7 h-7 rounded-xl bg-blue-100 flex items-center justify-center text-[#003B73] shrink-0">
-                    <Bell className="w-4 h-4" />
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-xl bg-blue-100 flex items-center justify-center text-[#003B73] shrink-0 mt-0.5">
+                  <Bell className="w-4 h-4" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex flex-wrap items-center justify-between gap-1.5">
+                    <span className="text-xs font-bold text-slate-900">Уведомления в браузере</span>
+                    {browserPermission === 'granted' && browserPushEnabled ? (
+                      <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold whitespace-nowrap shrink-0">
+                        ✓ Включено
+                      </span>
+                    ) : browserPermission === 'denied' ? (
+                      <span className="px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 text-[10px] font-bold whitespace-nowrap shrink-0">
+                        Заблокировано
+                      </span>
+                    ) : browserPermission === 'unsupported' ? (
+                      <span className="px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 text-[10px] font-bold whitespace-nowrap shrink-0">
+                        Не поддерживается
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 text-[10px] font-bold whitespace-nowrap shrink-0">
+                        Не включено
+                      </span>
+                    )}
                   </div>
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-xs font-bold text-slate-900">Уведомления в браузере</span>
-                      {browserPermission === 'granted' && browserPushEnabled ? (
-                        <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold whitespace-nowrap">
-                          ✓ Включено
-                        </span>
-                      ) : browserPermission === 'denied' ? (
-                        <span className="px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 text-[10px] font-bold whitespace-nowrap">
-                          Заблокировано
-                        </span>
-                      ) : browserPermission === 'unsupported' ? (
-                        <span className="px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 text-[10px] font-bold whitespace-nowrap">
-                          Не поддерживается
-                        </span>
-                      ) : (
-                        <span className="px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 text-[10px] font-bold whitespace-nowrap">
-                          Не включено
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">
-                      Всплывающие уведомления на компьютере или телефоне даже при свёрнутой вкладке.
-                    </p>
-                  </div>
+                  <p className="text-[11px] text-slate-500 mt-1 leading-snug">
+                    Всплывающие уведомления на компьютере или телефоне даже при свёрнутой вкладке.
+                  </p>
                 </div>
               </div>
 
               <div className="pt-2 border-t border-slate-200/70">
                 {browserPermission === 'granted' && browserPushEnabled ? (
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-emerald-700 font-semibold">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-xs text-emerald-700 font-semibold leading-tight">
                       ✓ Системные уведомления активны
                     </span>
                     <button
                       type="button"
                       onClick={handleDisableBrowserPush}
-                      className="px-2.5 py-1.5 text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-lg font-bold transition-colors"
+                      className="px-3 py-1.5 text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-lg font-bold transition-colors border border-rose-200/80 shrink-0"
                     >
                       Отключить
                     </button>
@@ -652,28 +650,26 @@ export function UserProfileModal({ isOpen, onClose, user, onUserUpdate }: UserPr
 
             {/* SMS Channel Card */}
             <div className="p-4 bg-slate-50 border border-slate-200/90 rounded-2xl space-y-3">
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-7 h-7 rounded-xl bg-blue-100 flex items-center justify-center text-[#003B73] shrink-0">
-                    <Phone className="w-4 h-4" />
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-xl bg-blue-100 flex items-center justify-center text-[#003B73] shrink-0 mt-0.5">
+                  <Phone className="w-4 h-4" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex flex-wrap items-center justify-between gap-1.5">
+                    <span className="text-xs font-bold text-slate-900">СМС-напоминания</span>
+                    {user.phoneVerified && !isEditing ? (
+                      <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold whitespace-nowrap shrink-0">
+                        ✓ Подключено
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold whitespace-nowrap shrink-0">
+                        В разработке
+                      </span>
+                    )}
                   </div>
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-xs font-bold text-slate-900">СМС-напоминания</span>
-                      {user.phoneVerified && !isEditing ? (
-                        <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold whitespace-nowrap">
-                          ✓ Подключено
-                        </span>
-                      ) : (
-                        <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold whitespace-nowrap">
-                          В разработке
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">
-                      Привяжите номер телефона, чтобы получать СМС за 30 минут до вашей записи в отделение.
-                    </p>
-                  </div>
+                  <p className="text-[11px] text-slate-500 mt-1 leading-snug">
+                    Привяжите номер телефона, чтобы получать СМС за 30 минут до вашей записи в отделение.
+                  </p>
                 </div>
               </div>
 

@@ -41,9 +41,10 @@ export const QueuePolicyEditor: React.FC<QueuePolicyEditorProps> = ({
     'appointmentLatePenaltyMaxPoints',
   ] as const;
 
+  const [selectedPreset, setSelectedPreset] = useState<PresetType | null>('balance');
   const [values, setValues] = useState<Record<typeof fields[number], number>>({
     appointmentDuePriority: 100,
-    qrPriority: 10,
+    qrPriority: 20,
     livePriority: 10,
     antiStarvationThresholdMinutes: 15,
     antiStarvationPointsPerMinute: 10,
@@ -80,6 +81,15 @@ export const QueuePolicyEditor: React.FC<QueuePolicyEditorProps> = ({
         appointmentLatePenaltyPerMinute: data.appointmentLatePenaltyPerMinute,
         appointmentLatePenaltyMaxPoints: data.appointmentLatePenaltyMaxPoints,
       });
+      if (data.appointmentDuePriority === 100 && data.qrPriority === 20 && data.livePriority === 10) {
+        setSelectedPreset('balance');
+      } else if (data.appointmentDuePriority === 80 && data.livePriority === 20) {
+        setSelectedPreset('rush');
+      } else if (data.appointmentDuePriority >= 200) {
+        setSelectedPreset('appointment');
+      } else {
+        setSelectedPreset(null);
+      }
     } catch (err) {
       if (id !== requestId.current) return;
       setNotice({
@@ -135,11 +145,12 @@ export const QueuePolicyEditor: React.FC<QueuePolicyEditorProps> = ({
 
   // Apply Presets
   const applyPreset = (preset: PresetType) => {
+    setSelectedPreset(preset);
     if (preset === 'balance') {
       setValues((prev) => ({
         ...prev,
         appointmentDuePriority: 100,
-        qrPriority: 10,
+        qrPriority: 20,
         livePriority: 10,
         antiStarvationThresholdMinutes: 15,
         antiStarvationPointsPerMinute: 10,
@@ -151,7 +162,7 @@ export const QueuePolicyEditor: React.FC<QueuePolicyEditorProps> = ({
       setValues((prev) => ({
         ...prev,
         appointmentDuePriority: 80,
-        qrPriority: 20,
+        qrPriority: 10,
         livePriority: 20,
         antiStarvationThresholdMinutes: 10,
         antiStarvationPointsPerMinute: 20,
@@ -165,9 +176,9 @@ export const QueuePolicyEditor: React.FC<QueuePolicyEditorProps> = ({
         appointmentDuePriority: 250,
         qrPriority: 10,
         livePriority: 10,
-        antiStarvationThresholdMinutes: 20,
+        antiStarvationThresholdMinutes: 25,
         antiStarvationPointsPerMinute: 5,
-        appointmentGraceMinutes: 20,
+        appointmentGraceMinutes: 30,
         appointmentLatePenaltyPerMinute: 5,
         appointmentLatePenaltyMaxPoints: 100,
       }));
@@ -177,7 +188,6 @@ export const QueuePolicyEditor: React.FC<QueuePolicyEditorProps> = ({
   // Determine active levels
   const channelPriorityLevel =
     values.livePriority > values.qrPriority ? 'high' : values.qrPriority > values.livePriority ? 'medium' : 'low';
-  const appointmentPriorityLevel = channelPriorityLevel;
 
   const starvationGuardLevel =
     values.antiStarvationThresholdMinutes >= 20 ? 'low' : values.antiStarvationThresholdMinutes >= 12 ? 'medium' : 'high';
@@ -187,6 +197,26 @@ export const QueuePolicyEditor: React.FC<QueuePolicyEditorProps> = ({
 
   const latePenaltyLevel =
     values.appointmentLatePenaltyPerMinute <= 3 ? 'low' : values.appointmentLatePenaltyPerMinute <= 7 ? 'medium' : 'high';
+
+  const isBalanceActive =
+    selectedPreset === 'balance' ||
+    (!selectedPreset &&
+      values.appointmentDuePriority === 100 &&
+      channelPriorityLevel === 'medium' &&
+      starvationGuardLevel === 'medium');
+
+  const isRushActive =
+    selectedPreset === 'rush' ||
+    (!selectedPreset &&
+      values.appointmentDuePriority === 80 &&
+      channelPriorityLevel === 'high' &&
+      starvationGuardLevel === 'high');
+
+  const isAppointmentActive =
+    selectedPreset === 'appointment' ||
+    (!selectedPreset &&
+      values.appointmentDuePriority >= 180 &&
+      channelPriorityLevel === 'low');
 
   const handleSave = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -328,14 +358,19 @@ export const QueuePolicyEditor: React.FC<QueuePolicyEditorProps> = ({
                   type="button"
                   onClick={() => applyPreset('balance')}
                   className={`p-3.5 rounded-2xl border text-left transition-all relative cursor-pointer ${
-                    appointmentPriorityLevel === 'medium' && starvationGuardLevel === 'medium'
-                      ? 'bg-blue-50/70 border-[#054FA6] shadow-sm ring-1 ring-[#054FA6]'
+                    isBalanceActive
+                      ? 'bg-blue-50/90 border-[#003B73] shadow-sm ring-2 ring-[#003B73]'
                       : 'bg-slate-50/80 border-slate-200 hover:border-slate-300 hover:bg-white'
                   }`}
                 >
-                  <div className="flex items-center gap-2 mb-1">
-                    <Scale className="w-4 h-4 text-[#003B73]" />
-                    <span className="font-bold text-xs text-slate-900">Баланс (Стандарт)</span>
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-2">
+                      <Scale className="w-4 h-4 text-[#003B73]" />
+                      <span className="font-bold text-xs text-slate-900">Баланс (Стандарт)</span>
+                    </div>
+                    {isBalanceActive && (
+                      <span className="w-2 h-2 rounded-full bg-[#003B73]" />
+                    )}
                   </div>
                   <p className="text-[11px] text-slate-500 leading-snug">
                     Оптимальный баланс между онлайн-записью и посетителями зала. Рекомендуется для повседневной работы.
@@ -346,14 +381,19 @@ export const QueuePolicyEditor: React.FC<QueuePolicyEditorProps> = ({
                   type="button"
                   onClick={() => applyPreset('rush')}
                   className={`p-3.5 rounded-2xl border text-left transition-all relative cursor-pointer ${
-                    starvationGuardLevel === 'high'
-                      ? 'bg-amber-50/70 border-amber-500 shadow-sm ring-1 ring-amber-500'
+                    isRushActive
+                      ? 'bg-amber-50/90 border-amber-600 shadow-sm ring-2 ring-amber-500'
                       : 'bg-slate-50/80 border-slate-200 hover:border-slate-300 hover:bg-white'
                   }`}
                 >
-                  <div className="flex items-center gap-2 mb-1">
-                    <Zap className="w-4 h-4 text-amber-600" />
-                    <span className="font-bold text-xs text-slate-900">Час пик (Борьба с очередями)</span>
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-2">
+                      <Zap className="w-4 h-4 text-amber-600" />
+                      <span className="font-bold text-xs text-slate-900">Час пик (Борьба с очередями)</span>
+                    </div>
+                    {isRushActive && (
+                      <span className="w-2 h-2 rounded-full bg-amber-600" />
+                    )}
                   </div>
                   <p className="text-[11px] text-slate-500 leading-snug">
                     Ускоряет продвижение живой очереди. Жёстко защищает от ожидания дольше 10 минут при наплыве.
@@ -364,14 +404,19 @@ export const QueuePolicyEditor: React.FC<QueuePolicyEditorProps> = ({
                   type="button"
                   onClick={() => applyPreset('appointment')}
                   className={`p-3.5 rounded-2xl border text-left transition-all relative cursor-pointer ${
-                    appointmentPriorityLevel === 'high'
-                      ? 'bg-emerald-50/70 border-emerald-600 shadow-sm ring-1 ring-emerald-600'
+                    isAppointmentActive
+                      ? 'bg-emerald-50/90 border-emerald-600 shadow-sm ring-2 ring-emerald-600'
                       : 'bg-slate-50/80 border-slate-200 hover:border-slate-300 hover:bg-white'
                   }`}
                 >
-                  <div className="flex items-center gap-2 mb-1">
-                    <CalendarCheck className="w-4 h-4 text-emerald-600" />
-                    <span className="font-bold text-xs text-slate-900">Приоритет записи</span>
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-2">
+                      <CalendarCheck className="w-4 h-4 text-emerald-600" />
+                      <span className="font-bold text-xs text-slate-900">Приоритет записи</span>
+                    </div>
+                    {isAppointmentActive && (
+                      <span className="w-2 h-2 rounded-full bg-emerald-600" />
+                    )}
                   </div>
                   <p className="text-[11px] text-slate-500 leading-snug">
                     Максимальное преимущество клиентам, записавшимся ко времени через приложение.
@@ -395,7 +440,7 @@ export const QueuePolicyEditor: React.FC<QueuePolicyEditorProps> = ({
                 <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-100 rounded-xl text-xs font-bold">
                   <button
                     type="button"
-                    onClick={() => setValues(v => ({ ...v, qrPriority: 10, livePriority: 10 }))}
+                    onClick={() => { setSelectedPreset(null); setValues(v => ({ ...v, qrPriority: 10, livePriority: 10 })); }}
                     className={`py-1.5 rounded-lg transition-all ${
                       channelPriorityLevel === 'low'
                         ? 'bg-white text-slate-900 shadow-sm'
@@ -406,7 +451,7 @@ export const QueuePolicyEditor: React.FC<QueuePolicyEditorProps> = ({
                   </button>
                   <button
                     type="button"
-                    onClick={() => setValues(v => ({ ...v, qrPriority: 20, livePriority: 10 }))}
+                    onClick={() => { setSelectedPreset(null); setValues(v => ({ ...v, qrPriority: 20, livePriority: 10 })); }}
                     className={`py-1.5 rounded-lg transition-all ${
                       channelPriorityLevel === 'medium'
                         ? 'bg-white text-[#003B73] shadow-sm font-black'
@@ -417,7 +462,7 @@ export const QueuePolicyEditor: React.FC<QueuePolicyEditorProps> = ({
                   </button>
                   <button
                     type="button"
-                    onClick={() => setValues(v => ({ ...v, qrPriority: 10, livePriority: 20 }))}
+                    onClick={() => { setSelectedPreset(null); setValues(v => ({ ...v, qrPriority: 10, livePriority: 20 })); }}
                     className={`py-1.5 rounded-lg transition-all ${
                       channelPriorityLevel === 'high'
                         ? 'bg-white text-emerald-700 shadow-sm font-black'
@@ -442,7 +487,7 @@ export const QueuePolicyEditor: React.FC<QueuePolicyEditorProps> = ({
                 <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-100 rounded-xl text-xs font-bold">
                   <button
                     type="button"
-                    onClick={() => setValues(v => ({ ...v, antiStarvationThresholdMinutes: 25 }))}
+                    onClick={() => { setSelectedPreset(null); setValues(v => ({ ...v, antiStarvationThresholdMinutes: 25 })); }}
                     className={`py-1.5 rounded-lg transition-all ${
                       starvationGuardLevel === 'low'
                         ? 'bg-white text-slate-900 shadow-sm'
@@ -453,7 +498,7 @@ export const QueuePolicyEditor: React.FC<QueuePolicyEditorProps> = ({
                   </button>
                   <button
                     type="button"
-                    onClick={() => setValues(v => ({ ...v, antiStarvationThresholdMinutes: 15 }))}
+                    onClick={() => { setSelectedPreset(null); setValues(v => ({ ...v, antiStarvationThresholdMinutes: 15 })); }}
                     className={`py-1.5 rounded-lg transition-all ${
                       starvationGuardLevel === 'medium'
                         ? 'bg-white text-[#003B73] shadow-sm font-black'
@@ -464,7 +509,7 @@ export const QueuePolicyEditor: React.FC<QueuePolicyEditorProps> = ({
                   </button>
                   <button
                     type="button"
-                    onClick={() => setValues(v => ({ ...v, antiStarvationThresholdMinutes: 10 }))}
+                    onClick={() => { setSelectedPreset(null); setValues(v => ({ ...v, antiStarvationThresholdMinutes: 10 })); }}
                     className={`py-1.5 rounded-lg transition-all ${
                       starvationGuardLevel === 'high'
                         ? 'bg-white text-amber-700 shadow-sm font-black'
@@ -489,7 +534,7 @@ export const QueuePolicyEditor: React.FC<QueuePolicyEditorProps> = ({
                 <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-100 rounded-xl text-xs font-bold">
                   <button
                     type="button"
-                    onClick={() => setValues(v => ({ ...v, appointmentGraceMinutes: 5 }))}
+                    onClick={() => { setSelectedPreset(null); setValues(v => ({ ...v, appointmentGraceMinutes: 5 })); }}
                     className={`py-1.5 rounded-lg transition-all ${
                       gracePeriodLevel === 'low'
                         ? 'bg-white text-slate-900 shadow-sm'
@@ -500,7 +545,7 @@ export const QueuePolicyEditor: React.FC<QueuePolicyEditorProps> = ({
                   </button>
                   <button
                     type="button"
-                    onClick={() => setValues(v => ({ ...v, appointmentGraceMinutes: 15 }))}
+                    onClick={() => { setSelectedPreset(null); setValues(v => ({ ...v, appointmentGraceMinutes: 15 })); }}
                     className={`py-1.5 rounded-lg transition-all ${
                       gracePeriodLevel === 'medium'
                         ? 'bg-white text-[#003B73] shadow-sm font-black'
@@ -511,7 +556,7 @@ export const QueuePolicyEditor: React.FC<QueuePolicyEditorProps> = ({
                   </button>
                   <button
                     type="button"
-                    onClick={() => setValues(v => ({ ...v, appointmentGraceMinutes: 30 }))}
+                    onClick={() => { setSelectedPreset(null); setValues(v => ({ ...v, appointmentGraceMinutes: 30 })); }}
                     className={`py-1.5 rounded-lg transition-all ${
                       gracePeriodLevel === 'high'
                         ? 'bg-white text-emerald-700 shadow-sm font-black'
@@ -536,7 +581,7 @@ export const QueuePolicyEditor: React.FC<QueuePolicyEditorProps> = ({
                 <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-100 rounded-xl text-xs font-bold">
                   <button
                     type="button"
-                    onClick={() => setValues(v => ({ ...v, appointmentLatePenaltyPerMinute: 2, appointmentLatePenaltyMaxPoints: Math.min(40, v.appointmentDuePriority) }))}
+                    onClick={() => { setSelectedPreset(null); setValues(v => ({ ...v, appointmentLatePenaltyPerMinute: 2, appointmentLatePenaltyMaxPoints: Math.min(40, v.appointmentDuePriority) })); }}
                     className={`py-1.5 rounded-lg transition-all ${
                       latePenaltyLevel === 'low'
                         ? 'bg-white text-slate-900 shadow-sm'
@@ -547,7 +592,7 @@ export const QueuePolicyEditor: React.FC<QueuePolicyEditorProps> = ({
                   </button>
                   <button
                     type="button"
-                    onClick={() => setValues(v => ({ ...v, appointmentLatePenaltyPerMinute: 5, appointmentLatePenaltyMaxPoints: Math.min(90, v.appointmentDuePriority) }))}
+                    onClick={() => { setSelectedPreset(null); setValues(v => ({ ...v, appointmentLatePenaltyPerMinute: 5, appointmentLatePenaltyMaxPoints: Math.min(90, v.appointmentDuePriority) })); }}
                     className={`py-1.5 rounded-lg transition-all ${
                       latePenaltyLevel === 'medium'
                         ? 'bg-white text-[#003B73] shadow-sm font-black'
@@ -558,7 +603,7 @@ export const QueuePolicyEditor: React.FC<QueuePolicyEditorProps> = ({
                   </button>
                   <button
                     type="button"
-                    onClick={() => setValues(v => ({ ...v, appointmentLatePenaltyPerMinute: 10, appointmentLatePenaltyMaxPoints: v.appointmentDuePriority }))}
+                    onClick={() => { setSelectedPreset(null); setValues(v => ({ ...v, appointmentLatePenaltyPerMinute: 10, appointmentLatePenaltyMaxPoints: v.appointmentDuePriority })); }}
                     className={`py-1.5 rounded-lg transition-all ${
                       latePenaltyLevel === 'high'
                         ? 'bg-white text-amber-700 shadow-sm font-black'

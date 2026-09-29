@@ -103,7 +103,7 @@ func (p *Postgres) GetAdminOverview(ctx context.Context, branchID string) (domai
 	// Fix: ::int cast applied to the full AVG/MAX expressions, not to the filter predicate.
 	err = p.pool.QueryRow(ctx, `
 		SELECT
-			COUNT(CASE WHEN status = 'WAITING' THEN 1 END),
+			COUNT(CASE WHEN status = 'WAITING' OR (status = 'SCHEDULED' AND (arrived_at IS NOT NULL OR scheduled_at <= NOW())) THEN 1 END),
 			COUNT(CASE WHEN status = 'COMPLETED' AND (queue_entered_at AT TIME ZONE 'Europe/Moscow')::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Moscow')::date THEN 1 END),
 			COALESCE((
 				AVG(EXTRACT(EPOCH FROM (called_at - queue_entered_at)) / 60)
@@ -113,8 +113,8 @@ func (p *Postgres) GetAdminOverview(ctx context.Context, branchID string) (domai
 				MAX(EXTRACT(EPOCH FROM (called_at - queue_entered_at)) / 60)
 				FILTER (WHERE called_at IS NOT NULL AND (queue_entered_at AT TIME ZONE 'Europe/Moscow')::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Moscow')::date)
 			)::int, 0),
-			percentile_cont(0.9) WITHIN GROUP (ORDER BY (EXTRACT(EPOCH FROM (NOW() - queue_entered_at)) / 60)::double precision)
-			FILTER (WHERE status = 'WAITING')
+			percentile_cont(0.9) WITHIN GROUP (ORDER BY (EXTRACT(EPOCH FROM (NOW() - COALESCE(arrived_at, queue_entered_at, scheduled_at))) / 60)::double precision)
+			FILTER (WHERE status = 'WAITING' OR (status = 'SCHEDULED' AND (arrived_at IS NOT NULL OR scheduled_at <= NOW())))
 		FROM tickets
 		WHERE branch_id = $1
 	`, id).Scan(
@@ -635,7 +635,7 @@ func formatWindowsRu(n int) string {
 	}
 }
 
-// calculateWindowRecommendation determines how many service windows should be opened
+// calculateWindowRecommendation determines how many service windows should be opened or created
 // based on current queue load (waiting clients, SLA wait times) and statistical workload in the nearest hour.
 func (p *Postgres) calculateWindowRecommendation(ctx context.Context, branchID string, overview *domain.AdminBranchOverview) {
 	closedCount := 0
@@ -643,9 +643,6 @@ func (p *Postgres) calculateWindowRecommendation(ctx context.Context, branchID s
 		if window.Status == domain.WindowStatusClosed {
 			closedCount++
 		}
-	}
-	if closedCount == 0 {
-		return
 	}
 
 	waitingCount := overview.Metrics.WaitingClientsCount
@@ -664,7 +661,6 @@ func (p *Postgres) calculateWindowRecommendation(ctx context.Context, branchID s
 	avgWait := float64(overview.Metrics.AvgWaitTimeMinutes)
 
 	// 1. Current load calculation ("загрузка сейчас")
-	// Target capacity: average service time is ~5 min. Within SLA of 12 min, 1 window handles ~2.4 clients.
 	windowsForCurrent := 0
 	if waitingCount > 0 {
 		targetForQueue := int(math.Ceil(float64(waitingCount) / 2.5))
@@ -719,7 +715,6 @@ func (p *Postgres) calculateWindowRecommendation(ctx context.Context, branchID s
 				loadPct := upcomingWorkload.LoadPercent
 				waitMin := upcomingWorkload.WaitMinutes
 
-				// Windows needed statistically to keep wait time within SLA during the upcoming hour
 				targetStat := int(math.Round(float64(totalCount) * float64(loadPct) / 100.0))
 				if upcomingWorkload.IsPeak && targetStat < int(math.Ceil(float64(totalCount)*0.7)) {
 					targetStat = int(math.Ceil(float64(totalCount) * 0.7))
@@ -746,16 +741,34 @@ func (p *Postgres) calculateWindowRecommendation(ctx context.Context, branchID s
 	if windowsForUpcoming > recommended {
 		recommended = windowsForUpcoming
 	}
-	// If both current queue is pressured and upcoming hour is high load, compound pressure
-	if windowsForCurrent >= 1 && windowsForUpcoming >= 1 && recommended < closedCount {
+	if windowsForCurrent >= 1 && windowsForUpcoming >= 1 && closedCount > 0 && recommended < closedCount {
 		recommended++
 	}
 
-	if recommended > closedCount {
+	isCreateRecommendation := closedCount == 0 || recommended > closedCount
+	if closedCount > 0 && recommended > closedCount {
 		recommended = closedCount
+	} else if closedCount == 0 {
+		// Cap window creation recommendation:
+		// Target active windows = Ceil(waitingCount / 2.5) or at least openCount + 1
+		// If openCount is already sufficient to keep wait under SLA (e.g. queue <= openCount * 2.5), do NOT recommend creating more windows indefinitely!
+		targetNeededTotal := int(math.Ceil(float64(waitingCount) / 2.5))
+		if targetNeededTotal <= openCount {
+			// Current open windows are already enough for the queue!
+			return
+		}
+		createNeeded := targetNeededTotal - openCount
+		if createNeeded > 2 {
+			createNeeded = 2 // Recommend at most 2 new windows at once
+		}
+		if createNeeded < 1 {
+			return
+		}
+		recommended = createNeeded
 	}
+
 	if recommended < 1 {
-		recommended = 1
+		return
 	}
 
 	// 4. Severity & reason construction
@@ -768,7 +781,15 @@ func (p *Postgres) calculateWindowRecommendation(ctx context.Context, branchID s
 
 	var reason string
 	recText := formatWindowsRu(recommended)
-	if windowsForCurrent > 0 && upcomingWorkload != nil {
+	if isCreateRecommendation && closedCount == 0 {
+		if windowsForCurrent > 0 {
+			reason = fmt.Sprintf("Все %d окон отделения уже открыты, но в очереди %d чел. — рекомендуем создать и открыть еще %s", totalCount, waitingCount, recText)
+		} else if upcomingWorkload != nil {
+			reason = fmt.Sprintf("Все %d окон отделения открыты, а прогноз нагрузки на след. час — %d%% — рекомендуем создать и открыть еще %s заранее", totalCount, upcomingWorkload.LoadPercent, recText)
+		} else {
+			reason = fmt.Sprintf("Все %d окон открыты — рекомендуем создать и открыть еще %s для снятия нагрузки", totalCount, recText)
+		}
+	} else if windowsForCurrent > 0 && upcomingWorkload != nil {
 		if hasP90 && p90 > 12.0 {
 			reason = fmt.Sprintf("Текущая очередь: %d чел. (P90=%.0f мин > SLA 12), прогноз нагрузки на след. час: %d%% — рекомендуем открыть %s", waitingCount, p90, upcomingWorkload.LoadPercent, recText)
 		} else {

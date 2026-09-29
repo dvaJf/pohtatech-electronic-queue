@@ -3,7 +3,7 @@ import * as api from '../../api/client/clientApi';
 import type { BranchWorkload } from '../../api/client/clientApi';
 import { getMe } from '../../api/authApi';
 import { Appointment, Branch, Service, Ticket, TicketStatus, TicketSource, QueuePosition, TicketETA, NotificationCapabilities, NotificationChannel, NotificationSubscription } from '../../api/client/types';
-import { CalendarClock, Ticket as TicketIcon, ListChecks, ChevronLeft, ChevronRight, MapPin, Clock, Check, Sparkles, Building2, AlertCircle, CheckCircle2, Navigation, X, Search, Zap, Star, Loader2, MapPinOff, Bell, Mail, Calendar, ChevronDown } from 'lucide-react';
+import { CalendarClock, Ticket as TicketIcon, ListChecks, ChevronLeft, ChevronRight, MapPin, Clock, Check, Sparkles, Building2, AlertCircle, CheckCircle2, Navigation, X, Search, Zap, Star, Loader2, MapPinOff, Bell, Mail, Calendar, ChevronDown, Phone } from 'lucide-react';
 import './client.css';
 import './kiosk.css';
 import { formatMoscowDate, formatMoscowDateTime, formatMoscowTime, parseMoscowDatetimeLocal, toMoscowDatetimeLocal } from '../../utils/time';
@@ -237,7 +237,13 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
       return;
     }
     try {
-      setSubscriptions(await api.listNotificationSubscriptions(ticket.id, token));
+      const subs = await api.listNotificationSubscriptions(ticket.id, token);
+      setSubscriptions(subs);
+      const tgSub = subs.find(s => s.channel === 'TELEGRAM' && s.enabled && s.destination && /^\d+$/.test(s.destination));
+      if (tgSub && tgSub.destination && typeof localStorage !== 'undefined') {
+        localStorage.setItem('user_telegram_chat_id', tgSub.destination);
+        localStorage.setItem('user_telegram_connected', 'true');
+      }
     } catch {
       setSubscriptionsError(true);
     }
@@ -246,25 +252,35 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
   const connected = (channel: NotificationChannel) => subscriptions.find(item => item.channel === channel && item.enabled);
   const unavailable = (channel: 'telegram' | 'webPush' | 'email') => capabilities ? !capabilities[channel].enabled : true;
 
-  // Auto-subscribe Telegram if user enabled it in their profile
+  // Auto-subscribe Telegram if user explicitly connected it in their profile
   useEffect(() => {
     if (typeof localStorage !== 'undefined' && localStorage.getItem('user_telegram_connected') === 'true') {
       const isTicketTgDisabled = localStorage.getItem(`ticket_telegram_disabled:${ticket.id}`) === 'true';
-      if (!isTicketTgDisabled && token && capabilities?.telegram?.enabled && !connected('TELEGRAM') && busy !== 'TELEGRAM') {
-        const uname = localStorage.getItem('user_telegram_username') || '';
-        const dest = uname ? `@${uname}` : 'Telegram';
-        api.saveNotificationSubscription(ticket.id, 'TELEGRAM', dest, token)
+      const storedChatId = localStorage.getItem('user_telegram_chat_id');
+      if (!isTicketTgDisabled && token && capabilities?.telegram?.enabled && !connected('TELEGRAM') && busy !== 'TELEGRAM' && storedChatId) {
+        api.saveNotificationSubscription(ticket.id, 'TELEGRAM', storedChatId, token)
           .then(() => refresh())
           .catch(() => {});
       }
     }
   }, [ticket.id, token, capabilities?.telegram?.enabled, subscriptions.length, busy]);
 
+  // Auto-subscribe Browser Push by default on new ticket creation if profile enabled
+  useEffect(() => {
+    if (typeof localStorage !== 'undefined' && localStorage.getItem('user_browser_push_enabled') !== 'false') {
+      const isTicketPushDisabled = localStorage.getItem(`ticket_webpush_disabled:${ticket.id}`) === 'true';
+      if (!isTicketPushDisabled && token && capabilities?.webPush?.enabled && !connected('WEB_PUSH') && busy !== 'WEB_PUSH' && typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+        push();
+      }
+    }
+  }, [ticket.id, token, capabilities?.webPush?.enabled, subscriptions.length, busy]);
+
   const managementUnavailable = 'Для этого талона управление уведомлениями недоступно. Создайте новый талон.';
   const disconnect = async (channel: NotificationChannel) => {
     if (channel === 'WEB_PUSH') {
       if (typeof localStorage !== 'undefined') {
         localStorage.setItem(`ticket_webpush_disabled:${ticket.id}`, 'true');
+        window.dispatchEvent(new Event('pochta:notifications_changed'));
       }
       setTicketPushDisabled(true);
     }
@@ -300,17 +316,16 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
       localStorage.removeItem(`ticket_telegram_disabled:${ticket.id}`);
     }
     try {
-      const url = await api.telegramLink(ticket.id, token);
-      window.open(url, '_blank', 'noopener,noreferrer');
-      const uname = typeof localStorage !== 'undefined' ? (localStorage.getItem('user_telegram_username') || '') : '';
-      const dest = uname ? `@${uname}` : 'Telegram';
-      try {
-        await api.saveNotificationSubscription(ticket.id, 'TELEGRAM', dest, token);
+      const storedChatId = typeof localStorage !== 'undefined' ? (localStorage.getItem('user_telegram_chat_id') || '') : '';
+      if (storedChatId) {
+        await api.saveNotificationSubscription(ticket.id, 'TELEGRAM', storedChatId, token);
         await refresh();
-      } catch {
-        // Fall back to link-based subscription if direct upsert is not ready
+        setNotice('Telegram-уведомления включены.');
+      } else {
+        const url = await api.telegramLink(ticket.id, token);
+        window.open(url, '_blank', 'noopener,noreferrer');
+        setNotice('Откройте Telegram и нажмите /start для завершения привязки.');
       }
-      setNotice('Откройте Telegram и отправьте команду /start. Статус обновится автоматически.');
     } catch (e) {
       setTelegramError(true);
       setNotice(friendlyError(e, 'Не удалось подключить Telegram'));
@@ -320,8 +335,8 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
   };
   const save = async (channel: 'EMAIL', value: string) => { const valid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value); if (!valid) { setNotice('Введите корректный email.'); return; } setBusy(channel); try { await api.saveNotificationSubscription(ticket.id, channel, value, token); await refresh(); } catch (e) { setNotice(friendlyError(e, 'Не удалось сохранить уведомления')); } finally { setBusy(null); } };
   const push = async () => {
-    if (typeof localStorage !== 'undefined' && localStorage.getItem('user_browser_push_enabled') !== 'true') {
-      setNotice('Уведомления браузера отключены в вашем профиле. Включить их можно только в профиле пользователя.');
+    if (typeof localStorage !== 'undefined' && localStorage.getItem('user_browser_push_enabled') === 'false') {
+      setNotice('Уведомления браузера отключены в вашем профиле. Включить их можно в профиле пользователя.');
       return;
     }
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) { setNotice('Этот браузер не поддерживает системные уведомления.'); return; }
@@ -452,54 +467,138 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
     }
   };
 
-  const toggleHeader = (
-    <div className="flex items-center justify-between pb-3 mb-2 border-b border-slate-200/80">
-      <div className="flex items-center gap-2.5">
-        <div className={`w-8 h-8 rounded-xl flex items-center justify-center transition-colors ${notificationsEnabled ? 'bg-blue-100 text-[#003B73]' : 'bg-slate-200 text-slate-500'}`}>
-          <Bell size={18} />
+  const isTgProfileEnabled = typeof localStorage !== 'undefined' && localStorage.getItem('user_telegram_connected') === 'true';
+  const isPushProfileEnabled = typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted' && localStorage.getItem('user_browser_push_enabled') !== 'false';
+  const isSmsProfileEnabled = typeof localStorage !== 'undefined' && (localStorage.getItem('user_sms_enabled') === 'true' || Boolean(localStorage.getItem('user_phone')));
+
+  const [tgOptState, setTgOptState] = useState<boolean | null>(null);
+  const isTgActive = tgOptState !== null 
+    ? tgOptState 
+    : (connected('TELEGRAM') && typeof localStorage !== 'undefined' && localStorage.getItem(`ticket_telegram_disabled:${ticket.id}`) !== 'true');
+
+  const isPushActive = isPushProfileEnabled && connected('WEB_PUSH') && !ticketPushDisabled;
+  const [smsTicketEnabled, setSmsTicketEnabled] = useState<boolean>(() => {
+    if (typeof localStorage !== 'undefined') {
+      return localStorage.getItem(`ticket_sms_disabled:${ticket.id}`) !== 'true';
+    }
+    return true;
+  });
+
+  const handleToggleTgChannel = async (target: boolean) => {
+    setTgOptState(target);
+    if (target) {
+      await telegram();
+    } else {
+      await disconnect('TELEGRAM');
+    }
+  };
+
+  const handleTogglePushChannel = async (target: boolean) => {
+    if (!isPushProfileEnabled) return;
+    if (target) {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.removeItem(`ticket_webpush_disabled:${ticket.id}`);
+      }
+      setTicketPushDisabled(false);
+      await push();
+    } else {
+      await disconnect('WEB_PUSH');
+    }
+  };
+
+  const handleToggleSmsChannel = (target: boolean) => {
+    if (!isSmsProfileEnabled) return;
+    setSmsTicketEnabled(target);
+    if (typeof localStorage !== 'undefined') {
+      if (target) {
+        localStorage.removeItem(`ticket_sms_disabled:${ticket.id}`);
+      } else {
+        localStorage.setItem(`ticket_sms_disabled:${ticket.id}`, 'true');
+      }
+    }
+    setNotice(target ? 'СМС-уведомления по талону включены.' : 'СМС-уведомления по талону отключены.');
+  };
+
+  const renderChannelRow = (
+    icon: React.ReactNode,
+    title: string,
+    description: string,
+    profileEnabled: boolean,
+    ticketActive: boolean,
+    onToggle: (checked: boolean) => void,
+    busyChannel?: boolean
+  ) => (
+    <div className="p-3 rounded-2xl border border-slate-200/90 bg-white flex items-center justify-between gap-3 shadow-2xs">
+      <div className="flex items-start gap-3 min-w-0">
+        <div className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center shrink-0 mt-0.5 text-slate-700">
+          {icon}
         </div>
-        <div>
+        <div className="space-y-0.5 min-w-0">
           <div className="flex items-center gap-2">
-            <strong className="text-xs font-bold text-slate-800">Уведомления по талону</strong>
-            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${notificationsEnabled ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'}`}>
-              {notificationsEnabled ? 'Включены' : 'Выключены'}
+            <strong className="text-xs font-bold text-slate-900">{title}</strong>
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${!profileEnabled ? 'bg-slate-100 text-slate-400' : ticketActive ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'}`}>
+              {!profileEnabled ? 'Отключено в профиле' : ticketActive ? 'Включено' : 'Выключено'}
             </span>
           </div>
           <p className="text-[11px] text-slate-500 leading-tight">
-            {notificationsEnabled ? 'Оповещения о статусе очереди и вызове к окну' : 'Оповещения отключены для этого талона'}
+            {!profileEnabled ? 'Для активации включите этот канал в профиле' : description}
           </p>
         </div>
       </div>
-      <label className="relative inline-flex items-center cursor-pointer select-none shrink-0" title={notificationsEnabled ? 'Выключить уведомления' : 'Включить уведомления'}>
-        <input
-          type="checkbox"
-          checked={notificationsEnabled}
-          onChange={e => void handleToggleSwitch(e.target.checked)}
-          className="sr-only peer"
-          aria-label="Включить или выключить уведомления по талону"
+
+      <button
+        type="button"
+        role="switch"
+        aria-checked={profileEnabled && ticketActive}
+        disabled={!profileEnabled || busyChannel}
+        onClick={() => onToggle(!ticketActive)}
+        title={!profileEnabled ? 'Канал отключен в профиле пользователя' : ticketActive ? 'Отключить для этого талона' : 'Включить для этого талона'}
+        className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent p-0 transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-[#003B73] focus:ring-offset-1 disabled:opacity-40 disabled:cursor-not-allowed ${
+          profileEnabled && ticketActive ? 'bg-[#003B73]' : 'bg-slate-300'
+        }`}
+      >
+        <span
+          aria-hidden="true"
+          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+            profileEnabled && ticketActive ? 'translate-x-5' : 'translate-x-0'
+          }`}
         />
-        <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#054FA6]" />
-      </label>
+      </button>
     </div>
   );
 
   return (
-    <section className="cx-notifications" aria-label="Уведомления по талону">
-      {toggleHeader}
-      {notificationsEnabled ? (
-        <div className="space-y-1">
-          {row(<TelegramIcon/>, 'Telegram', 'Получать сообщения о движении очереди.', 'TELEGRAM', providerAction('telegram', 'TELEGRAM', 'Подключить Telegram', telegram), unavailableMessage('telegram', 'Telegram'))}
-          {row(<Bell size={18}/>, 'Уведомления браузера', 'Системные уведомления даже при свёрнутой вкладке.', 'WEB_PUSH', providerAction('webPush', 'WEB_PUSH', 'Включить', push), unavailableMessage('webPush', 'Уведомления браузера'))}
-          {ticket.source === 'APPOINTMENT' && row(<Mail size={18}/>, 'Email', capabilities?.email.mode === 'demo' ? 'Email доступен только в демонстрационном режиме.' : 'Подтверждение предварительной записи.', 'EMAIL', connected('EMAIL') ? action('EMAIL', '', () => {}) : subscriptionForm('email', emailForm), unavailableMessage('email', 'Email'))}
-        </div>
-      ) : (
-        <div className="p-2.5 my-1 rounded-xl bg-slate-100 text-[11px] text-slate-600 flex items-center justify-between">
-          <span>Уведомления по талону отключены тумблером.</span>
-          <button type="button" className="text-[#054FA6] font-bold hover:underline ml-2 shrink-0" onClick={() => void handleToggleSwitch(true)}>
-            Включить
-          </button>
-        </div>
+    <section className="cx-notifications space-y-2" aria-label="Каналы уведомлений талона">
+      <div className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
+        Каналы уведомлений по талону:
+      </div>
+      {renderChannelRow(
+        <TelegramIcon size={18} />,
+        'Telegram',
+        'Сообщения о движении очереди и вызове к окну',
+        true,
+        Boolean(isTgActive),
+        (val) => void handleToggleTgChannel(val),
+        busy === 'TELEGRAM'
       )}
+      {renderChannelRow(
+        <Bell size={18} />,
+        'Браузер',
+        'Всплывающие push-уведомления на устройстве',
+        isPushProfileEnabled,
+        Boolean(isPushActive),
+        (val) => void handleTogglePushChannel(val),
+        busy === 'WEB_PUSH'
+      )}
+      {renderChannelRow(
+        <Phone size={18} />,
+        'СМС',
+        'Бесплатное СМС-напоминание и вызов к окну',
+        isSmsProfileEnabled,
+        smsTicketEnabled,
+        (val) => handleToggleSmsChannel(val)
+      )}
+
       {!canManage && <p className="cx-notification-status" role="status">{managementUnavailable}</p>}
       {subscriptionsError && <p className="cx-notification-status" role="status" aria-live="polite">Не удалось загрузить настройки уведомлений. <button type="button" className="cx-notification-link" onClick={() => void refresh()}>Повторить</button></p>}
       {capabilitiesError && <p className="cx-notification-status" role="status" aria-live="polite">Не удалось определить доступность каналов. <button type="button" className="cx-notification-link" onClick={() => void refresh()}>Повторить</button></p>}
@@ -1582,8 +1681,8 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
 
             let notifEnabled = true;
             try {
-              // 1. Проверяем статус в профиле: только в профиле можно включить! Если в профиле выключено -> уведомлений никогда не будет.
-              const profilePushEnabled = localStorage.getItem('user_browser_push_enabled') === 'true';
+              // 1. Проверяем статус в профиле: если в профиле явно выключено -> уведомлений не будет.
+              const profilePushEnabled = localStorage.getItem('user_browser_push_enabled') !== 'false';
               if (!profilePushEnabled) {
                 notifEnabled = false;
               }
@@ -2389,37 +2488,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                 disabled={creating}
                 workHours={branches.find(b => b.id === branchId)?.workHours}
               />
-              <div className="p-3.5 rounded-2xl bg-blue-50/80 border border-blue-200/80 text-xs text-[#003B73] flex items-center justify-between gap-3">
-                <div className="flex items-start gap-2.5 min-w-0">
-                  <span className="text-base leading-none shrink-0 mt-0.5" aria-hidden>🔔</span>
-                  <div className="space-y-0.5 min-w-0">
-                    <strong className="block text-[#003B73] font-bold text-xs sm:text-sm">СМС-напоминание за 30 минут</strong>
-                    <p className="text-slate-600 text-[11px] leading-relaxed">
-                      {smsReminderEnabled
-                        ? 'Клиентам с подтвержденным номером в личном кабинете автоматически поступает бесплатное СМС о записи.'
-                        : 'СМС-напоминание отключено для этой записи.'}
-                    </p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={smsReminderEnabled}
-                  onClick={() => setSmsReminderEnabled(v => !v)}
-                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent p-0 transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-[#003B73] focus:ring-offset-1 ${
-                    smsReminderEnabled ? 'bg-[#003B73]' : 'bg-slate-300'
-                  }`}
-                  aria-label="Включить или отключить СМС-напоминание за 30 минут"
-                  title={smsReminderEnabled ? 'Отключить СМС-напоминание' : 'Включить СМС-напоминание'}
-                >
-                  <span
-                    aria-hidden="true"
-                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
-                      smsReminderEnabled ? 'translate-x-5' : 'translate-x-0'
-                    }`}
-                  />
-                </button>
-              </div>
+
               <button
                 type="button"
                 className="w-full min-h-[48px] py-3 bg-[#003B73] hover:bg-[#054FA6] active:bg-[#00274D] text-white rounded-xl font-bold text-xs uppercase tracking-wider transition-all shadow-md active:scale-[0.99] disabled:opacity-50 flex items-center justify-center gap-2"
@@ -2785,14 +2854,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
 
                     {!terminalStatuses.has(ticket.status) && <NotificationControls ticket={ticket} managementToken={managementToken} />}
 
-                    {ticket.status === 'SCHEDULED' && ticket.source === 'APPOINTMENT' && (
-                      <div className="p-3 my-2 rounded-2xl bg-blue-50/80 border border-blue-200/70 text-xs text-[#003B73] flex items-center gap-2">
-                        <span className="text-base shrink-0">🔔</span>
-                        <span className="font-medium text-[11px] leading-tight">
-                          За 30 минут до визита поступит СМС-напоминание на привязанный телефон.
-                        </span>
-                      </div>
-                    )}
+
 
                     {/* Actions Footer */}
                     <div className="cx-ticket-actions">

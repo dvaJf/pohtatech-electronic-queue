@@ -337,9 +337,16 @@ export const AdminWorkspace: React.FC = () => {
                         if (!overview?.windowRecommendation || openingRecommended) return;
                         setOpeningRecommended(true);
                         try {
-                          const closed = overview.windows.filter((window) => window.status === 'CLOSED').slice(0, overview.windowRecommendation.recommendedCount);
-                          for (const window of closed) {
+                          const needed = overview.windowRecommendation.recommendedCount;
+                          const closed = overview.windows.filter((window) => window.status === 'CLOSED');
+                          const toOpen = closed.slice(0, needed);
+                          for (const window of toOpen) {
                             await api.changeWindowStatus(window.id, 'OPEN');
+                          }
+                          const createCount = needed - toOpen.length;
+                          for (let i = 0; i < createCount; i++) {
+                            const created = await api.createWindow(selectedBranchId);
+                            await api.changeWindowStatus(created.id, 'OPEN');
                           }
                           if (selectedBranchId) {
                             const updated = await api.getOverview(selectedBranchId);
@@ -353,9 +360,11 @@ export const AdminWorkspace: React.FC = () => {
                       }}
                     >
                       {openingRecommended ? (
-                        <span>Открытие...</span>
+                        <span>Обработка...</span>
                       ) : (
-                        <span>Открыть рекомендованные ({overview.windowRecommendation.recommendedCount})</span>
+                        <span>
+                          {overview.windows.filter((w) => w.status === 'CLOSED').length === 0 ? 'Создать и открыть' : 'Открыть'} рекомендованные ({overview.windowRecommendation.recommendedCount})
+                        </span>
                       )}
                     </button>
                   </div>

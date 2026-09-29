@@ -187,6 +187,41 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
   const [capabilities, setCapabilities] = useState<NotificationCapabilities | null>(null);
   const [capabilitiesError, setCapabilitiesError] = useState(false);
   const [subscriptionsError, setSubscriptionsError] = useState(false);
+  const [profilePushEnabled, setProfilePushEnabled] = useState<boolean>(() => {
+    if (typeof localStorage !== 'undefined') {
+      return localStorage.getItem('user_browser_push_enabled') === 'true';
+    }
+    return false;
+  });
+  const [ticketPushDisabled, setTicketPushDisabled] = useState<boolean>(() => {
+    if (typeof localStorage !== 'undefined') {
+      return localStorage.getItem(`ticket_webpush_disabled:${ticket.id}`) === 'true';
+    }
+    return false;
+  });
+
+  useEffect(() => {
+    const handleUpdate = () => {
+      if (typeof localStorage !== 'undefined') {
+        setProfilePushEnabled(localStorage.getItem('user_browser_push_enabled') === 'true');
+        setTicketPushDisabled(localStorage.getItem(`ticket_webpush_disabled:${ticket.id}`) === 'true');
+      }
+    };
+    window.addEventListener('pochta:notifications_changed', handleUpdate);
+    window.addEventListener('storage', handleUpdate);
+    return () => {
+      window.removeEventListener('pochta:notifications_changed', handleUpdate);
+      window.removeEventListener('storage', handleUpdate);
+    };
+  }, [ticket.id]);
+
+  const [notificationsEnabled, setNotificationsEnabled] = useState<boolean>(() => {
+    if (typeof localStorage !== 'undefined') {
+      const saved = localStorage.getItem(`ticket_notif_enabled:${ticket.id}`);
+      if (saved !== null) return saved === 'true';
+    }
+    return true;
+  });
   const token = managementToken || ticket.managementToken || undefined;
   const canManage = Boolean(token);
   const refresh = useCallback(async () => {
@@ -211,18 +246,132 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
   const connected = (channel: NotificationChannel) => subscriptions.find(item => item.channel === channel && item.enabled);
   const unavailable = (channel: 'telegram' | 'webPush' | 'email') => capabilities ? !capabilities[channel].enabled : true;
   const managementUnavailable = 'Для этого талона управление уведомлениями недоступно. Создайте новый талон.';
-  const disconnect = async (channel: NotificationChannel) => { const item = connected(channel); if (!item) return; setBusy(channel); try { await api.removeNotificationSubscription(ticket.id, channel, item.id, token); await refresh(); } catch (e) { setNotice(friendlyError(e, 'Не удалось отключить уведомления')); } finally { setBusy(null); } };
+  const disconnect = async (channel: NotificationChannel) => {
+    if (channel === 'WEB_PUSH') {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(`ticket_webpush_disabled:${ticket.id}`, 'true');
+      }
+      setTicketPushDisabled(true);
+    }
+    const item = connected(channel);
+    if (!item) {
+      if (channel === 'WEB_PUSH') {
+        setNotice('Уведомления браузера отключены для этого талона.');
+      }
+      return;
+    }
+    setBusy(channel);
+    try {
+      await api.removeNotificationSubscription(ticket.id, channel, item.id, token);
+      await refresh();
+      if (channel === 'WEB_PUSH') {
+        setNotice('Уведомления браузера отключены для этого талона.');
+      }
+    } catch (e) {
+      setNotice(friendlyError(e, 'Не удалось отключить уведомления'));
+    } finally {
+      setBusy(null);
+    }
+  };
   const telegram = async () => { setBusy('TELEGRAM'); setTelegramError(false); try { const url = await api.telegramLink(ticket.id, token); window.open(url, '_blank', 'noopener,noreferrer'); setNotice('Откройте Telegram и отправьте команду /start. Статус обновится автоматически.'); } catch (e) { setTelegramError(true); setNotice(friendlyError(e, 'Не удалось подключить Telegram')); } finally { setBusy(null); } };
   const save = async (channel: 'EMAIL', value: string) => { const valid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value); if (!valid) { setNotice('Введите корректный email.'); return; } setBusy(channel); try { await api.saveNotificationSubscription(ticket.id, channel, value, token); await refresh(); } catch (e) { setNotice(friendlyError(e, 'Не удалось сохранить уведомления')); } finally { setBusy(null); } };
-  const push = async () => { if (!('serviceWorker' in navigator) || !('PushManager' in window)) { setNotice('Этот браузер не поддерживает системные уведомления.'); return; } if (Notification.permission === 'denied') { setNotice('Уведомления запрещены в настройках браузера.'); return; } const key = capabilities?.webPush?.vapidPublicKey || (import.meta.env.VITE_WEB_PUSH_VAPID_PUBLIC_KEY as string | undefined); if (!capabilities?.webPush.enabled || !key) { setNotice('Уведомления браузера временно недоступны.'); return; } setBusy('WEB_PUSH'); try { if (await Notification.requestPermission() !== 'granted') { setNotice('Уведомления запрещены в настройках браузера.'); return; } await navigator.serviceWorker.register('/sw.js'); const reg = await navigator.serviceWorker.ready; const padding = '='.repeat((4 - (key.length % 4)) % 4); const base64 = (key + padding).replace(/-/g, '+').replace(/_/g, '/'); const rawData = window.atob(base64); const bytes = new Uint8Array(rawData.length); for (let i = 0; i < rawData.length; ++i) { bytes[i] = rawData.charCodeAt(i); } const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: bytes }); await api.saveNotificationSubscription(ticket.id, 'WEB_PUSH', JSON.stringify(sub), token); await refresh(); } catch { setNotice('Не удалось включить уведомления браузера. Повторите попытку.'); } finally { setBusy(null); } };
+  const push = async () => {
+    if (typeof localStorage !== 'undefined' && localStorage.getItem('user_browser_push_enabled') !== 'true') {
+      setNotice('Уведомления браузера отключены в вашем профиле. Включить их можно только в профиле пользователя.');
+      return;
+    }
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) { setNotice('Этот браузер не поддерживает системные уведомления.'); return; }
+    if (Notification.permission === 'denied') { setNotice('Уведомления запрещены в настройках браузера.'); return; }
+    const key = capabilities?.webPush?.vapidPublicKey || (import.meta.env.VITE_WEB_PUSH_VAPID_PUBLIC_KEY as string | undefined);
+    if (!capabilities?.webPush.enabled || !key) { setNotice('Уведомления браузера временно недоступны.'); return; }
+    setBusy('WEB_PUSH');
+    try {
+      if (await Notification.requestPermission() !== 'granted') { setNotice('Уведомления запрещены в настройках браузера.'); return; }
+      await navigator.serviceWorker.register('/sw.js');
+      const reg = await navigator.serviceWorker.ready;
+      const padding = '='.repeat((4 - (key.length % 4)) % 4);
+      const base64 = (key + padding).replace(/-/g, '+').replace(/_/g, '/');
+      const rawData = window.atob(base64);
+      const bytes = new Uint8Array(rawData.length);
+      for (let i = 0; i < rawData.length; ++i) { bytes[i] = rawData.charCodeAt(i); }
+      const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: bytes });
+      await api.saveNotificationSubscription(ticket.id, 'WEB_PUSH', JSON.stringify(sub), token);
+      if (typeof localStorage !== 'undefined') {
+        localStorage.removeItem(`ticket_webpush_disabled:${ticket.id}`);
+      }
+      setTicketPushDisabled(false);
+      await refresh();
+    } catch {
+      setNotice('Не удалось включить уведомления браузера. Повторите попытку.');
+    } finally {
+      setBusy(null);
+    }
+  };
   const action = (channel: NotificationChannel, label: string, onClick: () => void, providerUnavailable = false) => connected(channel) ? <button type="button" className="cx-notification-link" disabled={busy !== null} onClick={() => disconnect(channel)}>Отключить</button> : <button type="button" className="cx-btn cx-btn-secondary" disabled={busy !== null || providerUnavailable || !canManage} onClick={onClick}>{busy === channel ? <Loader2 className="w-4 h-4 animate-spin" /> : label}</button>;
   const telegramAction = () => { if (!capabilities || unavailable('telegram')) return null; if (connected('TELEGRAM')) return <button type="button" className="cx-notification-link" disabled={busy !== null} onClick={() => disconnect('TELEGRAM')}>Отключить</button>; if (telegramError) return <button type="button" className="cx-btn cx-btn-secondary" disabled={busy !== null || !canManage} onClick={telegram}>Повторить</button>; return <button type="button" className="cx-btn cx-btn-secondary" disabled={busy !== null || !canManage} onClick={telegram}>{busy === 'TELEGRAM' ? <span className="inline-flex items-center gap-1.5"><Loader2 className="w-4 h-4 animate-spin" /> Открываем Telegram…</span> : 'Подключить Telegram'}</button>; };
-  const providerAction = (provider: 'telegram' | 'webPush', channel: NotificationChannel, label: string, onClick: () => void) => capabilities && !unavailable(provider) ? (channel === 'TELEGRAM' ? telegramAction() : action(channel, label, onClick)) : null;
+  const webPushAction = () => {
+    if (!capabilities || unavailable('webPush')) return null;
+    // 1. Если в профиле отключено -> в талоне включить нельзя!
+    if (!profilePushEnabled) {
+      return (
+        <span
+          className="text-[11px] font-bold text-amber-700 bg-amber-50 px-2.5 py-1.5 rounded-lg border border-amber-200 select-none cursor-help inline-block"
+          title="Включить браузерные уведомления можно только в настройках вашего профиля (иконка профиля в шапке)"
+          onClick={() => setNotice('Уведомления браузера отключены в вашем профиле. Включить их можно только в профиле пользователя.')}
+        >
+          Только в профиле
+        </span>
+      );
+    }
+    // 2. Если в профиле включено, но отключено для этого талона:
+    if (ticketPushDisabled) {
+      return (
+        <button
+          type="button"
+          className="cx-btn cx-btn-secondary"
+          disabled={busy !== null || !canManage}
+          onClick={async () => {
+            if (typeof localStorage !== 'undefined') {
+              localStorage.removeItem(`ticket_webpush_disabled:${ticket.id}`);
+            }
+            setTicketPushDisabled(false);
+            setNotice('Уведомления браузера включены для этого талона.');
+            await push();
+          }}
+        >
+          {busy === 'WEB_PUSH' ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Включить'}
+        </button>
+      );
+    }
+    // 3. Если активно для этого талона -> кнопка «Отключить»
+    return (
+      <button
+        type="button"
+        className="cx-notification-link text-rose-600 hover:text-rose-700 font-bold"
+        disabled={busy !== null}
+        onClick={() => void disconnect('WEB_PUSH')}
+      >
+        Отключить
+      </button>
+    );
+  };
+  const providerAction = (provider: 'telegram' | 'webPush', channel: NotificationChannel, label: string, onClick: () => void) =>
+    capabilities && !unavailable(provider)
+      ? (channel === 'TELEGRAM' ? telegramAction() : channel === 'WEB_PUSH' ? webPushAction() : action(channel, label, onClick))
+      : null;
   const subscriptionForm = (provider: 'email', form: React.ReactNode) => capabilities && !unavailable(provider) ? form : null;
   const channelText = (channel: NotificationChannel, defaultDesc: string, unavailMsg?: string) => {
+    if (channel === 'WEB_PUSH') {
+      if (!profilePushEnabled) {
+        return 'Отключено в профиле. Включить можно только в профиле пользователя.';
+      }
+      if (ticketPushDisabled) {
+        return 'Отключено для этого талона (на другие талоны будет приходить)';
+      }
+      return '✓ Уведомления браузера включены';
+    }
     if (connected(channel)) {
       if (channel === 'TELEGRAM') return '✓ Telegram подключён';
-      if (channel === 'WEB_PUSH') return '✓ Уведомления браузера включены';
       return `✓ ${connected(channel)?.destination || 'Подключено'}`;
     }
     if (channel === 'TELEGRAM' && telegramError) return 'Не удалось подключить Telegram';
@@ -237,7 +386,82 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
     if (provider === 'webPush') return 'Уведомления браузера временно недоступны';
     return `${label} временно недоступен.`;
   };
-  return <section className="cx-notifications" aria-label="Уведомления по талону">{row(<TelegramIcon/>, 'Telegram', 'Получать сообщения о движении очереди.', 'TELEGRAM', providerAction('telegram', 'TELEGRAM', 'Подключить Telegram', telegram), unavailableMessage('telegram', 'Telegram'))}{row(<Bell size={18}/>, 'Уведомления браузера', 'Системные уведомления даже при свёрнутой вкладке.', 'WEB_PUSH', providerAction('webPush', 'WEB_PUSH', 'Включить', push), unavailableMessage('webPush', 'Уведомления браузера'))}{ticket.source === 'APPOINTMENT' && row(<Mail size={18}/>, 'Email', capabilities?.email.mode === 'demo' ? 'Email доступен только в демонстрационном режиме.' : 'Подтверждение предварительной записи.', 'EMAIL', connected('EMAIL') ? action('EMAIL', '', () => {}) : subscriptionForm('email', emailForm), unavailableMessage('email', 'Email'))}{!canManage && <p className="cx-notification-status" role="status">{managementUnavailable}</p>}{subscriptionsError && <p className="cx-notification-status" role="status" aria-live="polite">Не удалось загрузить настройки уведомлений. <button type="button" className="cx-notification-link" onClick={() => void refresh()}>Повторить</button></p>}{capabilitiesError && <p className="cx-notification-status" role="status" aria-live="polite">Не удалось определить доступность каналов. <button type="button" className="cx-notification-link" onClick={() => void refresh()}>Повторить</button></p>}{notice && <p className="cx-notification-status" role="status" aria-live="polite">{notice}</p>}</section>;
+
+  const handleToggleSwitch = async (val: boolean) => {
+    setNotificationsEnabled(val);
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(`ticket_notif_enabled:${ticket.id}`, String(val));
+    }
+    if (!val) {
+      const active = subscriptions.filter(s => s.enabled);
+      for (const s of active) {
+        try {
+          await api.removeNotificationSubscription(ticket.id, s.channel, s.id, token);
+        } catch {}
+      }
+      if (active.length > 0) {
+        await refresh();
+      }
+      setNotice('Уведомления по талону выключены.');
+    } else {
+      setNotice('Уведомления по талону включены. Выберите удобный канал получения сообщений ниже.');
+    }
+  };
+
+  const toggleHeader = (
+    <div className="flex items-center justify-between pb-3 mb-2 border-b border-slate-200/80">
+      <div className="flex items-center gap-2.5">
+        <div className={`w-8 h-8 rounded-xl flex items-center justify-center transition-colors ${notificationsEnabled ? 'bg-blue-100 text-[#003B73]' : 'bg-slate-200 text-slate-500'}`}>
+          <Bell size={18} />
+        </div>
+        <div>
+          <div className="flex items-center gap-2">
+            <strong className="text-xs font-bold text-slate-800">Уведомления по талону</strong>
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${notificationsEnabled ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'}`}>
+              {notificationsEnabled ? 'Включены' : 'Выключены'}
+            </span>
+          </div>
+          <p className="text-[11px] text-slate-500 leading-tight">
+            {notificationsEnabled ? 'Оповещения о статусе очереди и вызове к окну' : 'Оповещения отключены для этого талона'}
+          </p>
+        </div>
+      </div>
+      <label className="relative inline-flex items-center cursor-pointer select-none shrink-0" title={notificationsEnabled ? 'Выключить уведомления' : 'Включить уведомления'}>
+        <input
+          type="checkbox"
+          checked={notificationsEnabled}
+          onChange={e => void handleToggleSwitch(e.target.checked)}
+          className="sr-only peer"
+          aria-label="Включить или выключить уведомления по талону"
+        />
+        <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#054FA6]" />
+      </label>
+    </div>
+  );
+
+  return (
+    <section className="cx-notifications" aria-label="Уведомления по талону">
+      {toggleHeader}
+      {notificationsEnabled ? (
+        <div className="space-y-1">
+          {row(<TelegramIcon/>, 'Telegram', 'Получать сообщения о движении очереди.', 'TELEGRAM', providerAction('telegram', 'TELEGRAM', 'Подключить Telegram', telegram), unavailableMessage('telegram', 'Telegram'))}
+          {row(<Bell size={18}/>, 'Уведомления браузера', 'Системные уведомления даже при свёрнутой вкладке.', 'WEB_PUSH', providerAction('webPush', 'WEB_PUSH', 'Включить', push), unavailableMessage('webPush', 'Уведомления браузера'))}
+          {ticket.source === 'APPOINTMENT' && row(<Mail size={18}/>, 'Email', capabilities?.email.mode === 'demo' ? 'Email доступен только в демонстрационном режиме.' : 'Подтверждение предварительной записи.', 'EMAIL', connected('EMAIL') ? action('EMAIL', '', () => {}) : subscriptionForm('email', emailForm), unavailableMessage('email', 'Email'))}
+        </div>
+      ) : (
+        <div className="p-2.5 my-1 rounded-xl bg-slate-100 text-[11px] text-slate-600 flex items-center justify-between">
+          <span>Уведомления по талону отключены тумблером.</span>
+          <button type="button" className="text-[#054FA6] font-bold hover:underline ml-2 shrink-0" onClick={() => void handleToggleSwitch(true)}>
+            Включить
+          </button>
+        </div>
+      )}
+      {!canManage && <p className="cx-notification-status" role="status">{managementUnavailable}</p>}
+      {subscriptionsError && <p className="cx-notification-status" role="status" aria-live="polite">Не удалось загрузить настройки уведомлений. <button type="button" className="cx-notification-link" onClick={() => void refresh()}>Повторить</button></p>}
+      {capabilitiesError && <p className="cx-notification-status" role="status" aria-live="polite">Не удалось определить доступность каналов. <button type="button" className="cx-notification-link" onClick={() => void refresh()}>Повторить</button></p>}
+      {notice && <p className="cx-notification-status" role="status" aria-live="polite">{notice}</p>}
+    </section>
+  );
 }
 
 function ErrorBanner({ message, onClose }: { message: string; onClose: () => void }) {
@@ -833,6 +1057,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
   const ownerScope = currentUserId ?? ANON_SCOPE;
   const [tickets, setTickets] = useState<Ticket[]>(() => getCachedTickets(ANON_SCOPE));
   const [kioskTicket, setKioskTicket] = useState<Ticket | null>(null);
+  const alertedCallsRef = useRef<Set<string>>(new Set());
 
   // Держим актуальный scope доступным внутри колбэков без пересоздания pollAll.
   const ownerScopeRef = useRef(ownerScope);
@@ -1303,6 +1528,78 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
         if (generation !== pollGeneration.current) return;
 
         fetchedTickets.push(nextTicket);
+
+        // Обработка вызова талона к окну (TICKET_CALLED) -> отправляем системный Web Push и звуковой сигнал
+        if (nextTicket.status === 'CALLED') {
+          const winNum = nextTicket.window?.number ?? 1;
+          const callKey = `${nextTicket.id}:${winNum}`;
+          if (!alertedCallsRef.current.has(callKey)) {
+            alertedCallsRef.current.add(callKey);
+
+            let notifEnabled = true;
+            try {
+              // 1. Проверяем статус в профиле: только в профиле можно включить! Если в профиле выключено -> уведомлений никогда не будет.
+              const profilePushEnabled = localStorage.getItem('user_browser_push_enabled') === 'true';
+              if (!profilePushEnabled) {
+                notifEnabled = false;
+              }
+              // 2. Если в профиле включено, проверяем индивидуальный статус талона: если в конкретном талоне выключено -> не придет только для этого талона.
+              if (
+                localStorage.getItem(`ticket_notif_enabled:${nextTicket.id}`) === 'false' ||
+                localStorage.getItem(`ticket_webpush_disabled:${nextTicket.id}`) === 'true'
+              ) {
+                notifEnabled = false;
+              }
+            } catch {}
+
+            if (notifEnabled) {
+              // Звуковой гонг (Web Audio API)
+              try {
+                const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+                if (AudioCtx) {
+                  const ctx = new AudioCtx();
+                  const osc = ctx.createOscillator();
+                  const gain = ctx.createGain();
+                  osc.type = 'sine';
+                  osc.frequency.setValueAtTime(587.33, ctx.currentTime);
+                  osc.frequency.setValueAtTime(880, ctx.currentTime + 0.12);
+                  gain.gain.setValueAtTime(0.25, ctx.currentTime);
+                  gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+                  osc.connect(gain);
+                  gain.connect(ctx.destination);
+                  osc.start();
+                  osc.stop(ctx.currentTime + 0.4);
+                }
+              } catch {}
+
+              // Системный Web Push / Notification браузера
+              try {
+                if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+                  if ('serviceWorker' in navigator) {
+                    navigator.serviceWorker.ready.then(reg => {
+                      reg.showNotification(`Почта России — Вас вызывают!`, {
+                        body: `Талон ${nextTicket.publicNumber}, пройдите к окну №${winNum}`,
+                        icon: '/favicon.svg',
+                        badge: '/favicon.svg',
+                        tag: `ticket-called-${nextTicket.id}`,
+                      });
+                    }).catch(() => {
+                      new Notification(`Почта России — Вас вызывают!`, {
+                        body: `Талон ${nextTicket.publicNumber}, пройдите к окну №${winNum}`,
+                        icon: '/favicon.svg',
+                      });
+                    });
+                  } else {
+                    new Notification(`Почта России — Вас вызывают!`, {
+                      body: `Талон ${nextTicket.publicNumber}, пройдите к окну №${winNum}`,
+                      icon: '/favicon.svg',
+                    });
+                  }
+                }
+              } catch {}
+            }
+          }
+        }
         if (nextTicket.source === 'APPOINTMENT' && nextTicket.status === 'SCHEDULED') {
           setAppointments(prev => ({ ...prev, [id]: { ticket: nextTicket, scheduledAt: nextTicket.queueEnteredAt } }));
         }
@@ -1699,30 +1996,34 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
             </div>
 
             {/* Appointment is offered only after this branch's enabled services are confirmed. */}
-            <div className="flex items-center gap-2 pt-0.5 flex-wrap sm:flex-nowrap">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-0.5">
               <button
                 type="button"
                 onClick={() => handleRepeatTicket(fastest.id)}
-                className="flex-1 min-h-[44px] px-4 rounded-xl bg-[#003B73] hover:bg-[#002D5A] active:scale-[0.98] text-white font-bold text-sm shadow-sm transition-all flex items-center justify-center gap-2 cursor-pointer"
+                className="w-full sm:flex-1 min-h-[44px] px-4 rounded-xl bg-[#003B73] hover:bg-[#002D5A] active:scale-[0.98] text-white font-bold text-sm shadow-sm transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
                 <TicketIcon size={16} />
                 <span>Взять талон</span>
               </button>
-              <button
-                type="button"
-                onClick={() => setRouteOfferBranch(fastest)}
-                className="min-h-[44px] px-4 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 active:scale-[0.98] text-slate-700 font-bold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
-              >
-                <Navigation size={14} className="text-slate-500" />
-                <span>Маршрут</span>
-              </button>
-              {actions.includes('appointment') && <button
-                type="button"
-                onClick={() => { handleBranchSelect(fastest.id); setScreen('booking'); setBookingStep(1); }}
-                className="min-h-[44px] px-3.5 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 active:scale-[0.98] text-slate-600 hover:text-slate-900 font-semibold text-xs transition-all cursor-pointer shadow-2xs"
-              >
-                Записаться онлайн
-              </button>}
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                {actions.includes('appointment') && (
+                  <button
+                    type="button"
+                    onClick={() => { handleBranchSelect(fastest.id); setScreen('booking'); setBookingStep(1); }}
+                    className="flex-1 sm:flex-initial min-h-[44px] px-3.5 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 active:scale-[0.98] text-slate-700 hover:text-slate-900 font-bold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+                  >
+                    <span>Записаться онлайн</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setRouteOfferBranch(fastest)}
+                  className="flex-1 sm:flex-initial min-h-[44px] px-4 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 active:scale-[0.98] text-slate-700 font-bold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+                >
+                  <Navigation size={14} className="text-slate-500" />
+                  <span>Маршрут</span>
+                </button>
+              </div>
             </div>
           </div>
         )}

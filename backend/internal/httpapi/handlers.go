@@ -5,6 +5,10 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -82,6 +86,19 @@ func (a *API) RegisterRoutes(r chi.Router) {
 		r.Get("/client/tickets/active", a.ListMyActiveTickets)
 		r.With(requireRole(domain.RoleOPCChief)).Post("/branches/{branchId}/windows", a.CreateWindow)
 		r.With(requireRole(domain.RoleOPCChief)).Delete("/windows/{windowId}", a.DeleteWindow)
+
+		// ── RAG AI Agent Proxy ──────────────────────────────────────────
+		agentURLStr := os.Getenv("RAG_AGENT_URL")
+		if agentURLStr == "" {
+			agentURLStr = "http://rag-agent:8095"
+		}
+		if agentURL, err := url.Parse(agentURLStr); err == nil {
+			agentProxy := httputil.NewSingleHostReverseProxy(agentURL)
+			r.HandleFunc("/agent/*", func(w http.ResponseWriter, req *http.Request) {
+				req.URL.Path = "/api" + strings.TrimPrefix(req.URL.Path, "/api/v1")
+				agentProxy.ServeHTTP(w, req)
+			})
+		}
 
 		// ── Оператор (employee + opc_chief) ──────────────────────────────
 		r.Route("/operator", func(r chi.Router) {

@@ -43,6 +43,10 @@ export default defineConfig(({ mode }) => {
         target: backendTarget,
         changeOrigin: true,
       },
+      '/api/agent': {
+        target: process.env.VITE_RAG_TARGET || 'http://localhost:8095',
+        changeOrigin: true,
+      },
       '/api': {
         target: backendTarget,
         changeOrigin: true,

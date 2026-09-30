@@ -133,8 +133,8 @@ test('calendar UI is available only for a confirmed appointment and uses one ICS
   assert.match(source, /ticket\.source === 'APPOINTMENT'/);
   assert.match(source, /isAppointmentCalendarEventAvailable\(appointment, branch\)/);
   assert.match(menu, /type="button"[\s\S]*Добавить в календарь/);
-  assert.match(menu, /Apple Calendar \(\.ics\)/);
   assert.match(menu, /Скачать \.ics/);
   assert.match(menu, /downloadAppointmentIcs\(calendarEvent\)/);
+  assert.equal((menu.match(/className="cx-calendar-option"/g) || []).length, 1);
   assert.doesNotMatch(menu, /Google Calendar/);
 });

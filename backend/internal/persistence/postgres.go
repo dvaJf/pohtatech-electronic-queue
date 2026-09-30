@@ -1090,3 +1090,20 @@ func calculateLegacyPriority(t domain.Ticket, decisionTime time.Time, p domain.Q
 	}
 	return effBase + boost
 }
+
+func (p *Postgres) FindActiveTicketByClient(ctx context.Context, clientID string) (*domain.Ticket, error) {
+	clientID = strings.TrimSpace(clientID)
+	if clientID == "" {
+		return nil, nil
+	}
+	query := ticketSelect + `WHERE t.client_id = $1 AND t.status IN ('SCHEDULED', 'WAITING', 'CALLED', 'SERVING') ORDER BY t.created_at DESC LIMIT 1`
+	t, err := scanTicket(p.pool.QueryRow(ctx, query, clientID))
+	if errors.Is(err, application.ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, dbError(err)
+	}
+	return &t, nil
+}
+

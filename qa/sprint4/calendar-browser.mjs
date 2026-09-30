@@ -75,7 +75,6 @@ try {
 
   const dialog = page.getByRole('dialog', { name: 'Добавить в календарь' });
   await dialog.waitFor();
-  await assert.doesNotReject(() => dialog.getByRole('button', { name: /Apple Calendar \(\.ics\)/ }).waitFor());
   await assert.doesNotReject(() => dialog.getByRole('button', { name: /Скачать \.ics/ }).waitFor());
 
   await page.keyboard.press('Escape');

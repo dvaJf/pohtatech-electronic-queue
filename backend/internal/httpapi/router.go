@@ -60,6 +60,8 @@ func NewRouter(db Pinger, usecases application.UseCases, logger *slog.Logger, or
 	api.RegisterRoutes(r)
 	r.Post("/api/integrations/telegram/webhook", api.TelegramWebhook)
 	r.Post("/api/v1/integrations/telegram/webhook", api.TelegramWebhook)
+	r.Post("/api/integrations/alice/webhook", api.AliceWebhook)
+	r.Post("/api/v1/integrations/alice/webhook", api.AliceWebhook)
 
 	return r
 }

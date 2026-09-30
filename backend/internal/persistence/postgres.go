@@ -1090,3 +1090,77 @@ func calculateLegacyPriority(t domain.Ticket, decisionTime time.Time, p domain.Q
 	}
 	return effBase + boost
 }
+
+func (p *Postgres) FindActiveTicketByClient(ctx context.Context, clientID string) (*domain.Ticket, error) {
+	clientID = strings.TrimSpace(clientID)
+	if clientID == "" {
+		return nil, nil
+	}
+	query := ticketSelect + `WHERE t.client_id = $1 AND t.status IN ('SCHEDULED', 'WAITING', 'CALLED', 'SERVING') ORDER BY t.created_at DESC LIMIT 1`
+	t, err := scanTicket(p.pool.QueryRow(ctx, query, clientID))
+	if errors.Is(err, application.ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, dbError(err)
+	}
+	return &t, nil
+}
+
+func (p *Postgres) ListActiveTicketsByClient(ctx context.Context, clientID string) ([]domain.Ticket, error) {
+	clientID = strings.TrimSpace(clientID)
+	if clientID == "" {
+		return []domain.Ticket{}, nil
+	}
+
+	query := ticketSelect + `
+		WHERE (
+			t.client_id = $1 
+			OR t.client_id IN (
+				SELECT ea.user_id::text FROM external_accounts ea
+				WHERE ea.external_user_id IN (
+					SELECT ea2.external_user_id FROM external_accounts ea2 WHERE ea2.user_id::text = $1
+				)
+			)
+			OR t.client_id IN (
+				SELECT ea.external_user_id FROM external_accounts ea WHERE ea.user_id::text = $1
+			)
+			OR (
+				EXISTS (
+					SELECT 1 FROM users u 
+					WHERE u.id::text = $1 AND (u.email LIKE '%@yandex.ru' OR u.password_hash = 'OAUTH_ACCOUNT')
+				)
+				AND (
+					t.client_id IN (
+						SELECT ea3.user_id::text FROM external_accounts ea3 WHERE ea3.provider = 'yandex_alice'
+					)
+					OR t.client_id IN (
+						SELECT u2.id::text FROM users u2 WHERE u2.email LIKE 'yandex_alice_%'
+					)
+				)
+			)
+		)
+		AND t.status IN ('SCHEDULED', 'WAITING', 'CALLED', 'SERVING')
+		ORDER BY t.created_at DESC
+	`
+	rows, err := p.pool.Query(ctx, query, clientID)
+	if err != nil {
+		return nil, dbError(err)
+	}
+	defer rows.Close()
+
+	var list []domain.Ticket
+	for rows.Next() {
+		t, err := scanTicket(rows)
+		if err != nil {
+			return nil, dbError(err)
+		}
+		list = append(list, t)
+	}
+	if list == nil {
+		list = []domain.Ticket{}
+	}
+	return list, dbError(rows.Err())
+}
+
+

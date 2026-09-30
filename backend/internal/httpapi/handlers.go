@@ -14,26 +14,36 @@ import (
 	"github.com/go-chi/chi/v5"
 	"postcode/backend/internal/application"
 	"postcode/backend/internal/domain"
+	"postcode/backend/internal/integrations/alice"
 	"postcode/backend/internal/mailer"
 	"postcode/backend/internal/sms"
+	"postcode/backend/internal/voice"
 )
 
 type API struct {
-	usecases  application.UseCases
-	smsClient *sms.Client
-	mailer    *mailer.Mailer
+	usecases     application.UseCases
+	smsClient    *sms.Client
+	mailer       *mailer.Mailer
+	voiceService *voice.VoiceService
+	aliceHandler *alice.Handler
 }
 
 func NewAPI(usecases application.UseCases) *API {
+	vService := voice.NewVoiceService(usecases, nil, slog.Default())
 	return &API{
-		usecases:  usecases,
-		smsClient: sms.NewClient(slog.Default()),
-		mailer:    mailer.New(mailer.ConfigFromEnv()),
+		usecases:     usecases,
+		smsClient:    sms.NewClient(slog.Default()),
+		mailer:       mailer.New(mailer.ConfigFromEnv()),
+		voiceService: vService,
+		aliceHandler: alice.NewHandler(vService, slog.Default()),
 	}
 }
 
 func (a *API) RegisterRoutes(r chi.Router) {
 	r.Post("/integrations/telegram/webhook", a.TelegramWebhook)
+	r.Post("/integrations/alice/webhook", a.AliceWebhook)
+	r.Post("/api/integrations/alice/webhook", a.AliceWebhook)
+	r.Post("/api/v1/integrations/alice/webhook", a.AliceWebhook)
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Use(a.loadSession)
 
@@ -73,6 +83,7 @@ func (a *API) RegisterRoutes(r chi.Router) {
 		r.Delete("/tickets/{ticketId}/notifications/{channel}/{subscriptionId}", a.DeleteNotificationSubscription)
 		r.Get("/branches/{branchId}/tv", a.GetTVQueue)
 		r.Get("/branches/{branchId}/workload", a.GetBranchWorkload)
+		r.Get("/client/tickets/active", a.ListMyActiveTickets)
 		r.With(requireRole(domain.RoleOPCChief)).Post("/branches/{branchId}/windows", a.CreateWindow)
 		r.With(requireRole(domain.RoleOPCChief)).Delete("/windows/{windowId}", a.DeleteWindow)
 
@@ -333,5 +344,10 @@ func writeJSONResponse(w http.ResponseWriter, status int, data any) {
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(data)
 }
+
+func (a *API) AliceWebhook(w http.ResponseWriter, r *http.Request) {
+	a.aliceHandler.ServeHTTP(w, r)
+}
+
 
 // Handlers are located in client_handlers.go, operator_handlers.go, and admin_handlers.go

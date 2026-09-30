@@ -197,7 +197,7 @@ services:
       # dependencies installed into the image. The command repairs an empty volume
       # after a clean checkout without changing the lockfile.
       - frontend_node_modules:/app/node_modules
-    command: ["sh", "-c", "test -d node_modules/tailwindcss || npm ci; exec npm run dev"]
+    command: ["sh", "-c", "if ! test -f node_modules/@fontsource-variable/onest/wght.css; then rm -rf node_modules/* node_modules/.[!.]* 2>/dev/null || true; cp -a /opt/node_modules/. node_modules/; fi; test -f node_modules/@fontsource-variable/onest/wght.css && test -x node_modules/.bin/vite && exec npm run dev"]
     ports:
       - "127.0.0.1:${FRONTEND_PORT:?Set FRONTEND_PORT in .env}:5173"
     depends_on:
@@ -348,3 +348,11 @@ volumes:
   grafana_data:
   alertmanager_data:
   loki_data:
+
+# Avoid the 172.18.0.0/16 range used by the host VPN (tun0). A collision
+# routes published-port replies away from containers and resets connections.
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16

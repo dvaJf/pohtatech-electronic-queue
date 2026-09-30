@@ -67,9 +67,9 @@ func (p *Postgres) CreateLiveTicket(ctx context.Context, c application.CreateLiv
 	}, now)
 
 	rawToken, tokenHash := DeterministicManagementToken(c.IdempotencyKey)
-	err = tx.QueryRow(ctx, `INSERT INTO tickets(branch_id,service_id,source,status,idempotency_key,public_number,created_at,queue_entered_at,checkin_at,ready_at,due_at,source_rank,policy_version,management_token_hash)
- VALUES($1,$2,'LIVE','WAITING',$3,next_live_public_number(),$4,$4,$4,$5,$6,$7,$8,$9)
- ON CONFLICT(idempotency_key) DO NOTHING RETURNING id::text`, b, s, c.IdempotencyKey, now, readyAt, dueAt, sourceRank, policy.PolicyVersion, tokenHash).Scan(&tid)
+	err = tx.QueryRow(ctx, `INSERT INTO tickets(branch_id,service_id,source,status,idempotency_key,public_number,created_at,queue_entered_at,checkin_at,ready_at,due_at,source_rank,policy_version,management_token_hash,client_id)
+ VALUES($1,$2,'LIVE','WAITING',$3,next_live_public_number(),$4,$4,$4,$5,$6,$7,$8,$9,$10)
+ ON CONFLICT(idempotency_key) DO NOTHING RETURNING id::text`, b, s, c.IdempotencyKey, now, readyAt, dueAt, sourceRank, policy.PolicyVersion, tokenHash, c.ClientID).Scan(&tid)
 	if errors.Is(err, pgx.ErrNoRows) {
 		existing, err = scanTicket(tx.QueryRow(ctx, ticketSelect+`WHERE t.idempotency_key=$1`, c.IdempotencyKey))
 		if err != nil {

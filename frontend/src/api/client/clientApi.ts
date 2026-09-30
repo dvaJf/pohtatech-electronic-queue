@@ -64,9 +64,15 @@ function parseBranches(value: unknown): BranchListResponse {
   return {
     items: value.items.map((item) => {
       if (!isRecord(item)) throw new ClientApiError('Некорректное отделение');
-      if (item.ratingAverage !== null && typeof item.ratingAverage !== 'number') throw new ClientApiError('Некорректный рейтинг отделения');
-      if (typeof item.ratingCount !== 'number' || item.ratingCount < 0) throw new ClientApiError('Некорректное число оценок');
-      return { latitude: typeof item.latitude === 'number' ? item.latitude : undefined, longitude: typeof item.longitude === 'number' ? item.longitude : undefined, isDemo: item.isDemo === true, id: requireString(item.id, 'id'), name: requireString(item.name, 'name'), address: typeof item.address === 'string' ? item.address : undefined, workHours: typeof item.workHours === 'string' ? item.workHours : undefined, ratingAverage: item.ratingAverage as number | null, ratingCount: item.ratingCount };
+      // Older/demo branch payloads omit empty rating fields. Treat them as an
+      // unrated branch, while continuing to reject malformed values when sent.
+      const ratingAverage = item.ratingAverage === undefined || item.ratingAverage === null
+        ? null
+        : item.ratingAverage;
+      const ratingCount = item.ratingCount === undefined ? 0 : item.ratingCount;
+      if (ratingAverage !== null && typeof ratingAverage !== 'number') throw new ClientApiError('Некорректный рейтинг отделения');
+      if (typeof ratingCount !== 'number' || ratingCount < 0) throw new ClientApiError('Некорректное число оценок');
+      return { latitude: typeof item.latitude === 'number' ? item.latitude : undefined, longitude: typeof item.longitude === 'number' ? item.longitude : undefined, isDemo: item.isDemo === true, id: requireString(item.id, 'id'), name: requireString(item.name, 'name'), address: typeof item.address === 'string' ? item.address : undefined, workHours: typeof item.workHours === 'string' ? item.workHours : undefined, ratingAverage, ratingCount };
     }),
   };
 }
@@ -201,6 +207,16 @@ export async function createQrTicket(branchId: string, serviceId: string, idempo
 
 export async function getTicket(ticketId: string, signal?: AbortSignal): Promise<Ticket> {
   return request(`/tickets/${encodeURIComponent(ticketId)}`, { signal }, parseTicket);
+}
+
+export async function listMyActiveTickets(signal?: AbortSignal): Promise<Ticket[]> {
+  try {
+    const data = await request<{ items: unknown[] }>('/client/tickets/active', { signal });
+    if (!data || !Array.isArray(data.items)) return [];
+    return data.items.map(parseTicket);
+  } catch {
+    return [];
+  }
 }
 
 export async function submitFeedback(ticketId: string, rating: number, comment: string, token?: string): Promise<void> {

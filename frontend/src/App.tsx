@@ -11,6 +11,7 @@ import { ProductHeader } from './components/common/ProductHeader';
 import { ClientQueueBoard } from './features/client/ClientQueueBoard';
 import { TVBoard } from './features/client/TVBoard';
 import { AIAssistantWidget } from './features/chat/AIAssistantWidget';
+import { FAQPage } from './pages/FAQPage';
 
 export function App() {
   const [health, setHealth] = useState<'Checking...' | 'Available' | 'Unavailable'>('Checking...');
@@ -68,6 +69,7 @@ export function App() {
     ...(currentPath.startsWith('/q/') ? [{ path: currentPath, label: 'QR', page: <PhysicalQRPage key={currentPath} branchId={currentPath.slice(3)} kiosk={new URLSearchParams(window.location.search).get('kiosk') === '1'} /> }] : []),
     ...(currentPath.startsWith('/kiosk/') ? [{ path: currentPath, label: 'Kiosk', page: <PhysicalQRPage key={currentPath} branchId={currentPath.slice(7)} kiosk /> }] : []),
     { path: '/', label: 'Client', page: <ClientPage /> },
+    { path: '/faq', label: 'FAQ', page: <FAQPage /> },
     { path: '/board', label: 'Board', page: <ClientQueueBoard onBack={() => navigate('/')} /> },
     { path: '/operator/login', label: 'Operator login', page: <AuthBoundary area="operator" loginPage><OperatorPage /></AuthBoundary> },
     { path: '/operator', label: 'Operator', page: <AuthBoundary area="operator" loginPage={false}><OperatorPage /></AuthBoundary> },

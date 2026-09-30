@@ -189,9 +189,9 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
   const [subscriptionsError, setSubscriptionsError] = useState(false);
   const [profilePushEnabled, setProfilePushEnabled] = useState<boolean>(() => {
     if (typeof localStorage !== 'undefined') {
-      return localStorage.getItem('user_browser_push_enabled') === 'true';
+      return localStorage.getItem('user_browser_push_enabled') !== 'false';
     }
-    return false;
+    return true;
   });
   const [ticketPushDisabled, setTicketPushDisabled] = useState<boolean>(() => {
     if (typeof localStorage !== 'undefined') {
@@ -203,7 +203,7 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
   useEffect(() => {
     const handleUpdate = () => {
       if (typeof localStorage !== 'undefined') {
-        setProfilePushEnabled(localStorage.getItem('user_browser_push_enabled') === 'true');
+        setProfilePushEnabled(localStorage.getItem('user_browser_push_enabled') !== 'false');
         setTicketPushDisabled(localStorage.getItem(`ticket_webpush_disabled:${ticket.id}`) === 'true');
       }
     };
@@ -468,7 +468,7 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
   };
 
   const isTgProfileEnabled = typeof localStorage !== 'undefined' && localStorage.getItem('user_telegram_connected') === 'true';
-  const isPushProfileEnabled = typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted' && localStorage.getItem('user_browser_push_enabled') !== 'false';
+  const isPushProfileEnabled = typeof localStorage !== 'undefined' ? localStorage.getItem('user_browser_push_enabled') !== 'false' : true;
   const isSmsProfileEnabled = typeof localStorage !== 'undefined' && (localStorage.getItem('user_sms_enabled') === 'true' || Boolean(localStorage.getItem('user_phone')));
 
   const [tgOptState, setTgOptState] = useState<boolean | null>(null);
@@ -476,7 +476,7 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
     ? tgOptState 
     : (connected('TELEGRAM') && typeof localStorage !== 'undefined' && localStorage.getItem(`ticket_telegram_disabled:${ticket.id}`) !== 'true');
 
-  const isPushActive = isPushProfileEnabled && connected('WEB_PUSH') && !ticketPushDisabled;
+  const isPushActive = isPushProfileEnabled && !ticketPushDisabled;
   const [smsTicketEnabled, setSmsTicketEnabled] = useState<boolean>(() => {
     if (typeof localStorage !== 'undefined') {
       return localStorage.getItem(`ticket_sms_disabled:${ticket.id}`) !== 'true';
@@ -494,15 +494,31 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
   };
 
   const handleTogglePushChannel = async (target: boolean) => {
-    if (!isPushProfileEnabled) return;
     if (target) {
       if (typeof localStorage !== 'undefined') {
         localStorage.removeItem(`ticket_webpush_disabled:${ticket.id}`);
+        localStorage.setItem('user_browser_push_enabled', 'true');
       }
       setTicketPushDisabled(false);
-      await push();
+      setProfilePushEnabled(true);
+      if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
+        try {
+          await Notification.requestPermission();
+        } catch {}
+      }
+      if (token && capabilities?.webPush?.enabled) {
+        await push();
+      }
+      setNotice('Уведомления в браузере включены (звуковой гонг и push-оповещения).');
     } else {
-      await disconnect('WEB_PUSH');
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(`ticket_webpush_disabled:${ticket.id}`, 'true');
+      }
+      setTicketPushDisabled(true);
+      if (connected('WEB_PUSH')) {
+        await disconnect('WEB_PUSH');
+      }
+      setNotice('Уведомления в браузере для этого талона отключены.');
     }
   };
 
@@ -599,8 +615,7 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
         (val) => handleToggleSmsChannel(val)
       )}
 
-      {!canManage && <p className="cx-notification-status" role="status">{managementUnavailable}</p>}
-      {subscriptionsError && <p className="cx-notification-status" role="status" aria-live="polite">Не удалось загрузить настройки уведомлений. <button type="button" className="cx-notification-link" onClick={() => void refresh()}>Повторить</button></p>}
+      {subscriptionsError && token && <p className="cx-notification-status" role="status" aria-live="polite">Не удалось загрузить настройки уведомлений. <button type="button" className="cx-notification-link" onClick={() => void refresh()}>Повторить</button></p>}
       {capabilitiesError && <p className="cx-notification-status" role="status" aria-live="polite">Не удалось определить доступность каналов. <button type="button" className="cx-notification-link" onClick={() => void refresh()}>Повторить</button></p>}
       {notice && <p className="cx-notification-status" role="status" aria-live="polite">{notice}</p>}
     </section>
@@ -1301,6 +1316,15 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
   const nearbyBranch = hasReliableGpsFix ? locatedBranches.find(branch => branch.id === nearbyVisits.activeBranchId) ?? null : null;
   const nearbyDistanceMeters = nearbyDistances.find(branch => branch.id === nearbyBranch?.id)?.distanceMeters ?? 0;
 
+  useEffect(() => {
+    if (currentCoordinates && typeof localStorage !== 'undefined') {
+      try {
+        localStorage.setItem('pochta_user_lat', String(currentCoordinates.lat));
+        localStorage.setItem('pochta_user_lng', String(currentCoordinates.lng));
+      } catch {}
+    }
+  }, [currentCoordinates]);
+
   // Map Modal State
   const [isMapModalOpen, setIsMapModalOpen] = useState(false);
   const [mapInitialFilter, setMapInitialFilter] = useState<'all' | 'parcels' | 'letters' | 'pensions' | 'accessible'>('all');
@@ -1836,6 +1860,38 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
     setEtas({});
     stopPolling();
     pollAll();
+  }, [ownerScope, pollAll, stopPolling]);
+
+  // Слушаем создание нового талона (в т.ч. через AI Ассистента) и синхронизацию хранилища
+  useEffect(() => {
+    const handleTicketCreated = (e: Event) => {
+      const custom = e as CustomEvent<Ticket>;
+      const newTicket = custom.detail;
+      if (newTicket && newTicket.id) {
+        addSavedTicketId(newTicket.id, ownerScope);
+        setTickets(prev => {
+          if (prev.some(t => t.id === newTicket.id)) return prev;
+          return [newTicket, ...prev];
+        });
+        stopPolling();
+        pollAll();
+      }
+    };
+    const handleStorage = () => {
+      stopPolling();
+      pollAll();
+    };
+    const handleShowTickets = () => {
+      setScreen('my');
+    };
+    window.addEventListener('pochta:ticket-created', handleTicketCreated);
+    window.addEventListener('storage', handleStorage);
+    window.addEventListener('pochta:show-tickets', handleShowTickets);
+    return () => {
+      window.removeEventListener('pochta:ticket-created', handleTicketCreated);
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('pochta:show-tickets', handleShowTickets);
+    };
   }, [ownerScope, pollAll, stopPolling]);
 
   const resetBooking = () => {

@@ -35,3 +35,5 @@ backups/
 *.exe
 scratch/
 frontend/tmp/test-output/
+__pycache__/
+*.pyc

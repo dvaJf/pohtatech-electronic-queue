@@ -40,6 +40,8 @@ func (p *Postgres) CreateLiveTicket(ctx context.Context, c application.CreateLiv
 		if t.Source != domain.TicketSourceLive || tb != b || ts != s {
 			return empty, application.ErrIdempotencyConflict
 		}
+		rawToken, _ := DeterministicManagementToken(c.IdempotencyKey)
+		t.ManagementToken = &rawToken
 		return application.CreateLiveTicketResult{Ticket: t, Replayed: true}, nil
 	}
 	existing, err := scanTicket(tx.QueryRow(ctx, ticketSelect+`WHERE t.idempotency_key=$1`, c.IdempotencyKey))
@@ -64,9 +66,10 @@ func (p *Postgres) CreateLiveTicket(ctx context.Context, c application.CreateLiv
 		ServiceID: c.ServiceID,
 	}, now)
 
-	err = tx.QueryRow(ctx, `INSERT INTO tickets(branch_id,service_id,source,status,idempotency_key,public_number,created_at,queue_entered_at,checkin_at,ready_at,due_at,source_rank,policy_version)
- VALUES($1,$2,'LIVE','WAITING',$3,next_live_public_number(),$4,$4,$4,$5,$6,$7,$8)
- ON CONFLICT(idempotency_key) DO NOTHING RETURNING id::text`, b, s, c.IdempotencyKey, now, readyAt, dueAt, sourceRank, policy.PolicyVersion).Scan(&tid)
+	rawToken, tokenHash := DeterministicManagementToken(c.IdempotencyKey)
+	err = tx.QueryRow(ctx, `INSERT INTO tickets(branch_id,service_id,source,status,idempotency_key,public_number,created_at,queue_entered_at,checkin_at,ready_at,due_at,source_rank,policy_version,management_token_hash)
+ VALUES($1,$2,'LIVE','WAITING',$3,next_live_public_number(),$4,$4,$4,$5,$6,$7,$8,$9)
+ ON CONFLICT(idempotency_key) DO NOTHING RETURNING id::text`, b, s, c.IdempotencyKey, now, readyAt, dueAt, sourceRank, policy.PolicyVersion, tokenHash).Scan(&tid)
 	if errors.Is(err, pgx.ErrNoRows) {
 		existing, err = scanTicket(tx.QueryRow(ctx, ticketSelect+`WHERE t.idempotency_key=$1`, c.IdempotencyKey))
 		if err != nil {
@@ -81,6 +84,7 @@ func (p *Postgres) CreateLiveTicket(ctx context.Context, c application.CreateLiv
 	if err != nil {
 		return empty, err
 	}
+	t.ManagementToken = &rawToken
 	if err = insertEvent(ctx, tx, t, domain.TicketEventCreated, nil, nil, nil, EventExtra{
 		Actor:  "kiosk_live",
 		Reason: "ticket created",

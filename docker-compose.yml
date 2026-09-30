@@ -34,6 +34,7 @@ x-backend: &backend
     SMTP_FROM: ${SMTP_FROM:-}
     SMTP_TLS: ${SMTP_TLS:-}
     SMTP_APP_BASE_URL: ${SMTP_APP_BASE_URL:-}
+    RAG_AGENT_URL: ${RAG_AGENT_URL:-http://rag-agent:8095}
 
 services:
   ml-service:
@@ -57,6 +58,31 @@ services:
         limits:
           cpus: '0.5'
           memory: 256M
+
+  rag-agent:
+    build: ./services/rag-agent
+    restart: always
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      BACKEND_URL: http://backend:8080
+      PORT: "8095"
+      GIGACHAT_CREDENTIALS: ${GIGACHAT_CREDENTIALS:-}
+      GIGACHAT_SCOPE: ${GIGACHAT_SCOPE:-GIGACHAT_API_PERS}
+      GIGACHAT_MODEL: ${GIGACHAT_MODEL:-GigaChat}
+    ports:
+      - "127.0.0.1:8095:8095"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8095/health')\""]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 384M
 
   postgres:
     image: postgres:17-alpine
@@ -163,6 +189,7 @@ services:
     environment:
       VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
       VITE_BACKEND_TARGET: http://backend:8080
+      VITE_RAG_TARGET: http://rag-agent:8095
       PUBLIC_APP_BASE_URL: ${PUBLIC_APP_BASE_URL:-}
     volumes:
       - ./frontend:/app

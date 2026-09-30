@@ -414,6 +414,65 @@
   background: #001F3D;
 }
 
+.cx-btn-calendar {
+  color: var(--client-primary);
+  background: #eff6ff;
+  border: 1px solid #9dc3e8;
+}
+
+.cx-btn-calendar:hover:not(:disabled) { background: #e1effc; }
+.cx-btn-calendar:focus-visible,
+.cx-calendar-close:focus-visible,
+.cx-calendar-option:focus-visible {
+  outline: 3px solid var(--client-accent);
+  outline-offset: 3px;
+}
+
+.cx-calendar-dialog-backdrop {
+  position: fixed;
+  z-index: 50;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0;
+  background: rgba(10, 25, 41, .56);
+  backdrop-filter: blur(2px);
+}
+
+.cx-calendar-dialog {
+  width: 100%;
+  max-width: 32rem;
+  padding: 14px 16px calc(16px + env(safe-area-inset-bottom));
+  color: var(--client-text);
+  background: var(--client-surface);
+  border: 1px solid var(--client-border);
+  border-radius: 28px 28px 0 0;
+  box-shadow: 0 -12px 36px rgba(10, 25, 41, .2);
+}
+
+.cx-calendar-dialog-handle { width: 40px; height: 4px; margin: 0 auto 14px; border-radius: 999px; background: #cbd5e1; }
+.cx-calendar-dialog-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.cx-calendar-dialog-header h3 { margin: 2px 0 0; font-size: 18px; line-height: 1.2; font-weight: 800; }
+.cx-calendar-dialog-eyebrow { margin: 0; color: var(--client-text-muted); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+.cx-calendar-close { display: grid; width: 44px; height: 44px; flex: 0 0 44px; place-items: center; color: var(--client-text-secondary); background: transparent; border: 0; border-radius: 50%; cursor: pointer; }
+.cx-calendar-close:hover { color: var(--client-text); background: #f1f5f9; }
+.cx-calendar-dialog-copy { margin: 12px 0 14px; color: var(--client-text-secondary); font-size: 13px; line-height: 1.45; }
+.cx-calendar-dialog-error { margin: 0 0 12px; padding: 10px 12px; color: #9f1239; background: #fff1f2; border: 1px solid #fecdd3; border-radius: 10px; font-size: 12px; font-weight: 600; }
+.cx-calendar-options { display: grid; gap: 8px; }
+.cx-calendar-option { display: grid; grid-template-columns: 40px minmax(0, 1fr) 20px; align-items: center; width: 100%; min-height: 56px; gap: 10px; padding: 8px 10px; color: var(--client-text); text-align: left; background: #fff; border: 1px solid var(--client-border); border-radius: 14px; cursor: pointer; }
+.cx-calendar-option:hover { background: #f8fafc; border-color: #9dc3e8; }
+.cx-calendar-option-icon { display: grid; width: 40px; height: 40px; place-items: center; color: var(--client-primary); background: #eaf2fb; border-radius: 12px; font-size: 20px; }
+.cx-calendar-option strong, .cx-calendar-option small { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cx-calendar-option strong { font-size: 13px; font-weight: 750; }
+.cx-calendar-option small { margin-top: 2px; color: var(--client-text-muted); font-size: 11px; }
+
+@media (min-width: 640px) {
+  .cx-calendar-dialog-backdrop { align-items: center; padding: 16px; }
+  .cx-calendar-dialog { border-radius: 20px; padding: 20px; }
+  .cx-calendar-dialog-handle { display: none; }
+}
+
 .cx-btn-danger {
   background: var(--client-surface);
   color: #D32F2F;

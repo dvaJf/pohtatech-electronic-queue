@@ -27,6 +27,8 @@ import { getBranchScheduleStatus } from './map/branchSchedule';
 import { WeeklyScheduleView } from './map/WeeklyScheduleView';
 import { HomeHero } from './home/HomeHero';
 import { SmartRouteHero } from './home/SmartRouteHero';
+import { AppointmentCalendarMenu } from './calendar/AppointmentCalendarMenu';
+import { isAppointmentCalendarEventAvailable } from './calendar/appointmentCalendar';
 
 // calculateSmartRouting is the product-level routing policy represented by smartRouting below.
 
@@ -2795,8 +2797,12 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
               {tickets.map(ticket => {
                 const position = positions[ticket.id];
                 const appointment = appointments[ticket.id];
+                const branch = branches.find(b => b.id === ticket.branchId);
                 const eta = etas[ticket.id];
                 const managementToken = getSavedMgmtTokens(ownerScope)[ticket.id] || ticket.managementToken || undefined;
+                const canExportAppointmentCalendar = ticket.source === 'APPOINTMENT'
+                  && appointment
+                  && isAppointmentCalendarEventAvailable(appointment, branch);
 
                 return (
                   <div key={ticket.id} className="cx-active-ticket">
@@ -2814,7 +2820,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                       </div>
                       <div className="cx-ticket-row">
                         <span>Отделение</span>
-                        <strong>{branches.find(b => b.id === ticket.branchId)?.name || 'Почта России'}</strong>
+                        <strong>{branch?.name || 'Почта России'}</strong>
                       </div>
                       {ticket.status === 'COMPLETED' && (() => {
                         const meta = getCompletedTicketMetadata(ticket);
@@ -2896,6 +2902,9 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
 
                     {/* Actions Footer */}
                     <div className="cx-ticket-actions">
+                      {canExportAppointmentCalendar && (
+                        <AppointmentCalendarMenu appointment={appointment!} branch={branch!} />
+                      )}
                       {ticket.status === 'SCHEDULED' && ticket.source === 'APPOINTMENT' && (
                         (ticket.arrivedAt || arrivalAcknowledgedTicketIds.has(ticket.id)) ? (
                           <div className="cx-ticket-alert cx-ticket-alert-success">

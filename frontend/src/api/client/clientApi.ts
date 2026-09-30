@@ -64,9 +64,15 @@ function parseBranches(value: unknown): BranchListResponse {
   return {
     items: value.items.map((item) => {
       if (!isRecord(item)) throw new ClientApiError('Некорректное отделение');
-      if (item.ratingAverage !== null && typeof item.ratingAverage !== 'number') throw new ClientApiError('Некорректный рейтинг отделения');
-      if (typeof item.ratingCount !== 'number' || item.ratingCount < 0) throw new ClientApiError('Некорректное число оценок');
-      return { latitude: typeof item.latitude === 'number' ? item.latitude : undefined, longitude: typeof item.longitude === 'number' ? item.longitude : undefined, isDemo: item.isDemo === true, id: requireString(item.id, 'id'), name: requireString(item.name, 'name'), address: typeof item.address === 'string' ? item.address : undefined, workHours: typeof item.workHours === 'string' ? item.workHours : undefined, ratingAverage: item.ratingAverage as number | null, ratingCount: item.ratingCount };
+      // Older/demo branch payloads omit empty rating fields. Treat them as an
+      // unrated branch, while continuing to reject malformed values when sent.
+      const ratingAverage = item.ratingAverage === undefined || item.ratingAverage === null
+        ? null
+        : item.ratingAverage;
+      const ratingCount = item.ratingCount === undefined ? 0 : item.ratingCount;
+      if (ratingAverage !== null && typeof ratingAverage !== 'number') throw new ClientApiError('Некорректный рейтинг отделения');
+      if (typeof ratingCount !== 'number' || ratingCount < 0) throw new ClientApiError('Некорректное число оценок');
+      return { latitude: typeof item.latitude === 'number' ? item.latitude : undefined, longitude: typeof item.longitude === 'number' ? item.longitude : undefined, isDemo: item.isDemo === true, id: requireString(item.id, 'id'), name: requireString(item.name, 'name'), address: typeof item.address === 'string' ? item.address : undefined, workHours: typeof item.workHours === 'string' ? item.workHours : undefined, ratingAverage, ratingCount };
     }),
   };
 }

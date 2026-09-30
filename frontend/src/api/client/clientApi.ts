@@ -209,6 +209,16 @@ export async function getTicket(ticketId: string, signal?: AbortSignal): Promise
   return request(`/tickets/${encodeURIComponent(ticketId)}`, { signal }, parseTicket);
 }
 
+export async function listMyActiveTickets(signal?: AbortSignal): Promise<Ticket[]> {
+  try {
+    const data = await request<{ items: unknown[] }>('/client/tickets/active', { signal });
+    if (!data || !Array.isArray(data.items)) return [];
+    return data.items.map(parseTicket);
+  } catch {
+    return [];
+  }
+}
+
 export async function submitFeedback(ticketId: string, rating: number, comment: string, token?: string): Promise<void> {
   await request(`/tickets/${encodeURIComponent(ticketId)}/feedback`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...managementHeaders(token) }, body: JSON.stringify({ rating, comment }) }, () => undefined);
 }

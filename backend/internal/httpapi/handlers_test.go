@@ -100,6 +100,14 @@ func (f *FakeUseCases) FindActiveTicketByClient(ctx context.Context, clientID st
 	return nil, nil
 }
 
+func (f *FakeUseCases) ListActiveTicketsByClient(ctx context.Context, clientID string) ([]domain.Ticket, error) {
+	return []domain.Ticket{}, nil
+}
+
+func (f *FakeUseCases) LinkExternalAccount(ctx context.Context, userID, provider, externalUserID string) error {
+	return nil
+}
+
 var _ application.UseCases = (*FakeUseCases)(nil)
 
 

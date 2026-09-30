@@ -1633,11 +1633,26 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
     pollTimer.current = null;
   }, []);
 
-  const pollAll = useCallback(() => {
+  const pollAll = useCallback(async () => {
     if (pollInFlight.current) return;
     pollInFlight.current = true;
     const generation = pollGeneration.current;
     const scope = ownerScopeRef.current;
+
+    // Для авторизованных пользователей сверяем активные талоны с сервером
+    // (включая созданные через Алису)
+    if (scope !== 'anon') {
+      try {
+        const remoteTickets = await api.listMyActiveTickets();
+        if (generation === pollGeneration.current && Array.isArray(remoteTickets)) {
+          // Добавляем новые талоны, появившиеся на сервере (например, через Алису)
+          for (const t of remoteTickets) {
+            addSavedTicketId(t.id, scope);
+          }
+        }
+      } catch {}
+    }
+
     const ids = getSavedTicketIds(scope);
 
     if (ids.length === 0) {
@@ -1648,6 +1663,10 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
       setPositions({});
       setEtas({});
       pollInFlight.current = false;
+      if (generation === pollGeneration.current && scope !== 'anon' && document.visibilityState === 'visible') {
+        const interval = screenRef.current === 'my' ? MY_TICKETS_POLL_INTERVAL_MS : HOME_TICKET_POLL_INTERVAL_MS;
+        pollTimer.current = window.setTimeout(pollAll, interval);
+      }
       return;
     }
 
@@ -1660,8 +1679,6 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
       try {
         const nextTicket = await api.getTicket(id);
         if (generation !== pollGeneration.current) return;
-
-        fetchedTickets.push(nextTicket);
 
         // Обработка вызова талона к окну (TICKET_CALLED) -> отправляем системный Web Push и звуковой сигнал
         if (nextTicket.status === 'CALLED') {
@@ -1749,6 +1766,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
         }
 
         if (!terminalStatuses.has(nextTicket.status)) {
+          fetchedTickets.push(nextTicket);
           const etaRequest = api.getTicketETA(nextTicket.id).then(eta => {
             if (generation === pollGeneration.current && eta.ticketId === id) fetchedEtas[id] = eta;
           }).catch(() => {});
@@ -1803,7 +1821,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
     }).finally(() => {
       pollInFlight.current = false;
       if (generation === pollGeneration.current) setTicketsLoading(false);
-      if (generation === pollGeneration.current && getSavedTicketIds(scope).length > 0 && document.visibilityState === 'visible') {
+      if (generation === pollGeneration.current && (getSavedTicketIds(scope).length > 0 || scope !== 'anon') && document.visibilityState === 'visible') {
         const interval = screenRef.current === 'my' ? MY_TICKETS_POLL_INTERVAL_MS : HOME_TICKET_POLL_INTERVAL_MS;
         pollTimer.current = window.setTimeout(pollAll, interval);
       }
@@ -1819,18 +1837,46 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
   }, [screen, pollAll, stopPolling]);
 
   // При смене пользователя (вход/выход/регистрация) перезагружаем талоны
-  // строго для нового владельца, чтобы чужие талоны не оставались на экране.
+  // строго для нового владельца, подтягивая серверные талоны (в т.ч. созданные через Алису)
   useEffect(() => {
     setTickets([]);
     setPositions({});
     setEtas({});
     stopPolling();
-    pollAll();
+    if (ownerScope !== 'anon') {
+      api.listMyActiveTickets().then(remoteTickets => {
+        if (Array.isArray(remoteTickets) && remoteTickets.length > 0) {
+          for (const t of remoteTickets) {
+            addSavedTicketId(t.id, ownerScope);
+          }
+        }
+        pollAll();
+      }).catch(() => {
+        pollAll();
+      });
+    } else {
+      pollAll();
+    }
   }, [ownerScope, pollAll, stopPolling]);
 
   useEffect(() => {
     const refreshActiveTickets = () => {
-      if (screenRef.current !== 'home' || document.visibilityState !== 'visible') return;
+      if (document.visibilityState !== 'visible') return;
+      if (ownerScopeRef.current !== 'anon') {
+        api.listMyActiveTickets().then(remoteTickets => {
+          if (Array.isArray(remoteTickets) && remoteTickets.length > 0) {
+            let changed = false;
+            const currentIds = getSavedTicketIds(ownerScopeRef.current);
+            for (const t of remoteTickets) {
+              if (!currentIds.includes(t.id)) {
+                addSavedTicketId(t.id, ownerScopeRef.current);
+                changed = true;
+              }
+            }
+            if (changed) pollAll();
+          }
+        }).catch(() => {});
+      }
       if (pollTimer.current !== null) window.clearTimeout(pollTimer.current);
       pollTimer.current = null;
       pollAll();
@@ -1956,14 +2002,20 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
       const tokens = getSavedMgmtTokens(ownerScope);
       const mgmtToken = tokens[ticket.id] || ticket.managementToken || undefined;
       if (isAppointment) {
-        const res = await api.cancelAppointment(ticket.id, mgmtToken);
-        cancelledTicket = res.ticket;
+        try {
+          const res = await api.cancelAppointment(ticket.id, mgmtToken);
+          cancelledTicket = res.ticket;
+        } catch (appErr) {
+          // Fallback: try cancelTicket if status was already transitioned to waiting or type mismatch
+          cancelledTicket = await api.cancelTicket(ticket.id, mgmtToken);
+        }
       } else {
         cancelledTicket = await api.cancelTicket(ticket.id, mgmtToken);
       }
       removeSavedTicketId(ticket.id, ownerScope);
       removeMgmtToken(ticket.id, ownerScope);
-      setTickets(prev => prev.map(t => t.id === ticket.id ? cancelledTicket : t));
+      setTickets(prev => prev.filter(t => t.id !== ticket.id));
+      setAppointments(prev => { const next = { ...prev }; delete next[ticket.id]; return next; });
       setPositions(prev => { const next = { ...prev }; delete next[ticket.id]; return next; });
       setEtas(prev => { const next = { ...prev }; delete next[ticket.id]; return next; });
       stopPolling();

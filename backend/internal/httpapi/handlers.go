@@ -79,6 +79,7 @@ func (a *API) RegisterRoutes(r chi.Router) {
 		r.Delete("/tickets/{ticketId}/notifications/{channel}/{subscriptionId}", a.DeleteNotificationSubscription)
 		r.Get("/branches/{branchId}/tv", a.GetTVQueue)
 		r.Get("/branches/{branchId}/workload", a.GetBranchWorkload)
+		r.Get("/client/tickets/active", a.ListMyActiveTickets)
 		r.With(requireRole(domain.RoleOPCChief)).Post("/branches/{branchId}/windows", a.CreateWindow)
 		r.With(requireRole(domain.RoleOPCChief)).Delete("/windows/{windowId}", a.DeleteWindow)
 

@@ -135,6 +135,8 @@ type UseCases interface {
 	// External & Voice Integrations
 	GetOrCreateExternalUser(ctx context.Context, provider, externalUserID string) (domain.User, error)
 	FindActiveTicketByClient(ctx context.Context, clientID string) (*domain.Ticket, error)
+	ListActiveTicketsByClient(ctx context.Context, clientID string) ([]domain.Ticket, error)
+	LinkExternalAccount(ctx context.Context, userID, provider, externalUserID string) error
 }
 
 type ReportIncidentCommand struct {

@@ -66,7 +66,7 @@ func TestAliceWebhook_EndToEnd(t *testing.T) {
 
 	router := NewRouter(&fakePinger{}, fake, slog.Default(), "*")
 
-	// 1. User says: "Запиши меня на почту"
+	// 1. User says: "Запиши меня на почту" without specific time -> Alice prompts for date/time
 	body1 := alice.AliceRequest{
 		Session: alice.AliceSession{
 			SessionID: "test-session-1",
@@ -95,14 +95,11 @@ func TestAliceWebhook_EndToEnd(t *testing.T) {
 		t.Fatalf("failed to decode response: %v", err)
 	}
 
-	if !strings.Contains(resp1.Response.Text, "Новый Арбат") || !strings.Contains(resp1.Response.Text, "Взять талон?") {
+	if !strings.Contains(resp1.Response.Text, "предварительная онлайн-запись") {
 		t.Errorf("unexpected response text: %s", resp1.Response.Text)
 	}
-	if resp1.SessionState == nil || resp1.SessionState["pending_action"] == nil {
-		t.Fatalf("expected session_state.pending_action in Alice response")
-	}
 
-	// 2. User confirms: "Да"
+	// 2. User specifies time: "Запиши меня на 15:30"
 	body2 := alice.AliceRequest{
 		Session: alice.AliceSession{
 			SessionID: "test-session-1",
@@ -110,11 +107,8 @@ func TestAliceWebhook_EndToEnd(t *testing.T) {
 			User:      &alice.AliceUser{UserID: "alice-user-1"},
 		},
 		Request: alice.AliceReqBody{
-			Command: "да",
+			Command: "запиши меня на 15:30",
 			Type:    "SimpleUtterance",
-		},
-		State: &alice.AliceState{
-			Session: resp1.SessionState,
 		},
 		Version: "1.0",
 	}
@@ -126,7 +120,7 @@ func TestAliceWebhook_EndToEnd(t *testing.T) {
 
 	router.ServeHTTP(w2, req2)
 	if w2.Code != http.StatusOK {
-		t.Fatalf("expected 200 OK on confirm, got %d: %s", w2.Code, w2.Body.String())
+		t.Fatalf("expected 200 OK, got %d: %s", w2.Code, w2.Body.String())
 	}
 
 	var resp2 alice.AliceResponse
@@ -134,20 +128,26 @@ func TestAliceWebhook_EndToEnd(t *testing.T) {
 		t.Fatalf("failed to decode response: %v", err)
 	}
 
-	if !strings.Contains(resp2.Response.Text, "Q-101010") {
-		t.Errorf("expected ticket Q-101010 in response, got: %s", resp2.Response.Text)
+	if !strings.Contains(resp2.Response.Text, "15:30") || !strings.Contains(resp2.Response.Text, "Подтверждаете?") {
+		t.Errorf("expected appointment confirmation prompt for 15:30, got: %s", resp2.Response.Text)
+	}
+	if resp2.SessionState == nil || resp2.SessionState["pending_action"] == nil {
+		t.Fatalf("expected session_state.pending_action in Alice response")
 	}
 
-	// 3. User says: "Запиши меня на 15:30" (User's feature request)
+	// 3. User confirms: "Да"
 	body3 := alice.AliceRequest{
 		Session: alice.AliceSession{
-			SessionID: "test-session-2",
-			MessageID: 1,
+			SessionID: "test-session-1",
+			MessageID: 3,
 			User:      &alice.AliceUser{UserID: "alice-user-1"},
 		},
 		Request: alice.AliceReqBody{
-			Command: "запиши меня на 15:30",
+			Command: "да",
 			Type:    "SimpleUtterance",
+		},
+		State: &alice.AliceState{
+			Session: resp2.SessionState,
 		},
 		Version: "1.0",
 	}
@@ -159,7 +159,7 @@ func TestAliceWebhook_EndToEnd(t *testing.T) {
 
 	router.ServeHTTP(w3, req3)
 	if w3.Code != http.StatusOK {
-		t.Fatalf("expected 200 OK, got %d: %s", w3.Code, w3.Body.String())
+		t.Fatalf("expected 200 OK on confirm, got %d: %s", w3.Code, w3.Body.String())
 	}
 
 	var resp3 alice.AliceResponse
@@ -167,8 +167,8 @@ func TestAliceWebhook_EndToEnd(t *testing.T) {
 		t.Fatalf("failed to decode response: %v", err)
 	}
 
-	if !strings.Contains(resp3.Response.Text, "15:30") || !strings.Contains(resp3.Response.Text, "Подтверждаете?") {
-		t.Errorf("expected appointment confirmation prompt for 15:30, got: %s", resp3.Response.Text)
+	if !strings.Contains(resp3.Response.Text, "A-000303") {
+		t.Errorf("expected appointment ticket A-000303 in response, got: %s", resp3.Response.Text)
 	}
 }
 

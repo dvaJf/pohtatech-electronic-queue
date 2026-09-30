@@ -5,6 +5,7 @@ import test from 'node:test';
 const page = new URL('../src/pages/FAQPage.tsx', import.meta.url);
 const app = new URL('../src/App.tsx', import.meta.url);
 const header = new URL('../src/components/common/ProductHeader.tsx', import.meta.url);
+const styles = new URL('../src/pages/faq.css', import.meta.url);
 
 test('FAQ screen, entry point and deep links are present', async () => {
   const [source, appSource, headerSource] = await Promise.all([readFile(page, 'utf8'), readFile(app, 'utf8'), readFile(header, 'utf8')]);
@@ -44,4 +45,13 @@ test('stand status keeps health and providers independent and can retry', async 
   for (const provider of ['Telegram', 'Web Push', 'SMS', 'Email']) assert.match(source, new RegExp(`name="${provider}"`));
   assert.match(source, /Демонстрационный режим/);
   assert.match(source, /Проверено/);
+});
+
+test('FAQ mobile layout keeps controls touch-sized and stacks narrow status content', async () => {
+  const source = await readFile(styles, 'utf8');
+  assert.match(source, /min-height: 44px/);
+  assert.match(source, /@media \(max-width: 640px\)/);
+  assert.match(source, /flex-direction: column/);
+  assert.match(source, /@media \(max-width: 360px\)/);
+  assert.match(source, /overflow-wrap: anywhere/);
 });

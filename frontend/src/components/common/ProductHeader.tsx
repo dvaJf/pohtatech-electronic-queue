@@ -393,6 +393,8 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
               </button>
             </div>
 
+            {!isStaffArea && <a href="/faq" className="hidden h-11 items-center rounded-xl border border-white/15 bg-white/[0.045] px-3 text-xs font-semibold text-white hover:bg-white/10 lg:flex">Помощь</a>}
+
             <button type="button" onClick={handleRequestGeo} disabled={geoStatus === 'locating'}
               aria-busy={geoStatus === 'locating'} aria-pressed={geoStatus === 'granted'}
               aria-label={geoStatus === 'locating' ? 'Определяем местоположение' : 'Определить местоположение'}
@@ -669,6 +671,7 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
             ) : null}
 
             {/* Доступность быстрые опции */}
+            {!isStaffArea && <a href="/faq" onClick={() => setMobileMenuOpen(false)} className="flex h-11 w-full items-center gap-2 rounded-xl border border-white/15 bg-white/10 px-3 text-xs font-bold text-white hover:bg-white/15"><CheckCircleIcon className="h-4 w-4 text-[#86BBFF]" /><span>Помощь и FAQ</span></a>}
             <div className="pt-2 border-t border-white/15 space-y-2">
               <div className="flex items-center justify-between text-[11px] text-blue-200 font-bold">
                 <span>Размер шрифта</span>

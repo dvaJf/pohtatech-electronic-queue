@@ -71,6 +71,9 @@ func (s *VoiceService) HandleRequest(ctx context.Context, req VoiceRequest) (Voi
 	case IntentNearestBranch:
 		return s.handleNearestBranch(ctx, req, user)
 
+	case IntentLinkAccount:
+		return s.handleLinkAccount(ctx, req, user)
+
 	case IntentHelp:
 		return s.handleHelp()
 
@@ -118,41 +121,12 @@ func (s *VoiceService) handleConfirm(ctx context.Context, req VoiceRequest, user
 
 	switch pending.Type {
 	case ActionTakeTicket:
-		idempotencyKey := fmt.Sprintf("alice:live:%s:%s", req.SessionID, req.RequestID)
-		res, err := s.usecases.CreateLiveTicket(ctx, application.CreateLiveTicketCommand{
-			BranchID:       pending.BranchID,
-			ServiceID:      pending.ServiceID,
-			IdempotencyKey: idempotencyKey,
-			ClientID:       &user.ID,
-		})
-		if err != nil {
-			s.logger.ErrorContext(ctx, "failed to create live ticket from voice", "error", err, "branch_id", pending.BranchID)
-			return VoiceResponse{
-				Text: "К сожалению, не удалось взять талон в этом отделении. Попробуйте выбрать другое отделение.",
-				Buttons: []string{"Где быстрее?", "Где ближайшая почта?"},
-			}, nil
-		}
-
 		if req.SessionID != "" {
 			s.sessions.ClearPendingAction(req.SessionID)
 		}
-
-		// Queue position info
-		pos, err := s.usecases.GetQueuePosition(ctx, res.Ticket.ID)
-		peopleAhead := 0
-		waitMinutes := 5
-		if err == nil && pos.Position != nil {
-			peopleAhead = *pos.Position - 1
-			if peopleAhead < 0 {
-				peopleAhead = 0
-			}
-			waitMinutes = peopleAhead*4 + 3
-		}
-
 		return VoiceResponse{
-			Text: fmt.Sprintf("Готово! Ваш талон %s в отделение %s. Перед вами %d %s. Ожидание около %d минут.",
-				res.Ticket.PublicNumber, pending.BranchName, peopleAhead, pluralPeople(peopleAhead), waitMinutes),
-			Buttons: []string{"Сколько мне осталось?", "Отмени запись"},
+			Text: "Через Алису доступна только предварительная онлайн-запись на выбранное время. На какую дату и время вас записать? Например, на сегодня в 16:30 или завтра в 11:00.",
+			Buttons: []string{"На сегодня в 16:30", "На сегодня в 17:00", "На завтра в 11:00", "Где меньше очередь?"},
 		}, nil
 
 	case ActionBookAppointment:
@@ -225,51 +199,38 @@ func (s *VoiceService) handleReject(ctx context.Context, req VoiceRequest) (Voic
 func (s *VoiceService) handleTakeTicket(ctx context.Context, req VoiceRequest, user domain.User) (VoiceResponse, error) {
 	// Check if customer already has active ticket
 	if active, err := s.usecases.FindActiveTicketByClient(ctx, user.ID); err == nil && active != nil {
-		pos, _ := s.usecases.GetQueuePosition(ctx, active.ID)
-		ahead := 0
-		if pos.Position != nil && *pos.Position > 1 {
-			ahead = *pos.Position - 1
-		}
-		waitMins := ahead*4 + 3
 		branchName := "отделении"
 		if b, bErr := s.findBranchByID(ctx, active.BranchID); bErr == nil {
 			branchName = b.Name
 		}
+		if active.Status == domain.TicketStatusScheduled && active.ScheduledAt != nil {
+			timeStr := formatRussianTime(*active.ScheduledAt)
+			return VoiceResponse{
+				Text: fmt.Sprintf("У вас уже есть активный талон %s на %s в %s.",
+					active.PublicNumber, timeStr, branchName),
+				Buttons: []string{"Сколько мне осталось?", "Отмени запись", "Где быстрее?"},
+			}, nil
+		}
 		return VoiceResponse{
-			Text: fmt.Sprintf("У вас уже есть активный талон %s в %s. Перед вами %d %s, примерное ожидание ~%d минут.",
-				active.PublicNumber, branchName, ahead, pluralPeople(ahead), waitMins),
-			Buttons: []string{"Сколько мне осталось?", "Отмени запись"},
+			Text: fmt.Sprintf("У вас уже есть активный талон %s в %s.",
+				active.PublicNumber, branchName),
+			Buttons: []string{"Сколько мне осталось?", "Отмени запись", "Где быстрее?"},
 		}, nil
 	}
 
 	candidates, err := s.rankBranches(ctx, req.Location, req.Slots["street"])
 	if err != nil || len(candidates) == 0 {
 		return VoiceResponse{
-			Text: "Сейчас не удалось найти открытое отделение поблизости. Попробуйте позже.",
-			Buttons: []string{"Где ближайшая почта?", "Помощь"},
+			Text: "Через Алису доступна предварительная онлайн-запись на выбранное время. На какую дату и время вас записать? Например, на сегодня в 16:30 или завтра в 11:00.",
+			Buttons: []string{"На сегодня в 16:30", "На сегодня в 17:00", "На завтра в 11:00", "Где меньше очередь?"},
 		}, nil
 	}
 
 	best := candidates[0]
-	serviceID := s.resolveDefaultServiceID(ctx, best.Branch.ID)
-
-	pending := &PendingAction{
-		Type:        ActionTakeTicket,
-		BranchID:    best.Branch.ID,
-		BranchName:  best.Branch.Name,
-		ServiceID:   serviceID,
-		ExpiresAt:   time.Now().Add(10 * time.Minute),
-	}
-	if req.SessionID != "" {
-		s.sessions.SetPendingAction(req.SessionID, pending, 10*time.Minute)
-	}
-
 	return VoiceResponse{
-		Text: fmt.Sprintf("Лучший вариант — %s (%s). Дорога около %d минут, очередь около %d минут. Всего примерно %d минут. Взять талон?",
-			best.Branch.Name, best.Branch.Address, best.TravelMinutes, best.QueueMinutes, best.TotalMinutes),
-		RequiresConfirmation: true,
-		PendingAction:        pending,
-		Buttons:              []string{"Да, взять талон", "Нет"},
+		Text: fmt.Sprintf("Через Алису доступна только предварительная онлайн-запись ко времени. В ближайшем отделении %s (%s) дорога займет ~%d минут, в очереди %d %s (всего ~%d минут). На какую дату и время вас записать?",
+			best.Branch.Name, best.Branch.Address, best.TravelMinutes, best.WaitingCount, pluralPeople(best.WaitingCount), best.TotalMinutes),
+		Buttons: []string{"На сегодня в 16:30", "На сегодня в 17:00", "На завтра в 11:00", "Где меньше очередь?"},
 	}, nil
 }
 
@@ -281,7 +242,7 @@ func (s *VoiceService) handleBookAppointment(ctx context.Context, req VoiceReque
 	scheduledAt := req.ScheduledAt
 	if scheduledAt == nil {
 		return VoiceResponse{
-			Text: "На какое время вас записать? Например: «на 15:30» или «на завтра в 11:00».",
+			Text: "На какую дату и время вас записать? Например: «на сегодня в 16:30» или «на завтра в 11:00».",
 			Buttons: []string{"На 14:00", "На 15:30", "На завтра в 10:00"},
 		}, nil
 	}
@@ -310,8 +271,8 @@ func (s *VoiceService) handleBookAppointment(ctx context.Context, req VoiceReque
 
 	timeStr := formatRussianTime(*scheduledAt)
 	return VoiceResponse{
-		Text: fmt.Sprintf("Записать вас на %s в %s (%s)? Дорога займет около %d минут. Подтверждаете?",
-			timeStr, best.Branch.Name, best.Branch.Address, best.TravelMinutes),
+		Text: fmt.Sprintf("Записать вас онлайн на %s в %s (%s)? Дорога пешком займет около %d минут, в очереди сейчас %d %s (всего ~%d минут). Подтверждаете?",
+			timeStr, best.Branch.Name, best.Branch.Address, best.TravelMinutes, best.WaitingCount, pluralPeople(best.WaitingCount), best.TotalMinutes),
 		RequiresConfirmation: true,
 		PendingAction:        pending,
 		Buttons:              []string{"Да, записать", "Нет"},
@@ -358,7 +319,14 @@ func (s *VoiceService) handleTicketStatus(ctx context.Context, req VoiceRequest,
 	if err == nil && pos.Position != nil && *pos.Position > 1 {
 		ahead = *pos.Position - 1
 	}
-	waitMins := ahead*4 + 3
+	waitMins := 5
+	if eta, etaErr := s.usecases.GetTicketETA(ctx, active.ID); etaErr == nil && eta.EstimatedWaitSeconds != nil && *eta.EstimatedWaitSeconds > 0 {
+		waitMins = (*eta.EstimatedWaitSeconds + 30) / 60
+	} else if workload, wErr := s.usecases.GetBranchWorkload(ctx, active.BranchID); wErr == nil && workload.EstimatedWaitSeconds != nil && *workload.EstimatedWaitSeconds > 0 {
+		waitMins = (*workload.EstimatedWaitSeconds + 30) / 60
+	} else if ahead > 0 {
+		waitMins = ahead*4 + 3
+	}
 
 	return VoiceResponse{
 		Text: fmt.Sprintf("Ваш талон %s в %s. Статус: в очереди. Перед вами %d %s, примерное время ожидания — около %d минут.",
@@ -416,25 +384,10 @@ func (s *VoiceService) handleFastestBranch(ctx context.Context, req VoiceRequest
 	}
 
 	best := candidates[0]
-	serviceID := s.resolveDefaultServiceID(ctx, best.Branch.ID)
-
-	pending := &PendingAction{
-		Type:       ActionTakeTicket,
-		BranchID:   best.Branch.ID,
-		BranchName: best.Branch.Name,
-		ServiceID:  serviceID,
-		ExpiresAt:  time.Now().Add(10 * time.Minute),
-	}
-	if req.SessionID != "" {
-		s.sessions.SetPendingAction(req.SessionID, pending, 10*time.Minute)
-	}
-
 	return VoiceResponse{
-		Text: fmt.Sprintf("Быстрее всего сейчас отделение %s (%s). Дорога ~%d минут, очередь ~%d минут. Всего примерно %d минут. Взять талон?",
-			best.Branch.Name, best.Branch.Address, best.TravelMinutes, best.QueueMinutes, best.TotalMinutes),
-		RequiresConfirmation: true,
-		PendingAction:        pending,
-		Buttons:              []string{"Да, взять талон", "Нет"},
+		Text: fmt.Sprintf("Быстрее всего сейчас отделение %s (%s): в очереди %d %s, ожидание около %d минут. Дорога пешком займет около %d минут. Всего с дорогой: около %d минут. На какое время вас записать онлайн?",
+			best.Branch.Name, best.Branch.Address, best.WaitingCount, pluralPeople(best.WaitingCount), best.QueueMinutes, best.TravelMinutes, best.TotalMinutes),
+		Buttons: []string{"Запиши на сегодня в 16:30", "Запиши на 17:00", "Запиши на завтра в 11:00", "Где ближайшая?"},
 	}, nil
 }
 
@@ -449,32 +402,18 @@ func (s *VoiceService) handleNearestBranch(ctx context.Context, req VoiceRequest
 		return candidates[i].DistanceKm < candidates[j].DistanceKm
 	})
 	nearest := candidates[0]
-	serviceID := s.resolveDefaultServiceID(ctx, nearest.Branch.ID)
-
-	pending := &PendingAction{
-		Type:       ActionTakeTicket,
-		BranchID:   nearest.Branch.ID,
-		BranchName: nearest.Branch.Name,
-		ServiceID:  serviceID,
-		ExpiresAt:  time.Now().Add(10 * time.Minute),
-	}
-	if req.SessionID != "" {
-		s.sessions.SetPendingAction(req.SessionID, pending, 10*time.Minute)
-	}
 
 	return VoiceResponse{
-		Text: fmt.Sprintf("Ближайшее отделение — %s на %s. Расстояние около %.1f км, дорога ~%d минут, очередь ~%d минут. Взять талон?",
-			nearest.Branch.Name, nearest.Branch.Address, nearest.DistanceKm, nearest.TravelMinutes, nearest.QueueMinutes),
-		RequiresConfirmation: true,
-		PendingAction:        pending,
-		Buttons:              []string{"Да, взять талон", "Нет"},
+		Text: fmt.Sprintf("Ближайшее отделение — %s (%s). До него %.1f км (пешком около %d минут). В очереди сейчас %d %s, ожидание ~%d минут (всего ~%d минут с дорогой). На какое время вас записать онлайн?",
+			nearest.Branch.Name, nearest.Branch.Address, nearest.DistanceKm, nearest.TravelMinutes, nearest.WaitingCount, pluralPeople(nearest.WaitingCount), nearest.QueueMinutes, nearest.TotalMinutes),
+		Buttons: []string{"Запиши на сегодня в 16:30", "Запиши на 17:00", "Запиши на завтра в 11:00", "Где быстрее?"},
 	}, nil
 }
 
 func (s *VoiceService) handleHelp() (VoiceResponse, error) {
 	return VoiceResponse{
-		Text: "Я помогу записаться на почту или подобрать удобное время. Вы можете сказать:\n— «Запиши меня на почту»\n— «Запиши на завтра в 14:00»\n— «Где быстрее?»\n— «Сколько мне осталось ждать?»\n— «Отмени запись»",
-		Buttons: []string{"Запиши меня на почту", "Запиши на 15:30", "Где быстрее?", "Сколько мне ждать?"},
+		Text: "Я помогу записаться на почту онлайн на удобное время. Вы можете сказать:\n— «Запиши на сегодня в 16:30»\n— «Запиши на завтра в 14:00»\n— «Где меньше очередь?»\n— «Сколько мне осталось ждать?»\n— «Отмени запись»",
+		Buttons: []string{"Запиши на 16:30", "Запиши на завтра в 11:00", "Где меньше очередь?", "Сколько мне ждать?"},
 	}, nil
 }
 
@@ -521,9 +460,11 @@ func (s *VoiceService) rankBranches(ctx context.Context, loc *UserLocation, stre
 		distKm := HaversineDistanceKm(userLat, userLng, bLat, bLng)
 		travelMins := CalculateTravelMinutes(distKm)
 
-		// Queue wait time estimate
-		queueMins := 5
+		// Queue wait time and waiting count from real branch workload
+		queueMins := 0
+		waitingCount := 0
 		if workload, wErr := s.usecases.GetBranchWorkload(ctx, b.ID); wErr == nil {
+			waitingCount = workload.CurrentWaiting
 			if workload.EstimatedWaitSeconds != nil && *workload.EstimatedWaitSeconds > 0 {
 				queueMins = (*workload.EstimatedWaitSeconds + 30) / 60
 			} else if workload.CurrentWaiting > 0 {
@@ -541,6 +482,7 @@ func (s *VoiceService) rankBranches(ctx context.Context, loc *UserLocation, stre
 			TravelMinutes: travelMins,
 			QueueMinutes:  queueMins,
 			TotalMinutes:  travelMins + queueMins,
+			WaitingCount:  waitingCount,
 		})
 	}
 
@@ -621,3 +563,33 @@ func pluralPeople(n int) string {
 	}
 	return "человек"
 }
+
+func (s *VoiceService) handleLinkAccount(ctx context.Context, req VoiceRequest, user domain.User) (VoiceResponse, error) {
+	acc := req.Slots["account"]
+	if acc == "" {
+		return VoiceResponse{
+			Text: fmt.Sprintf("Ваш голос сейчас привязан к профилю %s. Чтобы привязать другой аккаунт, скажите: «Мой логин ваш_логин».", user.Email),
+			Buttons: []string{"Мой талон", "Запиши на 15:30", "Помощь"},
+		}, nil
+	}
+
+	extID := req.UserID
+	if extID == "" {
+		extID = req.ApplicationID
+	}
+	if extID == "" {
+		extID = "anonymous_alice_user"
+	}
+
+	// Link external account
+	err := s.usecases.LinkExternalAccount(ctx, user.ID, "yandex_alice", extID)
+	if err != nil {
+		s.logger.WarnContext(ctx, "failed to link external account", "error", err, "acc", acc)
+	}
+
+	return VoiceResponse{
+		Text: fmt.Sprintf("Отлично! Аккаунт %s успешно связан с Алисой. Ваши талоны синхронизированы с сайтом pointers-team.tech.", acc),
+		Buttons: []string{"Мой талон", "Запиши меня на почту", "Запиши на 15:30"},
+	}, nil
+}
+

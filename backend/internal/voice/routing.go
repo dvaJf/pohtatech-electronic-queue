@@ -13,6 +13,7 @@ type BranchCandidate struct {
 	TravelMinutes int
 	QueueMinutes  int
 	TotalMinutes  int
+	WaitingCount  int
 }
 
 // HaversineDistanceKm calculates great-circle distance between two GPS coordinates in kilometers.

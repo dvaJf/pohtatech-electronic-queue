@@ -53,6 +53,17 @@ func ClassifyIntent(req AliceReqBody, hasPendingAction bool) (voice.VoiceIntent,
 		return voice.IntentCancelTicket, scheduledAt, slots
 	}
 
+	// 2.5 Link Account with website
+	if containsAny(cmd, "мой логин", "моя почта", "привяжи", "свяжи", "синхронизируй") {
+		tokens := strings.Fields(cmd)
+		for i, tok := range tokens {
+			if (tok == "логин" || tok == "почта" || tok == "аккаунт" || tok == "к") && i+1 < len(tokens) {
+				slots["account"] = strings.Trim(tokens[i+1], ".,!?")
+			}
+		}
+		return voice.IntentLinkAccount, scheduledAt, slots
+	}
+
 	// 3. Ticket Status
 	if containsAny(cmd, "сколько мне осталось", "сколько ждать", "кто передо мной", "какой у меня номер", "мой талон", "где я в очереди", "статус талона") {
 		return voice.IntentTicketStatus, scheduledAt, slots

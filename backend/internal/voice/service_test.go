@@ -116,7 +116,7 @@ func setupTestVoiceService() (*VoiceService, *mockVoiceUseCases) {
 }
 
 func TestVoiceService_TakeTicket_ConfirmationFlow(t *testing.T) {
-	svc, mock := setupTestVoiceService()
+	svc, _ := setupTestVoiceService()
 	ctx := context.Background()
 
 	// 1. Initial request: "Запиши меня на почту"
@@ -129,35 +129,11 @@ func TestVoiceService_TakeTicket_ConfirmationFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !resp1.RequiresConfirmation {
-		t.Errorf("expected RequiresConfirmation = true")
+	if !strings.Contains(resp1.Text, "предварительная онлайн-запись") {
+		t.Errorf("expected prompt for online appointment, got: %s", resp1.Text)
 	}
-	if !strings.Contains(resp1.Text, "Новый Арбат") || !strings.Contains(resp1.Text, "Взять талон?") {
-		t.Errorf("unexpected response text: %s", resp1.Text)
-	}
-	if resp1.PendingAction == nil || resp1.PendingAction.Type != ActionTakeTicket {
-		t.Fatalf("expected ActionTakeTicket in PendingAction")
-	}
-
-	// 2. User confirms: "Да"
-	resp2, err := svc.HandleRequest(ctx, VoiceRequest{
-		SessionID:     "sess-1",
-		RequestID:     "req-2",
-		Command:       "да",
-		Intent:        IntentConfirm,
-		PendingAction: resp1.PendingAction,
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !strings.Contains(resp2.Text, "Q-000101") {
-		t.Errorf("expected public number Q-000101 in confirmation, got: %s", resp2.Text)
-	}
-	if mock.createdLive == nil {
-		t.Fatalf("expected CreateLiveTicket to be called")
-	}
-	if mock.createdLive.BranchID != "branch-arbat" {
-		t.Errorf("got branch %s, want branch-arbat", mock.createdLive.BranchID)
+	if len(resp1.Buttons) == 0 {
+		t.Errorf("expected suggestion buttons")
 	}
 }
 

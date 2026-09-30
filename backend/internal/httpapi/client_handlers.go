@@ -228,15 +228,16 @@ func (a *API) CancelAppointment(w http.ResponseWriter, r *http.Request) {
 	ticketID := chi.URLParam(r, "ticketId")
 	user, isStaff := userFromContext(r.Context())
 	isAuthorizedStaff := isStaff && (user.Role == domain.RoleEmployee || user.Role == domain.RoleOPCChief)
+	isAuthenticatedClient := isStaff && user.ID != ""
 
 	token := r.Header.Get("X-Ticket-Manage-Token")
-	if !isAuthorizedStaff && strings.TrimSpace(token) == "" {
+	if !isAuthorizedStaff && !isAuthenticatedClient && strings.TrimSpace(token) == "" {
 		writeJSONError(w, r, http.StatusForbidden, "FORBIDDEN", "X-Ticket-Manage-Token header is required for cancellation")
 		return
 	}
 
 	ctx := r.Context()
-	if isAuthorizedStaff {
+	if isAuthorizedStaff || isAuthenticatedClient {
 		ctx = persistence.WithStaffBypass(ctx)
 	} else {
 		ctx = persistence.WithPublicClient(ctx)
@@ -259,15 +260,16 @@ func (a *API) CancelTicket(w http.ResponseWriter, r *http.Request) {
 	ticketID := chi.URLParam(r, "ticketId")
 	user, isStaff := userFromContext(r.Context())
 	isAuthorizedStaff := isStaff && (user.Role == domain.RoleEmployee || user.Role == domain.RoleOPCChief)
+	isAuthenticatedClient := isStaff && user.ID != ""
 
 	token := r.Header.Get("X-Ticket-Manage-Token")
-	if !isAuthorizedStaff && strings.TrimSpace(token) == "" {
+	if !isAuthorizedStaff && !isAuthenticatedClient && strings.TrimSpace(token) == "" {
 		writeJSONError(w, r, http.StatusForbidden, "FORBIDDEN", "X-Ticket-Manage-Token header is required for cancellation")
 		return
 	}
 
 	ctx := r.Context()
-	if isAuthorizedStaff {
+	if isAuthorizedStaff || isAuthenticatedClient {
 		ctx = persistence.WithStaffBypass(ctx)
 	} else {
 		ctx = persistence.WithPublicClient(ctx)
@@ -293,3 +295,24 @@ func (a *API) GetBranchWorkload(w http.ResponseWriter, r *http.Request) {
 
 	writeJSONResponse(w, http.StatusOK, workload)
 }
+
+func (a *API) ListMyActiveTickets(w http.ResponseWriter, r *http.Request) {
+	user, ok := userFromContext(r.Context())
+	if !ok || user.ID == "" {
+		writeJSONResponse(w, http.StatusOK, map[string]any{"items": []TicketDTO{}})
+		return
+	}
+
+	tickets, err := a.usecases.ListActiveTicketsByClient(r.Context(), user.ID)
+	if err != nil {
+		a.respondError(w, r, err)
+		return
+	}
+
+	items := make([]TicketDTO, len(tickets))
+	for i, t := range tickets {
+		items[i] = mapTicket(t)
+	}
+	writeJSONResponse(w, http.StatusOK, map[string]any{"items": items})
+}
+

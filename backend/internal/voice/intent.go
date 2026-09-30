@@ -14,6 +14,7 @@ const (
 	IntentHelp            VoiceIntent = "HELP"
 	IntentConfirm         VoiceIntent = "CONFIRM"
 	IntentReject          VoiceIntent = "REJECT"
+	IntentLinkAccount     VoiceIntent = "LINK_ACCOUNT"
 )
 
 type LocationSource string

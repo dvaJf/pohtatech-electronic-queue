@@ -285,6 +285,21 @@ func (p *Postgres) LoginOAuth(ctx context.Context, email string) (domain.Session
 	if err != nil {
 		return domain.Session{}, dbError(err)
 	}
+
+	// Link any existing Alice tickets and external accounts to this user
+	_, _ = p.pool.Exec(ctx, `
+		UPDATE external_accounts 
+		SET user_id = $1::uuid 
+		WHERE provider = 'yandex_alice'
+	`, u.ID)
+	_, _ = p.pool.Exec(ctx, `
+		UPDATE tickets 
+		SET client_id = $1 
+		WHERE client_id IN (
+			SELECT id::text FROM users WHERE email LIKE 'yandex_alice_%'
+		)
+	`, u.ID)
+
 	return domain.Session{Token: token, UserID: u.ID, ExpiresAt: expiresAt}, nil
 }
 
@@ -514,7 +529,44 @@ func (p *Postgres) GetOrCreateExternalUser(ctx context.Context, provider, extern
 		}
 	}
 
-	// 2. Создание пользователя и связки external_accounts
+	// 2. Проверка: если это yandex_alice и в системе уже есть зарегистрированный пользователь — автоматически связываем!
+	if provider == "yandex_alice" {
+		var oauthUser domain.User
+		oauthErr := p.pool.QueryRow(ctx, `
+			SELECT id::text, email, password_hash, role, is_terminal, confirmed, phone, phone_verified, created_at
+			FROM users
+			WHERE role = 'client'
+			  AND email NOT LIKE '%@alice.yandex.ru'
+			ORDER BY 
+			  (CASE WHEN password_hash = 'OAUTH_ACCOUNT' THEN 0 
+			        WHEN email LIKE '%@yandex.%' OR email LIKE '%@ya.ru' THEN 1 
+			        ELSE 2 END), 
+			  created_at DESC
+			LIMIT 1
+		`).Scan(&oauthUser.ID, &oauthUser.Email, &oauthUser.PasswordHash, &oauthUser.Role, &oauthUser.IsTerminal, &oauthUser.Confirmed, &oauthUser.Phone, &oauthUser.PhoneVerified, &oauthUser.CreatedAt)
+		if oauthErr == nil && oauthUser.ID != "" {
+			_, _ = p.pool.Exec(ctx, `
+				INSERT INTO external_accounts (user_id, provider, external_user_id)
+				VALUES ($1::uuid, $2, $3)
+				ON CONFLICT (provider, external_user_id) DO UPDATE SET user_id = $1::uuid, updated_at = clock_timestamp()
+			`, oauthUser.ID, provider, externalUserID)
+
+			// Перепривязываем ранее созданные талоны Алисы к этому пользователю Яндекс
+			_, _ = p.pool.Exec(ctx, `
+				UPDATE tickets 
+				SET client_id = $1 
+				WHERE client_id IN (
+					SELECT id::text FROM users WHERE email LIKE 'yandex_alice_%'
+				) OR client_id IN (
+					SELECT user_id::text FROM external_accounts WHERE provider = 'yandex_alice'
+				)
+			`, oauthUser.ID)
+
+			return oauthUser, nil
+		}
+	}
+
+	// 3. Создание пользователя и связки external_accounts
 	cleanID := strings.ReplaceAll(externalUserID, "-", "")
 	if len(cleanID) > 24 {
 		cleanID = cleanID[:24]
@@ -552,5 +604,32 @@ func (p *Postgres) GetOrCreateExternalUser(ctx context.Context, provider, extern
 	}
 
 	return u, nil
+}
+
+func (p *Postgres) LinkExternalAccount(ctx context.Context, userID, provider, externalUserID string) error {
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return dbError(err)
+	}
+	defer tx.Rollback(context.Background())
+
+	_, err = tx.Exec(ctx, `
+		INSERT INTO external_accounts (user_id, provider, external_user_id)
+		VALUES ($1::uuid, $2, $3)
+		ON CONFLICT (provider, external_user_id) DO UPDATE SET user_id = $1::uuid, updated_at = clock_timestamp()
+	`, userID, provider, externalUserID)
+	if err != nil {
+		return dbError(err)
+	}
+
+	_, _ = tx.Exec(ctx, `
+		UPDATE tickets 
+		SET client_id = $1 
+		WHERE client_id IN (
+			SELECT id::text FROM users WHERE email LIKE 'yandex_alice_%'
+		)
+	`, userID)
+
+	return tx.Commit(ctx)
 }
 

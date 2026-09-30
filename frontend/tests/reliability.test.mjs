@@ -91,6 +91,7 @@ async function mountHome(t, {
   services = 'pending',
   artifactName = 'home-browser-failure',
   pendingTicketWithUnrelatedCache = false,
+  activeTicket = false,
 } = {}) {
   const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || '/tmp/queue-browser/node_modules/playwright/index.mjs');
   const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
@@ -112,6 +113,7 @@ async function mountHome(t, {
   });
   let serviceRequests = 0;
   let ticketRequests = 0;
+  let workloadRequests = 0;
   let releaseServices;
   let releaseTicketLoad;
   await page.route('**/__home_test', route => route.fulfill({ contentType: 'text/html', body: '<div id="fixture"></div>' }));
@@ -119,7 +121,10 @@ async function mountHome(t, {
     const path = new URL(route.request().url()).pathname;
     const fulfill = body => route.fulfill({ contentType: 'application/json', body: JSON.stringify(body) });
     if (path === '/api/v1/branches') return fulfill({ items: [{ id: '11111111-1111-1111-1111-111111111111', name: 'Тестовое отделение', address: 'Москва, Тестовая, 1', latitude: 55.76, longitude: 37.636 }] });
-    if (path.endsWith('/workload')) return fulfill({ branchId: '11111111-1111-1111-1111-111111111111', currentWaiting: 2, activeWindows: 2, estimatedWaitSeconds: 420, calculatedAt: new Date().toISOString() });
+    if (path.endsWith('/workload')) {
+      workloadRequests++;
+      return fulfill({ branchId: '11111111-1111-1111-1111-111111111111', currentWaiting: 2, activeWindows: 2, estimatedWaitSeconds: 420, calculatedAt: new Date().toISOString() });
+    }
     if (path.endsWith('/services')) {
       serviceRequests++;
       if (services === 'pending') await new Promise(resolve => { releaseServices = resolve; });
@@ -131,10 +136,17 @@ async function mountHome(t, {
       await new Promise(resolve => { releaseTicketLoad = resolve; });
       return route.fulfill({ status: 404, contentType: 'application/json', body: '{"code":"NOT_FOUND"}' });
     }
+    if (path === '/api/v1/tickets/active-ticket') {
+      ticketRequests++;
+      const terminal = await page.evaluate(() => window.__homeTicketTerminal === true);
+      return fulfill({ id: 'active-ticket', publicNumber: 'A-037', branchId: '11111111-1111-1111-1111-111111111111', serviceId: 'parcel', source: 'QR', status: terminal ? 'COMPLETED' : 'WAITING', window: null, createdAt: new Date().toISOString(), queueEnteredAt: new Date().toISOString(), calledAt: null, serviceStartedAt: null, completedAt: terminal ? new Date().toISOString() : null });
+    }
+    if (path === '/api/v1/tickets/active-ticket/position') return fulfill({ ticketId: 'active-ticket', ticketStatus: 'WAITING', reason: 'AVAILABLE', position: 5, referenceWindow: null, calculatedAt: new Date().toISOString(), effectivePriority: null, effectiveQueueTime: null });
+    if (path === '/api/v1/tickets/active-ticket/eta') return fulfill({ ticketId: 'active-ticket', ticketStatus: 'WAITING', reason: 'AVAILABLE', estimatedWaitSeconds: 720, estimatedCallAt: null, position: 5, referenceWindow: null, sampleSize: 1, usedFallback: false, calculatedAt: new Date().toISOString() });
     if (path === '/api/v1/auth/me') return route.fulfill({ status: 401, contentType: 'application/json', body: '{}' });
     return fulfill({ items: [] });
   });
-  await page.addInitScript(({ accuracy, permission, pendingTicketWithUnrelatedCache }) => {
+  await page.addInitScript(({ accuracy, permission, pendingTicketWithUnrelatedCache, activeTicket }) => {
     if (pendingTicketWithUnrelatedCache) {
       localStorage.setItem('client_active_ticket_ids:anon', JSON.stringify(['pending-ticket']));
       localStorage.setItem('client_active_tickets_cache:anon', JSON.stringify([{
@@ -142,6 +154,7 @@ async function mountHome(t, {
         status: 'WAITING', source: 'QR', createdAt: new Date().toISOString(), queueEnteredAt: new Date().toISOString(),
       }]));
     }
+    if (activeTicket) localStorage.setItem('client_active_ticket_ids:anon', JSON.stringify(['active-ticket']));
     const permissionStatus = new EventTarget();
     Object.defineProperty(permissionStatus, 'state', { configurable: true, get: () => permission });
     permissionStatus.onchange = null;
@@ -182,7 +195,7 @@ async function mountHome(t, {
       window.__homeGeoTrace.lastPosition = initial;
       publish(initial);
     };
-  }, { accuracy, permission, pendingTicketWithUnrelatedCache });
+  }, { accuracy, permission, pendingTicketWithUnrelatedCache, activeTicket });
   try {
     const moduleProbe = await page.request.get(`${process.env.HOME_BROWSER_URL}/src/features/client/ClientWorkspace.tsx`);
     assert.equal(moduleProbe.ok(), true, `Vite test server is not ready: ${moduleProbe.status()} ${safeUrl(moduleProbe.url())}`);
@@ -222,6 +235,7 @@ async function mountHome(t, {
       diagnostics,
       requestCount: () => serviceRequests,
       ticketRequestCount: () => ticketRequests,
+      workloadRequestCount: () => workloadRequests,
       confirmServices: () => releaseServices?.(),
       confirmTicketLoad: () => releaseTicketLoad?.(),
     };
@@ -240,6 +254,18 @@ test('home hides personal recommendation for inaccurate GPS and simulated locati
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('pochta:geo-preset', { detail: { mode: 'near_101000' } })));
   await recommendation.waitFor({ state: 'detached' });
   assert.equal(await page.getByText('Умный маршрут', { exact: true }).count(), 0);
+});
+
+test('active ticket hero defers Smart Route workload work until the ticket becomes terminal', { skip: !homeBrowserEnabled }, async t => {
+  const home = await mountHome(t, { activeTicket: true, services: 'empty', artifactName: 'active-ticket-home' });
+  const { page, workloadRequestCount } = home;
+  await page.getByRole('region', { name: 'Активный талон' }).waitFor();
+  await page.getByText('Талон A-037', { exact: true }).waitFor();
+  assert.equal(workloadRequestCount(), 0, 'an active ticket must prevent Smart Route workload polling from mounting');
+  assert.equal(await page.getByText('Умный маршрут', { exact: true }).count(), 0, 'Smart Route must not flash before ticket resolution');
+  await page.evaluate(() => { window.__homeTicketTerminal = true; window.dispatchEvent(new Event('online')); });
+  await page.getByText('Умный маршрут', { exact: true }).waitFor();
+  assert.ok(workloadRequestCount() > 0, 'terminal ticket must mount Smart Route and start its workload request');
 });
 
 test('nearby card mounts after a fresh watch fix enters a branch geofence without an active ticket', { skip: !homeBrowserEnabled }, async t => {

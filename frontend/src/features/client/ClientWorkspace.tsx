@@ -16,8 +16,7 @@ import { RouteOfferModal } from './RouteOfferModal';
 import { BranchMapModal } from './map/BranchMapModal';
 import { calculateBranchTotalTime, isUsableDurationMinutes, MAX_QUEUE_WAIT_MINUTES, MAX_ROUTE_TRAVEL_MINUTES, MOSCOW_BRANCHES, BranchLocation, RankedBranch } from './map/branchLocations';
 
-import { calculatePersonalRouting, recommendationActions, matchBranchLocation, liveWaitMinutes } from './map/liveBranches';
-import { useBranchWorkloads } from './map/useBranchWorkloads';
+import { matchBranchLocation } from './map/liveBranches';
 import { canShowNearbyBranchCard, updateNearbyVisits, dismissNearbyVisit, type NearbyVisitState } from './arrival/arrivalPolicy';
 import { VisitRatingSheet } from './rating/VisitRatingSheet';
 import { shouldOfferVisitRating } from './rating/visitRatingPolicy';
@@ -26,10 +25,13 @@ import { saveClientServiceRecord, resolveOperatorName } from './serviceHistory';
 import { YandexIcon } from '../../components/common/YandexIcon';
 import { getBranchScheduleStatus } from './map/branchSchedule';
 import { WeeklyScheduleView } from './map/WeeklyScheduleView';
+import { HomeHero } from './home/HomeHero';
+import { SmartRouteHero } from './home/SmartRouteHero';
 
 // calculateSmartRouting is the product-level routing policy represented by smartRouting below.
 
-const POLL_INTERVAL_MS = 2000;
+const MY_TICKETS_POLL_INTERVAL_MS = 2000;
+const HOME_TICKET_POLL_INTERVAL_MS = 12000;
 const terminalStatuses = new Set<TicketStatus>(['COMPLETED', 'CANCELLED', 'NO_SHOW']);
 
 const STORAGE_BRANCH_KEY = 'client_selected_branch_id';
@@ -1147,6 +1149,8 @@ try {
 
 export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: { qrBranchId?: string; kiosk?: boolean; resetToken?: number }) {
   const [screen, setScreen] = useState<ClientScreen>(qrBranchId ? 'walkin' : 'home');
+  const screenRef = useRef<ClientScreen>(qrBranchId ? 'walkin' : 'home');
+  screenRef.current = screen;
   const [branches, setBranches] = useState<Branch[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [servicesLoading, setServicesLoading] = useState(false);
@@ -1252,25 +1256,17 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
   const [cancellingTicketId, setCancellingTicketId] = useState<string | null>(null);
   const [arriving, setArriving] = useState(false);
 
-  const workloads = useBranchWorkloads(branches.map(b => b.id));
+  // Live workloads belong to SmartRouteHero. Keeping this record empty here
+  // preserves map/list props without starting recommendation polling on Home.
+  const workloads = useMemo<Record<string, api.BranchWorkload>>(() => ({}), []);
   const locatedBranches = useMemo(() => {
     const list = branches.length > 0 ? branches : (MOSCOW_BRANCHES as unknown as Branch[]);
     return list.flatMap(b => {
       const loc = matchBranchLocation(b, MOSCOW_BRANCHES);
       if (!loc) return [];
-      const workload = workloads[b.id];
-      return [{ ...loc, ...b, address: b.address!, id: b.id,
-        currentWaiting: workload?.currentWaiting,
-        currentActiveWindows: workload?.activeWindows,
-        serverWaitMinutes: liveWaitMinutes(workload) }];
+      return [{ ...loc, ...b, address: b.address!, id: b.id }];
     });
-  }, [branches, workloads]);
-  const routingBranches = useMemo(() => locatedBranches.flatMap(loc => {
-    const workload = workloads[loc.id];
-    const wait = liveWaitMinutes(workload);
-    return wait === undefined ? [] : [{ ...loc, activeQueueCount: workload.currentWaiting,
-      activeWindows: workload.activeWindows!, serverWaitMinutes: wait }];
-  }), [locatedBranches, workloads]);
+  }, [branches]);
   // One location stream supplies recommendation, nearby visits and the map marker.
   const {
     currentCoordinates,
@@ -1289,6 +1285,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
   });
 
   const [routeOfferBranch, setRouteOfferBranch] = useState<RankedBranch | null>(null);
+  const [routeOfferTimeSaved, setRouteOfferTimeSaved] = useState(0);
 
   const [nearbyVisits, setNearbyVisits] = useState<NearbyVisitState>({ visits: {}, activeBranchId: null });
   const nearbyDistances = useMemo(() => locatedBranches.map(branch => ({
@@ -1377,11 +1374,6 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
     }
   };
 
-  // Smart Routing Calculation based on current coordinates
-  const smartRouting = useMemo(() => {
-    return calculatePersonalRouting(currentCoordinates, routingBranches, hasReliableGpsFix, simulationMode);
-  }, [currentCoordinates, routingBranches, hasReliableGpsFix, simulationMode]);
-
   useEffect(() => {
     if (resetToken > 0) {
       setScreen('walkin');
@@ -1398,6 +1390,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
 
   const pollTimer = useRef<number | null>(null);
   const pollGeneration = useRef(0);
+  const pollInFlight = useRef(false);
   const createLock = useRef(false);
   const requestKey = useRef<{ identity: string; key: string } | null>(null);
   const keyFor = (identity: string) => {
@@ -1475,7 +1468,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
       const dMeters = loc && hasPosition ? calculateHaversineDistanceMeters(clientLat, clientLng, loc.lat, loc.lng) : undefined;
       const rawTravelMin = dMeters === undefined ? undefined : Math.round((dMeters / 1000) * 12);
       const travelMin = isUsableDurationMinutes(rawTravelMin, MAX_ROUTE_TRAVEL_MINUTES) ? rawTravelMin : undefined;
-      const rawWaitMin = liveWaitMinutes(workloads[b.id]);
+      const rawWaitMin = undefined;
       const waitMin = isUsableDurationMinutes(rawWaitMin, MAX_QUEUE_WAIT_MINUTES) ? rawWaitMin : undefined;
       const totalMin = calculateBranchTotalTime(travelMin, waitMin);
       return { ...b, loc, distanceMeters: dMeters, travelMinutes: travelMin,
@@ -1502,7 +1495,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
       closestBranch: closest,
       timeSavedMinutes: saved,
     };
-  }, [branches, currentCoordinates, workloads, hasReliableGpsFix, simulationMode]);
+  }, [branches, currentCoordinates, hasReliableGpsFix, simulationMode]);
 
   // Фильтрация по поиску и применение сортировки: открытые сверху, закрытые снизу
   const displayBranches = useMemo(() => {
@@ -1605,13 +1598,6 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
     fetchServices(branchId);
   }, [branchId, fetchServices]);
 
-  const recommendedBranchId = smartRouting.recommendation?.fastestBranch.id;
-  useEffect(() => {
-    if (kiosk || screen !== 'home' || !recommendedBranchId || recommendedBranchId === branchId
-        || confirmedServicesByBranch[recommendedBranchId] !== undefined) return;
-    void loadConfirmedServices(recommendedBranchId).catch(() => { /* Appointment stays hidden without confirmed services. */ });
-  }, [kiosk, screen, recommendedBranchId, branchId, confirmedServicesByBranch, loadConfirmedServices]);
-
   useEffect(() => {
     if (branchId && ((screen === 'walkin' && walkinStep === 1) || (screen === 'booking' && bookingStep === 1))) {
       if (services.length === 0 && !servicesLoading && servicesLoadingBranchRef.current !== branchId) {
@@ -1646,6 +1632,8 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
   }, []);
 
   const pollAll = useCallback(() => {
+    if (pollInFlight.current) return;
+    pollInFlight.current = true;
     const generation = pollGeneration.current;
     const scope = ownerScopeRef.current;
     const ids = getSavedTicketIds(scope);
@@ -1657,6 +1645,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
       setAppointments({});
       setPositions({});
       setEtas({});
+      pollInFlight.current = false;
       return;
     }
 
@@ -1810,22 +1799,21 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
       if (generation !== pollGeneration.current) return;
       setPollError(friendlyError(reason, 'Не удалось обновить талоны'));
     }).finally(() => {
+      pollInFlight.current = false;
       if (generation === pollGeneration.current) setTicketsLoading(false);
-      if (generation === pollGeneration.current && getSavedTicketIds(scope).length > 0) {
-        pollTimer.current = window.setTimeout(pollAll, POLL_INTERVAL_MS);
+      if (generation === pollGeneration.current && getSavedTicketIds(scope).length > 0 && document.visibilityState === 'visible') {
+        const interval = screenRef.current === 'my' ? MY_TICKETS_POLL_INTERVAL_MS : HOME_TICKET_POLL_INTERVAL_MS;
+        pollTimer.current = window.setTimeout(pollAll, interval);
       }
     });
   }, []);
 
   useEffect(() => {
-    if (screen === 'my') {
-      stopPolling();
-      setTicketsLoading(true);
-      pollAll();
-    }
-    return () => {
-      stopPolling();
-    };
+    if (screen !== 'my') return;
+    stopPolling();
+    setTicketsLoading(true);
+    pollAll();
+    return stopPolling;
   }, [screen, pollAll, stopPolling]);
 
   // При смене пользователя (вход/выход/регистрация) перезагружаем талоны
@@ -1837,6 +1825,22 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
     stopPolling();
     pollAll();
   }, [ownerScope, pollAll, stopPolling]);
+
+  useEffect(() => {
+    const refreshActiveTickets = () => {
+      if (screenRef.current !== 'home' || document.visibilityState !== 'visible') return;
+      if (pollTimer.current !== null) window.clearTimeout(pollTimer.current);
+      pollTimer.current = null;
+      pollAll();
+    };
+    const onVisibilityChange = () => { if (document.visibilityState === 'visible') refreshActiveTickets(); };
+    window.addEventListener('online', refreshActiveTickets);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      window.removeEventListener('online', refreshActiveTickets);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [pollAll]);
 
   const resetBooking = () => {
     setBookingStep(0);
@@ -2062,12 +2066,13 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
     : getSavedTicketIds(ownerScope).length;
 
   const renderHome = () => {
-    const rec = smartRouting.recommendation;
-    const fastest = rec?.fastestBranch;
-    const totalMin = fastest ? Math.round(fastest.totalMinutes) : 0;
-    const travelMin = fastest ? Math.round(fastest.travelMinutes || 0) : 0;
-    const waitMin = fastest ? Math.round(fastest.waitMinutes || 0) : 0;
-    const actions = fastest ? recommendationActions(fastest.id, confirmedServicesByBranch) : [];
+    const activeTicket = tickets.find(ticket => !terminalStatuses.has(ticket.status)) ?? null;
+    const rec: any = null;
+    const fastest: any = null;
+    const totalMin = 0;
+    const travelMin = 0;
+    const waitMin = 0;
+    const actions: string[] = [];
 
     return (
       <div className="max-w-5xl xl:max-w-6xl mx-auto space-y-3.5 sm:space-y-5 pb-6">
@@ -2077,7 +2082,44 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
         {error && <ErrorBanner message={error} onClose={() => setError(null)} />}
         {notice && <NoticeBanner message={notice} onClose={() => setNotice(null)} />}
 
+        <HomeHero
+          ticketsLoading={ticketsLoading}
+          error={pollError}
+          activeTicket={activeTicket}
+          position={activeTicket ? positions[activeTicket.id] : undefined}
+          eta={activeTicket ? etas[activeTicket.id] : undefined}
+          branch={activeTicket ? branches.find(branch => branch.id === activeTicket.branchId) : undefined}
+          onRetry={() => { setTicketsLoading(true); pollAll(); }}
+          onOpenTicket={() => setScreen('my')}
+          onOpenRoute={() => activeTicket && handleOpenMap('all', activeTicket.branchId)}
+          smartRoute={<SmartRouteHero
+            branches={branches}
+            currentCoordinates={currentCoordinates}
+            hasReliableGpsFix={hasReliableGpsFix}
+            hasRealGpsFix={hasRealGpsFix}
+            simulationMode={simulationMode}
+            gpsPermissionStatus={gpsPermissionStatus}
+            requestGpsPermission={requestGpsPermission}
+            confirmedServicesByBranch={confirmedServicesByBranch}
+            onNeedServices={branch => { void loadConfirmedServices(branch).catch(() => {}); }}
+            onTakeTicket={handleRepeatTicket}
+            onOpenRoute={(branch, saved) => { setRouteOfferBranch(branch as RankedBranch); setRouteOfferTimeSaved(saved); }}
+            onOpenMap={() => handleOpenMap()}
+            onBook={branch => { handleBranchSelect(branch); setScreen('booking'); setBookingStep(1); }}
+          />}
+        />
+
+        {routeOfferBranch && <RouteOfferModal
+          branch={routeOfferBranch}
+          origin={hasRealGpsFix ? currentCoordinates : undefined}
+          timeSavedMinutes={routeOfferTimeSaved}
+          onClose={() => setRouteOfferBranch(null)}
+          onTakeTicket={handleRepeatTicket}
+          onOpenMap={(id) => handleOpenMap('all', id)}
+        />}
+
         {/* Состояние поиска геолокации (Skeleton) */}
+        {false && <>
         {!hasReliableGpsFix && gpsPermissionStatus !== 'denied' && gpsPermissionStatus !== 'unavailable' && (
           <div className="rounded-2xl border border-blue-200/80 bg-blue-50/70 p-3.5 sm:p-4 animate-pulse flex items-center justify-between gap-3 shadow-2xs">
             <div className="flex items-center gap-3 min-w-0">
@@ -2210,14 +2252,15 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
 
         {routeOfferBranch && (
           <RouteOfferModal
-            branch={routeOfferBranch}
+            branch={routeOfferBranch!}
             origin={hasRealGpsFix ? currentCoordinates : undefined}
-            timeSavedMinutes={rec?.fastestBranch.id === routeOfferBranch.id ? rec.timeSavedMinutes : 0}
+            timeSavedMinutes={rec?.fastestBranch.id === routeOfferBranch!.id ? rec.timeSavedMinutes : 0}
             onClose={() => setRouteOfferBranch(null)}
             onTakeTicket={handleRepeatTicket}
             onOpenMap={(id) => handleOpenMap('all', id)}
           />
         )}
+        </>}
 
         {/* 4 Action Cards - Mobile-First Layout & Prominent Hierarchy */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
@@ -2305,11 +2348,6 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                   <h3 className="text-xs sm:text-base font-black text-slate-900 group-hover:text-emerald-700 transition-colors">
                     Мои талоны
                   </h3>
-                  {savedCount > 0 && (
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
-                      {savedCount}
-                    </span>
-                  )}
                 </div>
                 <p className="hidden sm:block text-xs text-slate-500 leading-relaxed mt-1">
                   Текущие очереди и статус вызова к окну
@@ -2951,7 +2989,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
           isLocatingUser={gpsPermissionStatus === 'locating'}
           locationError={gpsError}
           selectedBranchId={mapTargetBranchId}
-          recommendedBranchId={smartRouting.recommendation?.fastestBranch.id ?? null}
+          recommendedBranchId={null}
           initialFilter={mapInitialFilter}
           onSelectBranch={handleSelectBranchFromMap}
           onTakeTicket={(b) => handleSelectBranchFromMap(b, 'walkin')}

@@ -321,3 +321,11 @@ volumes:
   grafana_data:
   alertmanager_data:
   loki_data:
+
+# Avoid the 172.18.0.0/16 range used by the host VPN (tun0). A collision
+# routes published-port replies away from containers and resets connections.
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16

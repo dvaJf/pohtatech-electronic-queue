@@ -87,6 +87,19 @@ func (f *FakeUseCases) ReportIncident(ctx context.Context, cmd application.Repor
 	}, nil
 }
 
+func (f *FakeUseCases) GetOrCreateExternalUser(ctx context.Context, provider, externalUserID string) (domain.User, error) {
+	return domain.User{
+		ID:        "00000000-0000-0000-0000-000000000001",
+		Email:     provider + "_" + externalUserID + "@alice.yandex.ru",
+		Role:      domain.RoleClient,
+		Confirmed: true,
+	}, nil
+}
+
+func (f *FakeUseCases) FindActiveTicketByClient(ctx context.Context, clientID string) (*domain.Ticket, error) {
+	return nil, nil
+}
+
 var _ application.UseCases = (*FakeUseCases)(nil)
 
 

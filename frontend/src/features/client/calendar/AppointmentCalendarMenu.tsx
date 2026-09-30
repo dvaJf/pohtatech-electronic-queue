@@ -76,13 +76,8 @@ export function AppointmentCalendarMenu({ appointment, branch }: AppointmentCale
 
             <div className="cx-calendar-options">
               <button type="button" className="cx-calendar-option" onClick={exportIcs}>
-                <span className="cx-calendar-option-icon" aria-hidden></span>
-                <span><strong>Apple Calendar (.ics)</strong><small>Открыть файл .ics в Календаре</small></span>
-                <DownloadMinimalisticIcon size={19} aria-hidden />
-              </button>
-              <button type="button" className="cx-calendar-option" onClick={exportIcs}>
                 <span className="cx-calendar-option-icon"><DownloadMinimalisticIcon size={19} aria-hidden /></span>
-                <span><strong>Скачать .ics</strong><small>Подходит для большинства календарей</small></span>
+                <span><strong>Скачать .ics</strong><small>Открывается в Apple Calendar и других календарях</small></span>
                 <DownloadMinimalisticIcon size={19} aria-hidden />
               </button>
             </div>

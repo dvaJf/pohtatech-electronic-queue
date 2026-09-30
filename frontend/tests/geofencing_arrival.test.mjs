@@ -181,9 +181,10 @@ test('ClientWorkspace integrates shared geolocation, nearby card and branch map'
   assert.match(content, /useGeofencing/);
   assert.match(content, /NearbyBranchCard/);
   assert.match(content, /BranchMapModal/);
-  assert.match(content, /calculatePersonalRouting/);
-  assert.match(content, /smartRouting\.recommendation/);
-  assert.match(content, /Умный маршрут/);
+  assert.match(content, /SmartRouteHero/);
+  const smartRoute = await readFile(new URL('../src/features/client/home/SmartRouteHero.tsx', import.meta.url), 'utf8');
+  assert.match(smartRoute, /calculatePersonalRouting/);
+  assert.match(smartRoute, /Умный маршрут/);
   assert.match(content, /Карта отделений/);
   assert.match(content, /handleRepeatTicket/);
 });

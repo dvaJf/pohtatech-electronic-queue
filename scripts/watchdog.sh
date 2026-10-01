@@ -1,13 +1,27 @@
 #!/usr/bin/env bash
-# High-Availability Watchdog & Auto-Healer for SUO Hackathon Deployment
+# High-Availability Watchdog & Auto-Healer for SUO — K3s/Kubernetes mode
+# Запускается как cron каждую минуту на master-ноде:
+#   * * * * * /root/tsifrovaya-ochered-novogo-pokoleniya/scripts/watchdog.sh >> /var/log/suo-watchdog.log 2>&1
 set -euo pipefail
 
+KUBECONFIG="${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
+NAMESPACE="queue-system"
+LOG_PREFIX="[$(date '+%Y-%m-%d %H:%M:%S')] [Watchdog]"
+
+# ── Telegram ──────────────────────────────────────────────────────────────────
 ENV_FILE="/root/tsifrovaya-ochered-novogo-pokoleniya/.env"
 if [ -f "$ENV_FILE" ]; then
-    # shellcheck disable=SC1090
-    set -a
-    source "$ENV_FILE"
-    set +a
+    # Читаем только KEY=VALUE строки, пропускаем комментарии и пустые строки
+    while IFS='=' read -r key value; do
+        [[ "$key" =~ ^[[:space:]]*# ]] && continue
+        [[ -z "$key" ]] && continue
+        # Убираем ведущие/завершающие пробелы
+        key="${key// /}"
+        # export только нужные переменные
+        case "$key" in
+            TELEGRAM_BOT_TOKEN|TELEGRAM_CHAT_ID) export "$key"="$value" ;;
+        esac
+    done < "$ENV_FILE"
 fi
 
 TG_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
@@ -22,16 +36,26 @@ notify_telegram() {
     fi
 }
 
+# ── Helpers ───────────────────────────────────────────────────────────────────
+kube() { KUBECONFIG="$KUBECONFIG" kubectl "$@"; }
+
 check_endpoint() {
     local url="$1"
-    local max_time="${2:-3}"
-    curl -s -f -m "$max_time" "$url" > /dev/null 2>&1
+    local max_time="${2:-5}"
+    curl -sf -m "$max_time" "$url" > /dev/null 2>&1
 }
 
-# 1. Check Nginx
+rollout_and_wait() {
+    local deploy="$1"
+    kube rollout restart deployment/"$deploy" -n "$NAMESPACE" > /dev/null 2>&1 || true
+    kube rollout status deployment/"$deploy" -n "$NAMESPACE" --timeout=60s > /dev/null 2>&1 || true
+}
+
+# ── 1. Nginx (host-level reverse proxy) ───────────────────────────────────────
 if ! systemctl is-active --quiet nginx; then
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Nginx is down! Restarting..."
+    echo "$LOG_PREFIX Nginx is down! Restarting..."
     systemctl restart nginx || true
+    sleep 3
     if systemctl is-active --quiet nginx; then
         notify_telegram "⚠️ [Watchdog] Nginx был перезапущен и успешно восстановился."
     else
@@ -39,40 +63,87 @@ if ! systemctl is-active --quiet nginx; then
     fi
 fi
 
-# 2. Check Backend API
-if ! check_endpoint "http://127.0.0.1:8080/health" 10; then
-    sleep 5
-    if ! check_endpoint "http://127.0.0.1:8080/health" 15; then
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Backend /health failed twice! Restarting backend container..."
-        docker restart tsifrovaya-ochered-novogo-pokoleniya-backend-1 || true
-        sleep 5
-        if check_endpoint "http://127.0.0.1:8080/health" 15; then
-            notify_telegram "⚠️ [Watchdog] Контейнер Backend перестал отвечать на /health, был перезапущен и восстановился."
-        else
-            notify_telegram "🚨 [Watchdog] ВНИМАНИЕ: Бэкенд не восстановился после перезапуска!"
-        fi
+# ── 2. K3s control-plane ─────────────────────────────────────────────────────
+if ! systemctl is-active --quiet k3s; then
+    echo "$LOG_PREFIX k3s is down! Restarting..."
+    systemctl restart k3s || true
+    sleep 10
+    if systemctl is-active --quiet k3s; then
+        notify_telegram "⚠️ [Watchdog] k3s был перезапущен и восстановился."
+    else
+        notify_telegram "🚨 [Watchdog] КРИТИЧЕСКИЙ СБОЙ: k3s не запустился после перезапуска!"
     fi
 fi
 
-# 3. Check Frontend
-if ! check_endpoint "http://127.0.0.1:5173" 10; then
-    sleep 5
-    if ! check_endpoint "http://127.0.0.1:5173" 15; then
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Frontend failed twice! Restarting frontend container..."
-        docker restart tsifrovaya-ochered-novogo-pokoleniya-frontend-1 || true
-        sleep 5
-        if check_endpoint "http://127.0.0.1:5173" 15; then
-            notify_telegram "⚠️ [Watchdog] Контейнер Frontend был перезапущен сторожевым процессом и восстановился."
-        else
-            notify_telegram "🚨 [Watchdog] ВНИМАНИЕ: Фронтенд не восстановился после перезапуска!"
-        fi
+# ── 3. Flannel FDB — фикс маршрута к Oracle worker ─────────────────────────
+# При перезагрузке flannel теряет маршрут до внешней ноды Oracle
+ORACLE_MAC="92:97:69:1b:8e:f0"
+ORACLE_IP="141.147.48.160"
+if ip link show flannel.1 > /dev/null 2>&1; then
+    CURRENT_DST=$(bridge fdb show dev flannel.1 2>/dev/null | grep "$ORACLE_MAC" | awk '{print $3}' || true)
+    if [ "$CURRENT_DST" != "$ORACLE_IP" ]; then
+        echo "$LOG_PREFIX Flannel FDB for Oracle is stale ($CURRENT_DST), fixing to $ORACLE_IP..."
+        bridge fdb replace "$ORACLE_MAC" dev flannel.1 dst "$ORACLE_IP" self permanent || true
+        notify_telegram "⚠️ [Watchdog] Flannel FDB маршрут до Oracle ($ORACLE_IP) был восстановлен."
     fi
 fi
 
-# 4. Check Disk Space
+# ── 4. Backend Deployment в K8s ───────────────────────────────────────────────
+BACKEND_READY=$(kube get deployment backend -n "$NAMESPACE" \
+    -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+BACKEND_DESIRED=$(kube get deployment backend -n "$NAMESPACE" \
+    -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "1")
+
+if [ "${BACKEND_READY:-0}" -lt "${BACKEND_DESIRED:-1}" ]; then
+    echo "$LOG_PREFIX Backend: $BACKEND_READY/$BACKEND_DESIRED ready. Triggering rollout..."
+    rollout_and_wait backend
+    sleep 5
+    BACKEND_READY2=$(kube get deployment backend -n "$NAMESPACE" \
+        -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+    if [ "${BACKEND_READY2:-0}" -ge "${BACKEND_DESIRED:-1}" ]; then
+        notify_telegram "⚠️ [Watchdog] Backend Deployment восстановился (${BACKEND_READY2}/${BACKEND_DESIRED} ready)."
+    else
+        notify_telegram "🚨 [Watchdog] Backend Deployment не восстановился! Проверьте: kubectl get pods -n queue-system"
+    fi
+fi
+
+# ── 5. Frontend Deployment в K8s ─────────────────────────────────────────────
+FRONTEND_READY=$(kube get deployment frontend -n "$NAMESPACE" \
+    -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+FRONTEND_DESIRED=$(kube get deployment frontend -n "$NAMESPACE" \
+    -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "1")
+
+if [ "${FRONTEND_READY:-0}" -lt "${FRONTEND_DESIRED:-1}" ]; then
+    echo "$LOG_PREFIX Frontend: $FRONTEND_READY/$FRONTEND_DESIRED ready. Triggering rollout..."
+    rollout_and_wait frontend
+    sleep 5
+    FRONTEND_READY2=$(kube get deployment frontend -n "$NAMESPACE" \
+        -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+    if [ "${FRONTEND_READY2:-0}" -ge "${FRONTEND_DESIRED:-1}" ]; then
+        notify_telegram "⚠️ [Watchdog] Frontend Deployment восстановился (${FRONTEND_READY2}/${FRONTEND_DESIRED} ready)."
+    else
+        notify_telegram "🚨 [Watchdog] Frontend Deployment не восстановился! Проверьте: kubectl get pods -n queue-system"
+    fi
+fi
+
+# ── 6. Внешний health-check (prod URL) ───────────────────────────────────────
+if ! check_endpoint "https://pointers-team.tech/health" 10; then
+    sleep 5
+    if ! check_endpoint "https://pointers-team.tech/health" 15; then
+        echo "$LOG_PREFIX Production /health unavailable twice!"
+        notify_telegram "🚨 [Watchdog] Продакшн https://pointers-team.tech/health недоступен! Требуется ручная проверка."
+    fi
+fi
+
+# ── 7. Дисковое пространство ─────────────────────────────────────────────────
 DISK_USAGE=$(df / | awk 'NR==2 {print $5}' | tr -d '%')
 if [ "$DISK_USAGE" -gt 88 ]; then
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Disk usage high ($DISK_USAGE%). Pruning docker unused images and build cache..."
+    echo "$LOG_PREFIX Disk usage high (${DISK_USAGE}%). Pruning k3s images..."
+    # Очистка неиспользуемых образов в containerd (k3s)
+    k3s ctr images ls -q | grep -v 'rancher\|k3s\|traefik\|coredns\|metrics-server' | \
+        xargs -r k3s ctr images rm 2>/dev/null || true
+    # Старые Docker-образы (если Docker ещё установлен)
     docker image prune -af --filter "until=24h" > /dev/null 2>&1 || true
-    docker builder prune -af > /dev/null 2>&1 || true
+    DISK_AFTER=$(df / | awk 'NR==2 {print $5}' | tr -d '%')
+    notify_telegram "⚠️ [Watchdog] Высокая заполненность диска (${DISK_USAGE}% → ${DISK_AFTER}% после очистки)."
 fi

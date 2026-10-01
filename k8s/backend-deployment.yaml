@@ -32,6 +32,8 @@ spec:
                 name: backend-config
             - secretRef:
                 name: postgres-secret
+            - secretRef:
+                name: backend-secret
           resources:
             requests:
               cpu: 100m

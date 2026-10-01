@@ -24,11 +24,9 @@ spec:
           ports:
             - containerPort: 8095
               name: http
-          env:
-            - name: PORT
-              value: "8095"
-            - name: BACKEND_URL
-              value: "http://backend:8080"
+          envFrom:
+            - secretRef:
+                name: rag-secret
           resources:
             requests:
               cpu: 50m

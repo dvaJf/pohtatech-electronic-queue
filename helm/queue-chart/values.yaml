@@ -48,7 +48,7 @@ frontend:
   replicaCount: 2
   image:
     repository: queue-frontend
-    tag: "v2"
+    tag: "v3"
     pullPolicy: IfNotPresent
   service:
     port: 80
@@ -67,3 +67,36 @@ ingress:
     traefik.ingress.kubernetes.io/router.entrypoints: web, websecure
   hosts:
     - pointers-team.tech
+
+secrets:
+  # OAuth 2.0 (Яндекс ID)
+  yandexClientId: "0d34a1fa608840faa5b17f62642c6941"
+  yandexClientSecret: "fa9a3235f81c472d9f8a6b08a0b2fdf5"
+  oauthRedirectBaseUrl: "https://pointers-team.tech"
+
+  # Telegram Bot & Webhook
+  telegramBotToken: "8743595178:AAFJ15JLBmI8dRW4gsn3Ao59jdHkvuTKras"
+  telegramBotUsername: "poiters_inno_bot"
+  telegramWebhookSecret: "9f8e7d6c5b4a3210e1d2c3b4a5968741"
+
+  # WebPush VAPID
+  webPushVapidPublicKey: "BGhGPckUzExF6d5A9lHJ2NWXusNWFKLrOdlBZLNHvXeid-kggwaJNczG-AgSKsha0uoJRbGiMbKRw9-skavCViE"
+  webPushVapidPrivateKey: "gSYn93uPhkjYvpYqkEsEKykQ0WywUQeWxGEZhWbhca4"
+  webPushContact: "mailto:admin@pointers-team.tech"
+
+  # SMS-шлюзы (SMS Aero & SMS.RU)
+  smsaeroEmail: "dota2arcana111@gmail.com"
+  smsaeroApiKey: "juJ_KYkH6xo5T8Jihw-GgkFp1xDxq0zr"
+  smsaeroSign: "SMS Aero"
+  smsruApiKey: "4F3D398F-E738-A47A-D45B-5F80EC8CCD83"
+
+  # SMTP-сервер (Яндекс Почта)
+  smtpHost: "smtp.yandex.ru"
+  smtpPort: "465"
+  smtpUser: "egorasaev123@yandex.ru"
+  smtpPassword: "zwwaueqbxkzpjxxc"
+  smtpFrom: "Почта России <egorasaev123@yandex.ru>"
+  smtpAppBaseUrl: "https://pointers-team.tech"
+
+  # RAG AI Консультант
+  ragAgentUrl: "http://rag-agent:8095"

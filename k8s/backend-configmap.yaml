@@ -9,8 +9,9 @@ data:
   HTTP_PORT: "8080"
   POSTGRES_HOST: postgres
   POSTGRES_PORT: "5432"
-  CORS_ALLOWED_ORIGIN: "http://localhost,http://localhost:5173,http://144.31.181.192"
+  CORS_ALLOWED_ORIGIN: "http://localhost,http://localhost:5173,http://144.31.181.192,https://pointers-team.tech"
   NOTIFICATION_PROVIDER_URL: "http://notification-demo:8082/notify"
   NOTIFICATION_TIMEOUT_SECONDS: "2"
   NOTIFICATION_RETRY_INTERVAL_MS: "1000"
   NOTIFICATION_MAX_ATTEMPTS: "3"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4318"

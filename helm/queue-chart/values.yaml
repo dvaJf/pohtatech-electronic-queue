@@ -21,7 +21,7 @@ postgres:
 backend:
   replicaCount: 2
   image:
-    repository: queue-backend
+    repository: vacuumxvx/queue-backend
     tag: "v3"
     pullPolicy: IfNotPresent
   service:
@@ -47,7 +47,7 @@ backend:
 frontend:
   replicaCount: 2
   image:
-    repository: queue-frontend
+    repository: vacuumxvx/queue-frontend
     tag: "v3"
     pullPolicy: IfNotPresent
   service:

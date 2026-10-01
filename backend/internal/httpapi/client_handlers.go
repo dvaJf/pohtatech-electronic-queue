@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"postcode/backend/internal/application"
 	"postcode/backend/internal/domain"
+	"postcode/backend/internal/observability"
 	"postcode/backend/internal/persistence"
 )
 
@@ -110,6 +111,9 @@ type CreateLiveTicketRequest struct {
 }
 
 func (a *API) CreateLiveTicket(w http.ResponseWriter, r *http.Request) {
+	ctx, span := observability.Tracer("queue-backend").Start(r.Context(), "handler.CreateLiveTicket")
+	defer span.End()
+
 	branchID := chi.URLParam(r, "branchId")
 	if !validUUID(branchID) {
 		writeJSONError(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid branchId")
@@ -127,7 +131,7 @@ func (a *API) CreateLiveTicket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ticket, err := a.usecases.CreateLiveTicket(r.Context(), application.CreateLiveTicketCommand{
+	ticket, err := a.usecases.CreateLiveTicket(ctx, application.CreateLiveTicketCommand{
 		BranchID:       branchID,
 		ServiceID:      req.ServiceID,
 		IdempotencyKey: idempotencyKey,

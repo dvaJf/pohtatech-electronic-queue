@@ -1,0 +1,35 @@
+---
+- name: Установка и настройка Fail2ban на всех узлах
+  hosts: k3s_cluster
+  become: true
+
+  tasks:
+    - name: Установить fail2ban
+      ansible.builtin.apt:
+        name: fail2ban
+        state: present
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Настроить конфигурацию jail.local для SSH
+      ansible.builtin.copy:
+        dest: /etc/fail2ban/jail.local
+        content: |
+          [DEFAULT]
+          bantime  = 1h
+          findtime = 10m
+          maxretry = 4
+
+          [sshd]
+          enabled = true
+          port    = ssh
+          mode    = aggressive
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Включить и перезапустить службу fail2ban
+      ansible.builtin.systemd:
+        name: fail2ban
+        state: restarted
+        enabled: true

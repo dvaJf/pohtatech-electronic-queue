@@ -31,7 +31,7 @@ func stripDuplicateAPIPrefix(next http.Handler) http.Handler {
 func NewRouter(db Pinger, usecases application.UseCases, logger *slog.Logger, origin string) http.Handler {
 	r := chi.NewRouter()
 	r.Use(stripDuplicateAPIPrefix)
-	r.Use(requestLog(logger), recoverPanic(logger), cors(origin), metricsMiddleware())
+	r.Use(traceMiddleware("queue-backend"), requestLog(logger), recoverPanic(logger), cors(origin), metricsMiddleware())
 	r.Handle("/metrics", promhttp.Handler())
 
 	healthHandler := func(w http.ResponseWriter, r *http.Request) {

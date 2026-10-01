@@ -7,11 +7,18 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"postcode/backend/internal/application"
 	"postcode/backend/internal/domain"
+	"postcode/backend/internal/observability"
 )
 
 func (p *Postgres) CreateLiveTicket(ctx context.Context, c application.CreateLiveTicketCommand) (application.CreateLiveTicketResult, error) {
+	tr := observability.Tracer("queue-backend")
+	ctx, span := tr.Start(ctx, "usecases.CreateLiveTicket")
+	defer span.End()
+
 	var empty application.CreateLiveTicketResult
 	b, err := uuid(c.BranchID)
 	if err != nil {
@@ -24,16 +31,24 @@ func (p *Postgres) CreateLiveTicket(ctx context.Context, c application.CreateLiv
 	if strings.TrimSpace(c.IdempotencyKey) == "" {
 		return empty, application.ErrInvalidState
 	}
+
+	_, txSpan := tr.Start(ctx, "db.BeginTx")
 	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	txSpan.End()
 	if err != nil {
 		return empty, dbError(err)
 	}
 	defer tx.Rollback(context.Background())
+
 	// Serialize same-key LIVE/Appointment requests before allocating a number.
 	// The shared unique key handles races with QR as well.
+	_, lockSpan := tr.Start(ctx, "db.AcquireAdvisoryLock")
 	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, c.IdempotencyKey); err != nil {
+		lockSpan.End()
 		return empty, dbError(err)
 	}
+	lockSpan.End()
+
 	replay := func(t domain.Ticket) (application.CreateLiveTicketResult, error) {
 		tb, _ := uuid(t.BranchID)
 		ts, _ := uuid(t.ServiceID)
@@ -44,20 +59,29 @@ func (p *Postgres) CreateLiveTicket(ctx context.Context, c application.CreateLiv
 		t.ManagementToken = &rawToken
 		return application.CreateLiveTicketResult{Ticket: t, Replayed: true}, nil
 	}
+
+	_, idempSpan := tr.Start(ctx, "db.CheckIdempotency")
 	existing, err := scanTicket(tx.QueryRow(ctx, ticketSelect+`WHERE t.idempotency_key=$1`, c.IdempotencyKey))
+	idempSpan.End()
 	if err == nil {
 		return replay(existing)
 	}
 	if !errors.Is(err, application.ErrNotFound) {
 		return empty, err
 	}
+
+	_, checkSvcSpan := tr.Start(ctx, "db.ValidateBranchService")
 	var enabled bool
 	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM branch_services WHERE branch_id=$1 AND service_id=$2)`, b, s).Scan(&enabled); err != nil {
+		checkSvcSpan.End()
 		return empty, dbError(err)
 	}
+	checkSvcSpan.End()
 	if !enabled {
 		return empty, application.ErrNotFound
 	}
+
+	_, schedSpan := tr.Start(ctx, "domain.ComputeScheduleAndQueueRanking")
 	var tid string
 	now := time.Now().UTC()
 	policy := p.getBranchPolicyTx(ctx, tx, b)
@@ -65,11 +89,18 @@ func (p *Postgres) CreateLiveTicket(ctx context.Context, c application.CreateLiv
 		Source:    domain.TicketSourceLive,
 		ServiceID: c.ServiceID,
 	}, now)
+	schedSpan.End()
 
+	_, insertSpan := tr.Start(ctx, "db.SQL_InsertTicket", trace.WithAttributes(
+		attribute.String("db.system", "postgresql"),
+		attribute.String("db.operation", "INSERT"),
+		attribute.String("db.sql.table", "tickets"),
+	))
 	rawToken, tokenHash := DeterministicManagementToken(c.IdempotencyKey)
 	err = tx.QueryRow(ctx, `INSERT INTO tickets(branch_id,service_id,source,status,idempotency_key,public_number,created_at,queue_entered_at,checkin_at,ready_at,due_at,source_rank,policy_version,management_token_hash,client_id)
  VALUES($1,$2,'LIVE','WAITING',$3,next_live_public_number(),$4,$4,$4,$5,$6,$7,$8,$9,$10)
  ON CONFLICT(idempotency_key) DO NOTHING RETURNING id::text`, b, s, c.IdempotencyKey, now, readyAt, dueAt, sourceRank, policy.PolicyVersion, tokenHash, c.ClientID).Scan(&tid)
+	insertSpan.End()
 	if errors.Is(err, pgx.ErrNoRows) {
 		existing, err = scanTicket(tx.QueryRow(ctx, ticketSelect+`WHERE t.idempotency_key=$1`, c.IdempotencyKey))
 		if err != nil {
@@ -80,22 +111,33 @@ func (p *Postgres) CreateLiveTicket(ctx context.Context, c application.CreateLiv
 	if err != nil {
 		return empty, dbError(err)
 	}
+
+	_, scanSpan := tr.Start(ctx, "db.ScanCreatedTicket")
 	t, err := scanTicket(tx.QueryRow(ctx, ticketSelect+`WHERE t.id=$1::uuid`, tid))
+	scanSpan.End()
 	if err != nil {
 		return empty, err
 	}
 	t.ManagementToken = &rawToken
+
+	_, eventSpan := tr.Start(ctx, "db.InsertAuditEvent")
 	if err = insertEvent(ctx, tx, t, domain.TicketEventCreated, nil, nil, nil, EventExtra{
 		Actor:  "kiosk_live",
 		Reason: "ticket created",
 		DueAt:  t.DueAt,
 		At:     &now,
 	}); err != nil {
+		eventSpan.End()
 		return empty, err
 	}
+	eventSpan.End()
+
+	_, commitSpan := tr.Start(ctx, "db.CommitTx")
 	if err = tx.Commit(ctx); err != nil {
+		commitSpan.End()
 		return empty, dbError(err)
 	}
+	commitSpan.End()
 	return application.CreateLiveTicketResult{Ticket: t}, nil
 }
 

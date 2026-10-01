@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-demo
+  namespace: queue-system
+  labels:
+    app: notification-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: notification-demo
+  template:
+    metadata:
+      labels:
+        app: notification-demo
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: vm289265.it-garage.network
+      containers:
+        - name: notification-demo
+          image: notification-demo:v1
+          imagePullPolicy: IfNotPresent
+          args: ["notify-demo"]
+          ports:
+            - containerPort: 8082
+              name: http
+          env:
+            - name: LOG_LEVEL
+              value: "INFO"
+            - name: NOTIFICATION_DEMO_PORT
+              value: "8082"
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8082
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8082
+            initialDelaySeconds: 3
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notification-demo
+  namespace: queue-system
+  labels:
+    app: notification-demo
+spec:
+  ports:
+    - port: 8082
+      targetPort: 8082
+      name: http
+  selector:
+    app: notification-demo

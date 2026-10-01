@@ -1,0 +1,35 @@
+- name: настройка сервера и установка k3s
+  hosts: k3s_nodes
+  become: true
+
+  tasks:
+    - name: содать swap файл на 2гб (взя озу), если его нет
+      ansible.builtin.command: fallocate -l 2G /swapfile
+      args:
+        creates: /swapfile
+
+    - name: права на swap файл
+      ansible.builtin.file:
+        path: /swapfile
+        owner: root
+        group: root
+        mode: '0600'
+
+    - name: активация swap 
+      ansible.builtin.command: "{{ item }}"
+      loop:
+        - mkswap /swapfile
+        - swapon /swapfile
+      ignore_errors: true
+
+    - name: install k-3s
+      ansible.builtin.shell: curl -sfL https://get.k3s.io | sh -
+      args:
+        creates: /usr/local/bin/k3s
+
+    - name: Забрать kubecfg на локальный ноут
+      ansible.builtin.fetch:
+        src: /etc/rancher/k3s/k3s.yaml
+        dest: ./k3s.yaml
+        flat: true 
+

@@ -14,6 +14,11 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 	"postcode/backend/internal/domain"
 )
 
@@ -30,10 +35,58 @@ func userFromContext(ctx context.Context) (domain.User, bool) {
 	return u, ok
 }
 
+func traceMiddleware(serviceName string) func(http.Handler) http.Handler {
+	tracer := otel.GetTracerProvider().Tracer(serviceName)
+	propagator := otel.GetTextMapPropagator()
+
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx := propagator.Extract(r.Context(), propagation.HeaderCarrier(r.Header))
+			routePattern := r.URL.Path
+			if rctx := chi.RouteContext(r.Context()); rctx != nil {
+				if p := rctx.RoutePattern(); p != "" {
+					routePattern = p
+				}
+			}
+			spanName := "HTTP " + r.Method + " " + routePattern
+
+			ctx, span := tracer.Start(ctx, spanName,
+				trace.WithSpanKind(trace.SpanKindServer),
+				trace.WithAttributes(
+					attribute.String("http.method", r.Method),
+					attribute.String("http.target", r.URL.Path),
+					attribute.String("http.route", routePattern),
+					attribute.String("user_agent.original", r.UserAgent()),
+				),
+			)
+			defer span.End()
+
+			if span.SpanContext().IsValid() {
+				w.Header().Set("X-Trace-ID", span.SpanContext().TraceID().String())
+			}
+
+			wrapped := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
+			r = r.WithContext(ctx)
+
+			next.ServeHTTP(wrapped, r)
+
+			status := wrapped.Status()
+			if status == 0 {
+				status = http.StatusOK
+			}
+			span.SetAttributes(attribute.Int("http.status_code", status))
+			if status >= 500 {
+				span.SetStatus(codes.Error, "Internal Server Error")
+			} else {
+				span.SetStatus(codes.Ok, "")
+			}
+		})
+	}
+}
+
 func requestLog(logger *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Generate our own bounded ID; do not trust arbitrary caller-supplied log content.
 			var bytes [16]byte
 			_, _ = rand.Read(bytes[:])
 			id := hex.EncodeToString(bytes[:])
@@ -46,7 +99,23 @@ func requestLog(logger *slog.Logger) func(http.Handler) http.Handler {
 				if status == 0 {
 					status = http.StatusOK
 				}
-				logger.InfoContext(r.Context(), "HTTP request", "component", "http", "request_id", id, "method", r.Method, "path", r.URL.Path, "status", status, "duration", time.Since(start).String())
+				duration := time.Since(start).String()
+				path := r.URL.Path
+
+				isHealthProbe := path == "/health" || path == "/ready" || path == "/metrics" ||
+					strings.HasSuffix(path, "/health") || strings.HasSuffix(path, "/ready")
+
+				if status >= 500 {
+					logger.ErrorContext(r.Context(), "HTTP request failed", "component", "http", "request_id", id, "method", r.Method, "path", path, "status", status, "duration", duration)
+				} else if status >= 400 {
+					logger.WarnContext(r.Context(), "HTTP client error", "component", "http", "request_id", id, "method", r.Method, "path", path, "status", status, "duration", duration)
+				} else if isHealthProbe {
+					logger.InfoContext(r.Context(), "HTTP health probe", "component", "http", "request_id", id, "method", r.Method, "path", path, "status", status, "duration", duration)
+				} else if r.Method != http.MethodGet && r.Method != http.MethodOptions && r.Method != http.MethodHead {
+					logger.InfoContext(r.Context(), "Business transaction executed", "component", "http", "event", "business_action", "request_id", id, "method", r.Method, "path", path, "status", status, "duration", duration)
+				} else {
+					logger.InfoContext(r.Context(), "HTTP request", "component", "http", "request_id", id, "method", r.Method, "path", path, "status", status, "duration", duration)
+				}
 			}()
 			next.ServeHTTP(wrapped, r)
 		})

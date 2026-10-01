@@ -35,6 +35,8 @@ spec:
                 name: backend-config
             - secretRef:
                 name: postgres-secret
+            - secretRef:
+                name: backend-secret
           resources:
             {{- toYaml .Values.backend.resources | nindent 12 }}
           livenessProbe:

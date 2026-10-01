@@ -652,7 +652,7 @@
       },
       "targets": [
         {
-          "expr": "{service=~\"backend|postgres|frontend\"}",
+          "expr": "{job=\"queue-system\"}",
           "refId": "A"
         }
       ],

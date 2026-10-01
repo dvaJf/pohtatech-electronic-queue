@@ -59,6 +59,17 @@ func run() int {
 		return 1
 	}
 	logger = observability.New(cfg.LogLevel)
+
+	shutdownTracer, err := observability.InitTracer(context.Background(), "queue-backend", cfg.AppEnv, "", logger)
+	if err != nil {
+		logger.Warn("Failed to initialize OpenTelemetry tracer", "error", err.Error())
+	} else {
+		defer func() {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			_ = shutdownTracer(shutdownCtx)
+		}()
+	}
 	if len(os.Args) > 1 {
 		if len(os.Args) != 3 || os.Args[1] != "migrate" || (os.Args[2] != "up" && os.Args[2] != "version") {
 			logger.Error("Usage: api [migrate up|version | notify-demo]")

@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-exporter
+  namespace: queue-system
+  labels:
+    app: postgres-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres-exporter
+  template:
+    metadata:
+      labels:
+        app: postgres-exporter
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: vm289265.it-garage.network
+      containers:
+        - name: postgres-exporter
+          image: docker.io/prometheuscommunity/postgres-exporter:v0.15.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - "--no-collector.stat_bgwriter"
+          env:
+            - name: DATA_SOURCE_NAME
+              value: "postgresql://postcode:local-development-only@postgres:5432/postcode?sslmode=disable"
+          ports:
+            - containerPort: 9187
+              name: metrics
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-exporter
+  namespace: queue-system
+  labels:
+    app: postgres-exporter
+spec:
+  ports:
+    - port: 9187
+      targetPort: 9187
+      name: metrics
+  selector:
+    app: postgres-exporter

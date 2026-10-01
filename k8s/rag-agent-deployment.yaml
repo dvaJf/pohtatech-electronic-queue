@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag-agent
+  namespace: queue-system
+  labels:
+    app: rag-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rag-agent
+  template:
+    metadata:
+      labels:
+        app: rag-agent
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: vm289265.it-garage.network
+      containers:
+        - name: rag-agent
+          image: rag-agent:v1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8095
+              name: http
+          env:
+            - name: PORT
+              value: "8095"
+            - name: BACKEND_URL
+              value: "http://backend:8080"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 384Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8095
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8095
+            initialDelaySeconds: 3
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rag-agent
+  namespace: queue-system
+  labels:
+    app: rag-agent
+spec:
+  ports:
+    - port: 8095
+      targetPort: 8095
+      name: http
+  selector:
+    app: rag-agent

@@ -1,0 +1,69 @@
+postgres:
+  image:
+    repository: postgres
+    tag: "17-alpine"
+    pullPolicy: IfNotPresent
+  credentials:
+    dbName: postcode
+    user: postcode
+    password: local-development-only
+  persistence:
+    storageClass: local-path
+    size: 2Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+backend:
+  replicaCount: 2
+  image:
+    repository: queue-backend
+    tag: "v3"
+    pullPolicy: IfNotPresent
+  service:
+    port: 8080
+  config:
+    appEnv: production
+    logLevel: INFO
+    corsAllowedOrigin: "http://localhost,http://localhost:5173,http://144.31.181.192,https://pointers-team.tech"
+    notificationProviderUrl: "http://notification-demo:8082/notify"
+    notificationTimeoutSeconds: "2"
+    notificationRetryIntervalMs: "1000"
+    notificationMaxAttempts: "3"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+  nodeSelector:
+    node-role.kubernetes.io/control-plane: "true"
+
+frontend:
+  replicaCount: 2
+  image:
+    repository: queue-frontend
+    tag: "v2"
+    pullPolicy: IfNotPresent
+  service:
+    port: 80
+  resources:
+    requests:
+      cpu: 50m
+      memory: 32Mi
+    limits:
+      cpu: 250m
+      memory: 128Mi
+
+ingress:
+  enabled: true
+  className: traefik
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web, websecure
+  hosts:
+    - pointers-team.tech

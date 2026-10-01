@@ -1,0 +1,33 @@
+---
+- name: Подготовка worker-ноды и присоединение к k3s кластеру
+  hosts: k3s_workers
+  become: true
+
+  vars:
+    k3s_server_url: "https://144.31.181.192:6443"
+    k3s_node_token: "K10012a0f1df70a5e68f0d9bb9b54d268e65587a6159a455da71edfbb9fd930cd5c::server:ab3f97d00a20ad79494778426fadf10b"
+
+  tasks:
+    - name: Создать swap-файл на 2ГБ для защиты от OOM
+      ansible.builtin.command: fallocate -l 2G /swapfile
+      args:
+        creates: /swapfile
+
+    - name: Настроить права на swap-файл
+      ansible.builtin.file:
+        path: /swapfile
+        owner: root
+        group: root
+        mode: '0600'
+
+    - name: Активировать swap
+      ansible.builtin.command: "{{ item }}"
+      loop:
+        - mkswap /swapfile
+        - swapon /swapfile
+      ignore_errors: true
+
+    - name: Установить k3s-agent и присоединиться к мастеру
+      ansible.builtin.shell: "curl -sfL https://get.k3s.io | K3S_URL={{ k3s_server_url }} K3S_TOKEN={{ k3s_node_token }} sh -"
+      args:
+        creates: /usr/local/bin/k3s-agent

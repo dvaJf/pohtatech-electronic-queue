@@ -1,0 +1,701 @@
+apiVersion: v1
+data:
+  overview.json: |-
+    {
+      "annotations": {
+        "list": []
+      },
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 1,
+      "id": null,
+      "links": [],
+      "liveNow": false,
+      "panels": [
+        {
+          "id": 1,
+          "title": "Статус API",
+          "type": "stat",
+          "gridPos": {
+            "h": 4,
+            "w": 4,
+            "x": 0,
+            "y": 0
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "targets": [
+            {
+              "expr": "up{job=\"backend\"}",
+              "refId": "A",
+              "instant": true
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "values": false,
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "orientation": "auto",
+            "textMode": "auto",
+            "colorMode": "background"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "mappings": [
+                {
+                  "type": "value",
+                  "options": {
+                    "0": {
+                      "text": "DOWN",
+                      "color": "red"
+                    }
+                  }
+                },
+                {
+                  "type": "value",
+                  "options": {
+                    "1": {
+                      "text": "UP",
+                      "color": "green"
+                    }
+                  }
+                }
+              ],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "red",
+                    "value": null
+                  },
+                  {
+                    "color": "green",
+                    "value": 1
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "id": 2,
+          "title": "Общий RPS",
+          "type": "stat",
+          "gridPos": {
+            "h": 4,
+            "w": 4,
+            "x": 4,
+            "y": 0
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "targets": [
+            {
+              "expr": "sum(rate(http_requests_total[1m])) or vector(0)",
+              "refId": "A",
+              "instant": true
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "values": false,
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "colorMode": "value"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "decimals": 2,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "blue",
+                    "value": null
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "id": 3,
+          "title": "Успешность запросов",
+          "type": "stat",
+          "gridPos": {
+            "h": 4,
+            "w": 4,
+            "x": 8,
+            "y": 0
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "targets": [
+            {
+              "expr": "(1 - (sum(rate(http_requests_total{status=~\"5..\"}[1m])) or vector(0)) / (sum(rate(http_requests_total[1m])) or vector(1))) * 100",
+              "refId": "A",
+              "instant": true
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "values": false,
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "colorMode": "value"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "decimals": 1,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "red",
+                    "value": null
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 95
+                  },
+                  {
+                    "color": "green",
+                    "value": 99
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "id": 4,
+          "title": "Латентность p95",
+          "type": "stat",
+          "gridPos": {
+            "h": 4,
+            "w": 4,
+            "x": 12,
+            "y": 0
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[1m])) by (le)) or vector(0)",
+              "refId": "A",
+              "instant": true
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "values": false,
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "colorMode": "value"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "decimals": 3,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 0.1
+                  },
+                  {
+                    "color": "red",
+                    "value": 0.5
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "id": 5,
+          "title": "Активные горутины",
+          "type": "stat",
+          "gridPos": {
+            "h": 4,
+            "w": 4,
+            "x": 16,
+            "y": 0
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "targets": [
+            {
+              "expr": "go_goroutines{job=\"backend\"}",
+              "refId": "A",
+              "instant": true
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "values": false,
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "colorMode": "value"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "decimals": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "blue",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 500
+                  },
+                  {
+                    "color": "red",
+                    "value": 2000
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "id": 6,
+          "title": "Подключения к PostgreSQL",
+          "type": "stat",
+          "gridPos": {
+            "h": 4,
+            "w": 4,
+            "x": 20,
+            "y": 0
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "targets": [
+            {
+              "expr": "pg_stat_database_numbackends{datname=\"postcode\"} or vector(0)",
+              "refId": "A",
+              "instant": true
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "values": false,
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "colorMode": "value"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "decimals": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 50
+                  },
+                  {
+                    "color": "red",
+                    "value": 90
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "id": 7,
+          "title": "HTTP запросы по эндпоинтам (RPS)",
+          "type": "timeseries",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 4
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "targets": [
+            {
+              "expr": "sum by (method, path) (rate(http_requests_total[1m]))",
+              "legendFormat": "{{method}} {{path}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "custom": {
+                "lineInterpolation": "smooth",
+                "lineWidth": 2,
+                "fillOpacity": 15
+              }
+            }
+          }
+        },
+        {
+          "id": 8,
+          "title": "HTTP ответы по статус-кодам",
+          "type": "timeseries",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 4
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "targets": [
+            {
+              "expr": "sum by (status) (rate(http_requests_total[1m]))",
+              "legendFormat": "HTTP {{status}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "custom": {
+                "lineInterpolation": "smooth",
+                "lineWidth": 2,
+                "fillOpacity": 20
+              }
+            }
+          }
+        },
+        {
+          "id": 9,
+          "title": "Латентность HTTP (квантили p50, p90, p99)",
+          "type": "timeseries",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 12
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket[1m])) by (le))",
+              "legendFormat": "p50 (Медиана)",
+              "refId": "A"
+            },
+            {
+              "expr": "histogram_quantile(0.90, sum(rate(http_request_duration_seconds_bucket[1m])) by (le))",
+              "legendFormat": "p90",
+              "refId": "B"
+            },
+            {
+              "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[1m])) by (le))",
+              "legendFormat": "p99",
+              "refId": "C"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "custom": {
+                "lineInterpolation": "smooth",
+                "lineWidth": 2
+              }
+            }
+          }
+        },
+        {
+          "id": 10,
+          "title": "Ошибки клиента и сервера (4xx / 5xx)",
+          "type": "timeseries",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 12
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "targets": [
+            {
+              "expr": "sum(rate(http_requests_total{status=~\"4..\"}[1m])) or vector(0)",
+              "legendFormat": "Клиентские ошибки (4xx)",
+              "refId": "A"
+            },
+            {
+              "expr": "sum(rate(http_requests_total{status=~\"5..\"}[1m])) or vector(0)",
+              "legendFormat": "Серверные ошибки (5xx)",
+              "refId": "B"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "custom": {
+                "lineInterpolation": "smooth",
+                "lineWidth": 2,
+                "fillOpacity": 15
+              }
+            }
+          }
+        },
+        {
+          "id": 11,
+          "title": "Память Go Runtime (Heap & Stack)",
+          "type": "timeseries",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 20
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "targets": [
+            {
+              "expr": "go_memstats_alloc_bytes{job=\"backend\"}",
+              "legendFormat": "Heap Alloc (используется)",
+              "refId": "A"
+            },
+            {
+              "expr": "go_memstats_sys_bytes{job=\"backend\"}",
+              "legendFormat": "Sys Memory (запрошено у ОС)",
+              "refId": "B"
+            },
+            {
+              "expr": "process_resident_memory_bytes{job=\"backend\"}",
+              "legendFormat": "Resident Memory (RSS)",
+              "refId": "C"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "custom": {
+                "lineInterpolation": "smooth",
+                "lineWidth": 2
+              }
+            }
+          }
+        },
+        {
+          "id": 12,
+          "title": "Нагрузка CPU бэкенда",
+          "type": "timeseries",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 20
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "targets": [
+            {
+              "expr": "rate(process_cpu_seconds_total{job=\"backend\"}[1m]) * 100",
+              "legendFormat": "CPU Usage (%)",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "custom": {
+                "lineInterpolation": "smooth",
+                "lineWidth": 2,
+                "fillOpacity": 20
+              }
+            }
+          }
+        },
+        {
+          "id": 13,
+          "title": "PostgreSQL: Транзакции (Commits vs Rollbacks)",
+          "type": "timeseries",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 28
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "targets": [
+            {
+              "expr": "rate(pg_stat_database_xact_commit{datname=\"postcode\"}[1m])",
+              "legendFormat": "Commits/sec",
+              "refId": "A"
+            },
+            {
+              "expr": "rate(pg_stat_database_xact_rollback{datname=\"postcode\"}[1m])",
+              "legendFormat": "Rollbacks/sec",
+              "refId": "B"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "tps",
+              "custom": {
+                "lineInterpolation": "smooth",
+                "lineWidth": 2
+              }
+            }
+          }
+        },
+        {
+          "id": 14,
+          "title": "PostgreSQL: Строки (Inserted / Updated / Deleted / Read)",
+          "type": "timeseries",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 28
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "targets": [
+            {
+              "expr": "rate(pg_stat_database_tup_inserted{datname=\"postcode\"}[1m])",
+              "legendFormat": "Вставлено (inserted/s)",
+              "refId": "A"
+            },
+            {
+              "expr": "rate(pg_stat_database_tup_updated{datname=\"postcode\"}[1m])",
+              "legendFormat": "Обновлено (updated/s)",
+              "refId": "B"
+            },
+            {
+              "expr": "rate(pg_stat_database_tup_deleted{datname=\"postcode\"}[1m])",
+              "legendFormat": "Удалено (deleted/s)",
+              "refId": "C"
+            },
+            {
+              "expr": "rate(pg_stat_database_tup_fetched{datname=\"postcode\"}[1m])",
+              "legendFormat": "Прочитано (fetched/s)",
+              "refId": "D"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ops",
+              "custom": {
+                "lineInterpolation": "smooth",
+                "lineWidth": 2
+              }
+            }
+          }
+        },
+        {
+          "id": 15,
+          "title": "Централизованные логи сервисов (Loki)",
+          "type": "logs",
+          "gridPos": {
+            "h": 10,
+            "w": 24,
+            "x": 0,
+            "y": 36
+          },
+          "datasource": {
+            "type": "loki",
+            "uid": "Loki"
+          },
+          "targets": [
+            {
+              "expr": "{job=\"queue-system\"}",
+              "refId": "A"
+            }
+          ],
+          "options": {
+            "showLabels": true,
+            "wrapLogMessage": true,
+            "enableLogDetails": true,
+            "sortOrder": "Descending",
+            "dedupStrategy": "none"
+          }
+        }
+      ],
+      "refresh": "5s",
+      "schemaVersion": 39,
+      "tags": [
+        "postcode",
+        "suo",
+        "backend",
+        "postgres",
+        "loki"
+      ],
+      "time": {
+        "from": "now-15m",
+        "to": "now"
+      },
+      "timepicker": {
+        "refresh_intervals": [
+          "5s",
+          "10s",
+          "30s",
+          "1m",
+          "5m"
+        ]
+      },
+      "timezone": "browser",
+      "title": "Цифровая Очередь — Мониторинг сервиса",
+      "uid": "suo-overview",
+      "version": 2
+    }
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-overview
+  namespace: queue-system

@@ -1,5 +1,4 @@
 import React from 'react';
-import { PochtaWordmark } from './PochtaBrand';
 import { Phone } from 'lucide-react';
 
 interface ProductFooterProps {
@@ -25,17 +24,8 @@ export function ProductFooter({ currentPath = '/', onNavigate }: ProductFooterPr
     <footer className="mt-auto bg-[#002D5A] text-slate-300 border-t border-blue-950/60 select-none">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-2.5 sm:py-3">
         <div className="flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
-          {/* Brand Wordmark + Subtitle without square emblem */}
-          <div className="flex items-center gap-2.5 shrink-0">
-            <PochtaWordmark className="h-4 w-auto text-white" color="#FFFFFF" />
-            <span className="text-blue-300/50 text-xs">|</span>
-            <span className="text-[11px] font-semibold text-blue-100 tracking-wide">
-              Цифровая очередь
-            </span>
-          </div>
-
           {/* Navigation Links: Главная, Вопросы и ответы */}
-          <nav className="flex items-center justify-center gap-6 font-medium text-xs">
+          <nav className="flex items-center gap-6 font-medium text-xs">
             <a
               href="/"
               onClick={(e) => handleLinkClick(e, '/')}

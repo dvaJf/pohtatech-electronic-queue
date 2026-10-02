@@ -362,9 +362,18 @@ export function BranchMapModal({
     });
   }, [allBranches, selectedFilter, searchQuery]);
 
-  // Сортировка: открытые отделения сверху, закрытые отделения снизу (под теми, кто ещё работает)
+  // Сортировка: отделение по умолчанию всегда первое, открытые отделения сверху, закрытые снизу
   const sortedFilteredBranches = useMemo(() => {
+    const defaultBranchId = typeof localStorage !== 'undefined'
+      ? (localStorage.getItem('user_default_branch_id') || localStorage.getItem('client_selected_branch_id'))
+      : null;
+
     return [...filteredBranches].sort((a, b) => {
+      if (defaultBranchId) {
+        if (a.id === defaultBranchId && b.id !== defaultBranchId) return -1;
+        if (b.id === defaultBranchId && a.id !== defaultBranchId) return 1;
+      }
+
       const aClosed = getBranchScheduleStatus(a, workloads[a.id]).isClosed;
       const bClosed = getBranchScheduleStatus(b, workloads[b.id]).isClosed;
       if (aClosed && !bClosed) return 1;

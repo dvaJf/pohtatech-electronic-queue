@@ -43,17 +43,31 @@ export const SearchableBranchSelect: React.FC<SearchableBranchSelectProps> = ({
 
   const filteredBranches = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    if (!q) return branches;
-    return branches.filter(b => {
-      const anyB = b as { address?: string; code?: string; postalCode?: string; index?: string };
-      const nameMatch = b.name.toLowerCase().includes(q);
-      const addressMatch = anyB.address?.toLowerCase().includes(q);
-      const codeMatch = anyB.code?.toLowerCase().includes(q);
-      const postalCodeMatch = anyB.postalCode?.toLowerCase().includes(q);
-      const indexMatch = anyB.index?.toLowerCase().includes(q);
-      return Boolean(nameMatch || addressMatch || codeMatch || postalCodeMatch || indexMatch);
+    let list = branches;
+    if (q) {
+      list = branches.filter(b => {
+        const anyB = b as { address?: string; code?: string; postalCode?: string; index?: string };
+        const nameMatch = b.name.toLowerCase().includes(q);
+        const addressMatch = anyB.address?.toLowerCase().includes(q);
+        const codeMatch = anyB.code?.toLowerCase().includes(q);
+        const postalCodeMatch = anyB.postalCode?.toLowerCase().includes(q);
+        const indexMatch = anyB.index?.toLowerCase().includes(q);
+        return Boolean(nameMatch || addressMatch || codeMatch || postalCodeMatch || indexMatch);
+      });
+    }
+
+    const defaultBranchId = (typeof localStorage !== 'undefined')
+      ? (localStorage.getItem('user_default_branch_id') || selectedId)
+      : selectedId;
+
+    if (!defaultBranchId) return list;
+
+    return [...list].sort((a, b) => {
+      if (a.id === defaultBranchId && b.id !== defaultBranchId) return -1;
+      if (b.id === defaultBranchId && a.id !== defaultBranchId) return 1;
+      return 0;
     });
-  }, [branches, searchQuery]);
+  }, [branches, searchQuery, selectedId]);
 
   // Reset highlight when query changes
   useEffect(() => {

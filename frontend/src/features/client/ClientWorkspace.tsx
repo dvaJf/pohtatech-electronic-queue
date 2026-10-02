@@ -1555,7 +1555,17 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
     }
 
     const isFastestMode = screen !== 'booking' && branchSortMode === 'fastest';
+    const userDefaultBranchId = (typeof localStorage !== 'undefined')
+      ? ((currentUserId ? localStorage.getItem(`user_default_branch_id:${currentUserId}`) : null) || localStorage.getItem('user_default_branch_id') || '')
+      : '';
+
     return [...result].sort((a, b) => {
+      // Отделение по умолчанию пользователя ВСЕГДА первое в списке и результатах поиска
+      if (userDefaultBranchId) {
+        if (a.id === userDefaultBranchId && b.id !== userDefaultBranchId) return -1;
+        if (b.id === userDefaultBranchId && a.id !== userDefaultBranchId) return 1;
+      }
+
       const aClosed = getBranchScheduleStatus({ code: a.loc?.code, name: a.name, workHours: a.workHours }, workloads[a.id]).isClosed;
       const bClosed = getBranchScheduleStatus({ code: b.loc?.code, name: b.name, workHours: b.workHours }, workloads[b.id]).isClosed;
       if (aClosed && !bClosed) return 1;
@@ -1567,7 +1577,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
         return (a.distanceMeters ?? Infinity) - (b.distanceMeters ?? Infinity);
       }
     });
-  }, [enrichedBranches, branchSearchQuery, branchSortMode, screen, workloads]);
+  }, [enrichedBranches, branchSearchQuery, branchSortMode, screen, workloads, currentUserId]);
 
   const branchPageData = useMemo(
     () => paginateBranches(displayBranches, branchPage, branchPageSize),

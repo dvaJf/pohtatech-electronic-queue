@@ -2,7 +2,7 @@
 
 .ai-widget-container {
   position: fixed;
-  bottom: 24px;
+  bottom: 88px;
   right: 24px;
   z-index: 9999;
   font-family: inherit;
@@ -512,5 +512,12 @@
   }
   40% {
     transform: translateY(-5px);
+  }
+}
+
+@media (max-width: 640px) {
+  .ai-widget-container {
+    bottom: 104px;
+    right: 16px;
   }
 }

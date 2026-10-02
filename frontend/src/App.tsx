@@ -86,7 +86,7 @@ export function App() {
   return (
     <div className="product-shell min-h-screen bg-[#F8FAFC] text-slate-900 flex flex-col font-sans">
       <ProductHeader currentPath={currentPath} />
-      <main id="main" className="flex-1 w-full max-w-7xl mx-auto px-4 py-4 sm:py-6">
+      <main id="main" className="flex-1 w-full max-w-7xl mx-auto px-4 pt-4 sm:pt-6 pb-20 sm:pb-32 lg:pb-40">
         <Suspense fallback={<p>Загрузка рабочего места…</p>}>{activeRoute.page}</Suspense>
       </main>
       {!currentPath.startsWith('/kiosk/') && <ProductFooter currentPath={currentPath} onNavigate={(path) => navigate(path)} />}

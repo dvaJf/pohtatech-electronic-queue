@@ -173,10 +173,7 @@ export const Appointment24hPicker: React.FC<Appointment24hPickerProps> = ({
     return hours.length > 0 ? hours : ['10', '11', '12', '13', '14', '15', '16', '17', '18'];
   }, [selectedDaySchedule, parsedWorkHours, datePart, todayDateStr, moscowNow.hour]);
 
-  const allowedMinutes = [
-    '00', '05', '10', '15', '20', '25',
-    '30', '35', '40', '45', '50', '55'
-  ];
+  const allowedMinutes = ['00', '15', '30', '45'];
 
   const handleDateChange = (newDate: string) => {
     onChange(`${newDate}T${selectedHour}:${selectedMinute}`);
@@ -233,7 +230,7 @@ export const Appointment24hPicker: React.FC<Appointment24hPickerProps> = ({
 
   const calendarTimeSlots = useMemo(() => {
     return allowedHours.flatMap((h) =>
-      ['00', '30'].map((m) => {
+      ['00', '15', '30', '45'].map((m) => {
         const slot = `${h}:${m}`;
         const isPastToday =
           datePart === todayDateStr && Number(h) * 60 + Number(m) <= currentMinutes + 15;
@@ -279,13 +276,19 @@ export const Appointment24hPicker: React.FC<Appointment24hPickerProps> = ({
         </div>
       )}
 
-      {/* Выбор даты и слота времени */}
-      <div className="w-full max-w-full min-w-0 rounded-2xl bg-white border border-slate-200/90 shadow-2xs overflow-hidden">
+      {/* Выбор даты и слота времени в две колонки (15-минутные интервалы) */}
+      <div className="w-full max-w-full min-w-0 rounded-3xl bg-white border border-slate-200/90 shadow-xs overflow-hidden">
         <Calendar14
           selectedDate={selectedDateObj}
           onSelectDate={handleCalendarDateSelect}
+          selectedHour={selectedHour}
+          onSelectHour={handleHourChange}
+          selectedMinute={selectedMinute}
+          onSelectMinute={handleMinuteChange}
           selectedTime={`${selectedHour}:${selectedMinute}`}
           onSelectTime={handleSlotSelect}
+          allowedHours={allowedHours}
+          allowedMinutes={allowedMinutes}
           timeSlots={calendarTimeSlots}
           minDate={canBookToday ? new Date() : new Date(Date.now() + 86400000)}
         />

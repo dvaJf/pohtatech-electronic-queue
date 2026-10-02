@@ -30,13 +30,14 @@ export function ActiveTicketHero({
   onOpenRoute: () => void;
 }) {
   const peopleAhead = position?.position ?? eta?.position ?? null;
+  const isCalledOrServing = ticket.status === 'CALLED' || ticket.status === 'SERVING' || ticket.status === 'COMPLETED';
+  const windowNumber = isCalledOrServing ? (ticket.window?.number ?? null) : null;
   const view = getActiveTicketPresentation({
     status: ticket.status,
     peopleAhead: peopleAhead === null ? null : Math.max(0, peopleAhead - 1),
     estimatedWaitSeconds: eta?.estimatedWaitSeconds,
-    windowNumber: ticket.window?.number ?? eta?.referenceWindow?.number ?? null,
+    windowNumber,
   });
-  const windowNumber = ticket.window?.number ?? eta?.referenceWindow?.number ?? null;
 
   return (
     <section aria-label="Активный талон" className={`rounded-2xl border p-4 shadow-xs sm:p-5 ${ticket.status === 'CALLED' ? 'border-[#054FA6] bg-blue-50/80' : 'border-emerald-200/80 bg-gradient-to-br from-emerald-50/80 via-teal-50/40 to-white'}`}>
@@ -66,7 +67,7 @@ export function ActiveTicketHero({
           items={[
             { id: 1, title: 'Получен', description: 'Талон выдан' },
             { id: 2, title: 'В очереди', description: peopleAhead !== null && peopleAhead > 0 ? `${peopleAhead} перед вами` : 'Ожидание' },
-            { id: 3, title: 'Вызов к окну', description: windowNumber ? `Окно №${windowNumber}` : 'Приглашение' },
+            { id: 3, title: 'Вызов к окну', description: isCalledOrServing && windowNumber ? `Окно №${windowNumber}` : 'Приглашение' },
             { id: 4, title: 'Обслуживание', description: 'У оператора' },
             { id: 5, title: 'Завершён', description: 'Готово' },
           ]}

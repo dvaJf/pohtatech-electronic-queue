@@ -2937,13 +2937,14 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                     <div className="my-2.5 py-2 px-2 bg-slate-50/90 rounded-2xl border border-slate-200/80 overflow-x-auto shadow-2xs">
                       {(() => {
                         const isTicketArrived = Boolean(ticket.arrivedAt || arrivalAcknowledgedTicketIds.has(ticket.id));
+                        const isCalledOrServing = ticket.status === 'CALLED' || ticket.status === 'SERVING' || ticket.status === 'COMPLETED';
                         return (
                           <Timeline8
                             currentStep={getTicketTimelineStep(ticket.status, isTicketArrived)}
                             items={[
                               { id: 1, title: 'Получен', description: 'Талон выдан' },
                               { id: 2, title: 'В очереди', description: position?.position ? `${position.position} в очереди` : (isTicketArrived ? 'В очереди' : 'Ожидание') },
-                              { id: 3, title: 'Вызов к окну', description: ticket.window?.number ? `Окно №${ticket.window.number}` : 'Приглашение' },
+                              { id: 3, title: 'Вызов к окну', description: isCalledOrServing && ticket.window?.number ? `Окно №${ticket.window.number}` : 'Приглашение' },
                               { id: 4, title: 'Обслуживание', description: 'У оператора' },
                               { id: 5, title: 'Завершён', description: 'Готово' },
                             ]}

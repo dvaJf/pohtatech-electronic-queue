@@ -1,3 +1,4 @@
+import path from 'path';
 import { defineConfig, loadEnv } from 'vite';
 
 /**
@@ -17,6 +18,11 @@ import { defineConfig, loadEnv } from 'vite';
 export default defineConfig(({ mode }) => {
   const backendTarget = process.env.VITE_BACKEND_TARGET || 'http://localhost:8080';
   return ({
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+    },
+  },
   define: {
     'import.meta.env.PUBLIC_APP_BASE_URL': JSON.stringify(
       loadEnv(mode, process.cwd(), '').PUBLIC_APP_BASE_URL ||

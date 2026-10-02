@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo } from 'react';
-import { Calendar, Clock, Check, AlertCircle } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Calendar, Clock, Check, AlertCircle, CalendarDays } from 'lucide-react';
+import Calendar14 from '@/components/ui/c-calendar-14';
 import { parseWorkHours, getMoscowTimeComponents } from '../../utils/workload';
 import { getBranchWeeklySchedule } from './map/branchSchedule';
 import type { BranchWorkload } from '../../api/client/clientApi';
@@ -217,6 +218,35 @@ export const Appointment24hPicker: React.FC<Appointment24hPickerProps> = ({
     }
   }, [datePart]);
 
+  const [showInteractiveCalendar, setShowInteractiveCalendar] = useState(false);
+
+  const selectedDateObj = useMemo(() => {
+    if (!datePart) return new Date();
+    const [y, m, d] = datePart.split('-').map(Number);
+    return new Date(y, m - 1, d);
+  }, [datePart]);
+
+  const handleCalendarDateSelect = (d: Date) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    handleDateChange(`${y}-${m}-${day}`);
+  };
+
+  const calendarTimeSlots = useMemo(() => {
+    return allowedHours.flatMap((h) =>
+      ['00', '30'].map((m) => {
+        const slot = `${h}:${m}`;
+        const isPastToday =
+          datePart === todayDateStr && Number(h) * 60 + Number(m) <= currentMinutes + 15;
+        return {
+          time: slot,
+          available: !isPastToday && !isSelectedDateDayOff,
+        };
+      })
+    );
+  }, [allowedHours, datePart, todayDateStr, currentMinutes, isSelectedDateDayOff]);
+
   return (
     <div className="space-y-4 text-left w-full max-w-full min-w-0 font-['Manrope']">
       {/* 1. Выбор даты визита */}
@@ -295,6 +325,36 @@ export const Appointment24hPicker: React.FC<Appointment24hPickerProps> = ({
           className="w-full min-w-0 max-w-full box-border px-3 py-2 text-xs font-bold font-mono rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-[#003B73] bg-white shadow-2xs block"
           aria-label="Выбор даты записи"
         />
+
+        {/* Интерактивный календарь со слотами c-calendar-14 */}
+        <div className="pt-1 w-full max-w-full min-w-0">
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => setShowInteractiveCalendar((prev) => !prev)}
+            className="w-full py-2 px-3 rounded-xl border border-blue-200 bg-blue-50/70 hover:bg-blue-100/70 text-[#003B73] text-xs font-bold flex items-center justify-between transition-colors cursor-pointer"
+          >
+            <span className="flex items-center gap-1.5 truncate">
+              <CalendarDays className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">{showInteractiveCalendar ? 'Свернуть календарь со слотами' : 'Интерактивный календарь со слотами'}</span>
+            </span>
+            <span className="text-[10px] font-semibold text-blue-800 bg-white px-2 py-0.5 rounded-md border border-blue-200 shrink-0">
+              c-calendar-14
+            </span>
+          </button>
+          {showInteractiveCalendar && (
+            <div className="mt-2 p-2.5 rounded-2xl bg-slate-50/80 border border-slate-200 shadow-inner overflow-hidden">
+              <Calendar14
+                selectedDate={selectedDateObj}
+                onSelectDate={handleCalendarDateSelect}
+                selectedTime={`${selectedHour}:${selectedMinute}`}
+                onSelectTime={handleSlotSelect}
+                timeSlots={calendarTimeSlots}
+                minDate={canBookToday ? new Date() : new Date(Date.now() + 86400000)}
+              />
+            </div>
+          )}
+        </div>
       </div>
 
       {/* 2. Выбор времени (24-часовой формат) */}

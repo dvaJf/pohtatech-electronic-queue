@@ -25,7 +25,7 @@ import {
 import { matchBranchLocation, liveWaitMinutes, matchesUserDefaultBranch, getUserDefaultBranchId } from './liveBranches';
 import { decideUserLocationUpdate, decideLocationCenterRequest } from './mapViewportPolicy';
 import { useModalFocus } from '../../../hooks/useModalFocus';
-import type { BranchWorkload } from '../../../api/client/clientApi';
+import { getBranchReviews, type BranchReview, type BranchWorkload } from '../../../api/client/clientApi';
 import { Branch } from '../../../api/client/types';
 import { PochtaEmblem } from '../../../components/common/PochtaBrand';
 import { YandexIcon } from '../../../components/common/YandexIcon';
@@ -99,7 +99,7 @@ export function getBranchPhoto(code?: string, name?: string): string {
   if (code === '109012' || name?.includes('Никольская')) return '/images/branch_lubyanka.jpg';
   if (code === '107140' || name?.includes('Комсомольская')) return '/images/branch_komsomolskaya.jpg';
   if (code === '127055' || name?.includes('Новослободская')) return '/images/branch_novoslobodskaya.jpg';
-  if (code === '390000' || name?.includes('Рязань')) return '/images/branch_ryazan.jpg';
+  if (code?.startsWith('390') || name?.includes('Рязань')) return '/images/branch_ryazan.jpg';
   return '/images/branch_city.jpg';
 }
 
@@ -1506,6 +1506,25 @@ export function DetailedBranchCard({
   const [imgError, setImgError] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [showWeeklySchedule, setShowWeeklySchedule] = useState(false);
+  const [branchReviews, setBranchReviews] = useState<BranchReview[]>([]);
+  const [reviewsLoading, setReviewsLoading] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    if (branch?.id) {
+      setReviewsLoading(true);
+      getBranchReviews(branch.id)
+        .then((items) => {
+          if (active) setBranchReviews(items);
+        })
+        .finally(() => {
+          if (active) setReviewsLoading(false);
+        });
+    }
+    return () => {
+      active = false;
+    };
+  }, [branch?.id]);
   const wait = getWaitBadgeInfo(branch.liveWaitMinutes);
   const landmark = getLandmarkPresentation(branch.rawLocation);
   const scheduleStatus = getBranchScheduleStatus(branch, workload);
@@ -1720,6 +1739,41 @@ export function DetailedBranchCard({
             )}
           </div>
         </div>}
+
+        {/* Отзывы клиентов об отделении */}
+        {(!compact || isExpanded) && (
+          <div className="pt-2 border-t border-slate-100 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="text-[10px] uppercase font-extrabold tracking-wider text-slate-400">
+                Отзывы клиентов
+              </div>
+              {branchReviews.length > 0 && (
+                <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
+                  ★ {branch.rating ? branch.rating.toFixed(1) : '5.0'} · {branchReviews.length} {branchReviews.length === 1 ? 'отзыв' : 'отзывов'}
+                </span>
+              )}
+            </div>
+            {reviewsLoading ? (
+              <div className="py-2 text-[11px] text-slate-400">Загрузка отзывов…</div>
+            ) : branchReviews.length === 0 ? (
+              <p className="text-[11px] text-slate-400 italic">Пока нет отзывов с комментариями</p>
+            ) : (
+              <div className="space-y-2 max-h-44 overflow-y-auto pr-1">
+                {branchReviews.slice(0, 5).map((rev, idx) => (
+                  <div key={idx} className="p-2.5 rounded-xl bg-slate-50 border border-slate-100 text-xs">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-bold text-amber-500">{'★'.repeat(rev.rating)}</span>
+                      <span className="text-[10px] text-slate-400 font-mono">
+                        {new Date(rev.createdAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}
+                      </span>
+                    </div>
+                    <p className="text-slate-700 leading-relaxed text-[11px]">{rev.comment}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Кнопки действий: «Взять талон» / «Записаться» */}
         {!informationalOnly && <div className="grid grid-cols-2 gap-2 pt-1">

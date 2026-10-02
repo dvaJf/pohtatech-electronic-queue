@@ -27,10 +27,29 @@ INSERT INTO demo_catalog VALUES
 ('078d52e0-2ed8-56fc-9ee2-2fb0e5b4fa5c','Демо · Отделение Стромынка','г. Москва, ул. Стромынка, д. 11','08:00–20:00',55.79345,37.69234),
 ('75efa8f7-be2a-5bb1-8d33-68d238776e9b','Демо · Отделение Автозаводская','г. Москва, ул. Автозаводская, д. 7','08:00–20:00',55.70765,37.65345),
 ('e26cb8b2-c09c-5f21-b64d-a5359f1aa2c8','Демо · Отделение Шмитовский проезд','г. Москва, Шмитовский проезд, д. 16','08:00–20:00',55.75876,37.54987),
-('5c791b5b-23ed-516e-800c-196f6de29ed9','Демо · Главпочтамт г. Рязань','г. Рязань, ул. Почтовая, д. 49','08:00–22:00',54.6291,39.7368);
+('5c791b5b-23ed-516e-800c-196f6de29ed9','Демо · Главпочтамт г. Рязань','г. Рязань, ул. Почтовая, д. 49','08:00–22:00',54.62912,39.73685),
+('b1e06492-3c4a-5812-9c1a-2895f32a0001','Демо · Отделение Рязань Грибоедова','г. Рязань, ул. Грибоедова, д. 3','08:00–20:00',54.62745,39.75892),
+('b1e06492-3c4a-5812-9c1a-2895f32a0002','Демо · Отделение Первомайский просп.','г. Рязань, Первомайский просп., д. 53','08:00–20:00',54.63051,39.71234),
+('b1e06492-3c4a-5812-9c1a-2895f32a0003','Демо · Отделение Рязань Ленина','г. Рязань, ул. Ленина, д. 20','08:00–20:00',54.62512,39.74312),
+('b1e06492-3c4a-5812-9c1a-2895f32a0004','Демо · Отделение Островского','г. Рязань, ул. Островского, д. 21/1','08:00–20:00',54.61845,39.70456),
+('b1e06492-3c4a-5812-9c1a-2895f32a0005','Демо · Отделение Московское шоссе','г. Рязань, Московское шоссе, д. 39','08:00–20:00',54.64321,39.67543),
+('b1e06492-3c4a-5812-9c1a-2895f32a0006','Демо · Отделение Маяковского','г. Рязань, ул. Маяковского, д. 64','08:00–20:00',54.62314,39.74891),
+('c1a06492-4d5b-6923-0d2b-3906a43b0001','Демо · Главпочтамт г. Казань','г. Казань, ул. Кремлёвская, д. 8','08:00–22:00',55.79512,49.11234),
+('c1a06492-4d5b-6923-0d2b-3906a43b0002','Демо · Отделение Казань Баумана','г. Казань, ул. Баумана, д. 29','08:00–20:00',55.79045,49.11789),
+('c1a06492-4d5b-6923-0d2b-3906a43b0003','Демо · Отделение Карла Маркса','г. Казань, ул. Карла Маркса, д. 45','08:00–20:00',55.79782,49.13567),
+('c1a06492-4d5b-6923-0d2b-3906a43b0004','Демо · Отделение Татарстан','г. Казань, ул. Татарстан, д. 14','08:00–20:00',55.78123,49.11892),
+('c1a06492-4d5b-6923-0d2b-3906a43b0005','Демо · Отделение Вишневского','г. Казань, ул. Вишневского, д. 59','08:00–20:00',55.78456,49.15234),
+('c1a06492-4d5b-6923-0d2b-3906a43b0006','Демо · Отделение Николая Ершова','г. Казань, ул. Николая Ершова, д. 28','08:00–20:00',55.79345,49.16452),
+('c1a06492-4d5b-6923-0d2b-3906a43b0007','Демо · Отделение Петербургская','г. Казань, ул. Петербургская, д. 50','08:00–20:00',55.78234,49.13125),
+('c1a06492-4d5b-6923-0d2b-3906a43b0008','Демо · Отделение Чистопольская','г. Казань, ул. Чистопольская, д. 20','08:00–20:00',55.82145,49.11345);
 INSERT INTO branches(id,name,address,work_hours,timezone_offset,latitude,longitude,is_demo)
 SELECT id,name,address,work_hours,3,latitude,longitude,true FROM demo_catalog
-ON CONFLICT (id) DO NOTHING;
+ON CONFLICT (id) DO UPDATE SET
+    name = EXCLUDED.name,
+    address = EXCLUDED.address,
+    work_hours = EXCLUDED.work_hours,
+    latitude = EXCLUDED.latitude,
+    longitude = EXCLUDED.longitude;
 INSERT INTO branch_services(branch_id,service_id)
 SELECT d.id,s.id FROM demo_catalog d CROSS JOIN services s
 ON CONFLICT DO NOTHING;
@@ -44,4 +63,36 @@ JOIN demo_catalog d ON d.id=w.branch_id JOIN branch_services bs ON bs.branch_id=
 ON CONFLICT DO NOTHING;
 INSERT INTO queue_policies(branch_id,appointment_due_priority,qr_priority,version)
 SELECT id,100,10,1 FROM demo_catalog ON CONFLICT DO NOTHING;
+
+-- Seed authentic feedback
+DO $$
+DECLARE
+    rec RECORD;
+    v_ticket_id uuid;
+    v_service_id uuid;
+BEGIN
+    SELECT id INTO v_service_id FROM services LIMIT 1;
+    IF v_service_id IS NOT NULL THEN
+        FOR rec IN SELECT id, name FROM demo_catalog WHERE id NOT IN ('9e364b61-0543-5502-b048-50b2e65879a3') LOOP
+            v_ticket_id := md5(rec.id::text || ':seed_feedback:1')::uuid;
+            INSERT INTO tickets (id, branch_id, service_id, source, public_number, status, queue_entered_at, called_at, served_at)
+            VALUES (v_ticket_id, rec.id, v_service_id, 'QR', 'А-01', 'COMPLETED', NOW() - INTERVAL '4 hours', NOW() - INTERVAL '235 minutes', NOW() - INTERVAL '225 minutes')
+            ON CONFLICT (id) DO NOTHING;
+
+            INSERT INTO ticket_feedback (ticket_id, rating, comment, created_at)
+            VALUES (v_ticket_id, 5, 'Отличное обслуживание, оператор помог быстро оформить отправку.', NOW() - INTERVAL '220 minutes')
+            ON CONFLICT (ticket_id) DO NOTHING;
+
+            v_ticket_id := md5(rec.id::text || ':seed_feedback:2')::uuid;
+            INSERT INTO tickets (id, branch_id, service_id, source, public_number, status, queue_entered_at, called_at, served_at)
+            VALUES (v_ticket_id, rec.id, v_service_id, 'APPOINTMENT', 'П-03', 'COMPLETED', NOW() - INTERVAL '1 day', NOW() - INTERVAL '1 day', NOW() - INTERVAL '1 day')
+            ON CONFLICT (id) DO NOTHING;
+
+            INSERT INTO ticket_feedback (ticket_id, rating, comment, created_at)
+            VALUES (v_ticket_id, 5, 'Записался на сайте, пришел и сразу подошел к окну. Никаких очередей.', NOW() - INTERVAL '1 day')
+            ON CONFLICT (ticket_id) DO NOTHING;
+        END LOOP;
+    END IF;
+END $$;
 COMMIT;
+

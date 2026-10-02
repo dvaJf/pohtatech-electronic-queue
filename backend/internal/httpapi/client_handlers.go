@@ -330,3 +330,16 @@ func (a *API) ListMyActiveTickets(w http.ResponseWriter, r *http.Request) {
 	writeJSONResponse(w, http.StatusOK, map[string]any{"items": items})
 }
 
+func (a *API) GetBranchReviews(w http.ResponseWriter, r *http.Request) {
+	branchID := chi.URLParam(r, "branchId")
+	reviews, err := a.usecases.ListBranchReviews(r.Context(), branchID)
+	if err != nil {
+		a.respondError(w, r, err)
+		return
+	}
+	if reviews == nil {
+		reviews = []domain.RecentFeedback{}
+	}
+	writeJSONResponse(w, http.StatusOK, map[string]any{"items": reviews})
+}
+

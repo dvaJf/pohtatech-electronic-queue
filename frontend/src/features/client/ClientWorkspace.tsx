@@ -29,6 +29,18 @@ import { HomeHero } from './home/HomeHero';
 import { SmartRouteHero } from './home/SmartRouteHero';
 import { AppointmentCalendarMenu } from './calendar/AppointmentCalendarMenu';
 import { isAppointmentCalendarEventAvailable } from './calendar/appointmentCalendar';
+import Timeline8 from '@/components/ui/c-timeline-8';
+
+function getTicketTimelineStep(status: TicketStatus): number {
+  switch (status) {
+    case 'SCHEDULED': return 1;
+    case 'WAITING': return 2;
+    case 'CALLED': return 3;
+    case 'SERVING': return 4;
+    case 'COMPLETED': return 5;
+    default: return 2;
+  }
+}
 
 // calculateSmartRouting is the product-level routing policy represented by smartRouting below.
 
@@ -2915,6 +2927,21 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                     <div className="cx-ticket-header" aria-live="polite" aria-atomic="true">
                       <span className="cx-ticket-num font-mono">{ticket.publicNumber}</span>
                       <StatusBadge status={ticket.status} source={ticket.source} />
+                    </div>
+
+                    {/* Animated Timeline */}
+                    <div className="my-2.5 py-2 px-2 bg-slate-50/90 rounded-2xl border border-slate-200/80 overflow-x-auto shadow-2xs">
+                      <Timeline8
+                        currentStep={getTicketTimelineStep(ticket.status)}
+                        items={[
+                          { id: 1, title: 'Получен', description: 'Талон выдан' },
+                          { id: 2, title: 'В очереди', description: position?.position ? `${position.position} в очереди` : 'Ожидание' },
+                          { id: 3, title: 'Вызов к окну', description: ticket.window?.number ? `Окно №${ticket.window.number}` : 'Приглашение' },
+                          { id: 4, title: 'Обслуживание', description: 'У оператора' },
+                          { id: 5, title: 'Завершён', description: 'Готово' },
+                        ]}
+                        className="w-full max-w-full"
+                      />
                     </div>
 
                     {/* Details Body */}

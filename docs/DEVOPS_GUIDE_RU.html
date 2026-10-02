@@ -1,0 +1,1660 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>DevOps-путеводитель — Цифровая очередь</title>
+<style>
+  @page {
+    size: A4;
+    margin: 20mm 15mm 20mm 15mm;
+  }
+  body {
+    font-family: "Noto Sans", "DejaVu Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: #172033;
+    line-height: 1.6;
+    font-size: 13px;
+    background: #fff;
+  }
+  h1 {
+    color: #102a43;
+    font-size: 26px;
+    border-bottom: 3px solid #14b8a6;
+    padding-bottom: 8px;
+    margin-top: 0;
+  }
+  h2 {
+    color: #075985;
+    font-size: 18px;
+    border-left: 4px solid #14b8a6;
+    background: #f0fdfa;
+    padding: 6px 0 6px 10px;
+    margin-top: 24px;
+    page-break-after: avoid;
+  }
+  h3 {
+    color: #1d4ed8;
+    font-size: 15px;
+    margin-top: 18px;
+    page-break-after: avoid;
+  }
+  pre {
+    background: #102a43;
+    color: #ecfeff;
+    border-left: 4px solid #2dd4bf;
+    border-radius: 6px;
+    padding: 12px;
+    font-family: "JetBrains Mono", Consolas, Monaco, monospace;
+    font-size: 11px;
+    overflow-x: auto;
+    page-break-inside: avoid;
+  }
+  code {
+    font-family: "JetBrains Mono", Consolas, Monaco, monospace;
+    background: #ecfeff;
+    padding: 2px 5px;
+    border-radius: 4px;
+    font-size: 11.5px;
+    color: #0f3d51;
+  }
+  pre code {
+    background: transparent;
+    color: inherit;
+    padding: 0;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 14px 0;
+    font-size: 12px;
+    page-break-inside: avoid;
+  }
+  th, td {
+    border: 1px solid #cbd5e1;
+    padding: 8px 10px;
+    text-align: left;
+  }
+  th {
+    background-color: #0f766e;
+    color: #fff;
+    font-weight: 600;
+  }
+  tr:nth-child(even) {
+    background-color: #f8fafc;
+  }
+  hr {
+    border: none;
+    border-top: 1px solid #e2e8f0;
+    margin: 20px 0;
+  }
+  li {
+    margin-bottom: 4px;
+  }
+  blockquote {
+    margin: 12px 0;
+    padding: 9px 12px;
+    color: #155e75;
+    background: #ecfeff;
+    border-left: 4px solid #22c55e;
+  }
+  a { color: #0369a1; text-decoration: none; }
+</style>
+</head>
+<body>
+<h1>DevOps-путеводитель по проекту «Цифровая очередь»</h1>
+<br/>
+<blockquote>Учебный разбор состояния репозитория на 2026-10-01. Это не инструкция по</blockquote>
+<blockquote>публикации секретов: пароли, API-токены, kubeconfig и IP-адреса намеренно</blockquote>
+<blockquote>заменены на <code>&lt;…&gt;</code>. Их нельзя хранить в Git.</blockquote>
+<br/>
+<h2>1. Главное за две минуты</h2>
+<br/>
+<p>В проекте есть <strong>две альтернативные среды запуска</strong> и несколько слоёв вокруг</p>
+<p>них:</p>
+<br/>
+<pre><code class="language-text">
+Локально / на одном Docker-хосте
+  .env → Docker Compose → containers → Nginx → пользователь
+                 └→ Prometheus / Loki / Grafana / Alertmanager
+
+Kubernetes-путь (задуман как production)
+  Git → Argo CD → Helm render → K3s → Pods + Services → Traefik Ingress
+                                     └→ Prometheus / Loki / Jaeger / Grafana
+</code></pre>
+<br/>
+<li><strong>Docker</strong> упаковывает приложение и зависимости в образы.</li>
+<li><strong>Docker Compose</strong> поднимает весь набор контейнеров на одной машине.</li>
+<li><strong>Ansible</strong> по SSH готовит машины и ставит K3s/Fail2ban.</li>
+<li><strong>K3s</strong> — облегчённая дистрибуция Kubernetes; она запускает контейнеры как</li>
+<p>  Pods и даёт встроенный ingress-controller Traefik.</p>
+<li><strong>Kubernetes</strong> описывается декларативными YAML: желаемое состояние, а не</li>
+<p>  последовательность команд.</p>
+<li><strong>Helm</strong> — шаблонизатор и пакетный менеджер Kubernetes. Из <code>templates/</code> и</li>
+<p>  <code>values.yaml</code> он получает обычные Kubernetes YAML.</p>
+<li><strong>Argo CD</strong> следит за Git и приводит кластер к версии манифестов в Git</li>
+<p>  (GitOps pull-модель).</p>
+<li><strong>Prometheus</strong> собирает числовые метрики, <strong>Alertmanager</strong> рассылает алерты,</li>
+<p>  <strong>Loki + Promtail</strong> собирают логи, <strong>Grafana</strong> отображает всё, **Jaeger +</p>
+<p>  OpenTelemetry** показывают путь одного запроса (trace).</p>
+<br/>
+<h2>2. Как проходит один HTTP-запрос</h2>
+<br/>
+<pre><code class="language-text">
+Browser → Nginx (Docker-вариант) или Traefik Ingress (K8s-вариант)
+        ├→ /     → frontend Service/контейнер
+        └→ /api  → backend Service/контейнер → PostgreSQL
+
+backend: JSON log (trace_id) ─→ stdout ─→ Promtail ─→ Loki ─→ Grafana
+backend: /metrics             ─────────→ Prometheus ───────────→ Grafana/Alertmanager
+backend: span (OTLP/HTTP)     ─────────→ Jaeger ───────────────→ Jaeger/Grafana
+</code></pre>
+<br/>
+<p><code>/health</code> отвечает, что HTTP-процесс жив. <code>/ready</code> дополнительно проверяет</p>
+<p>PostgreSQL: Kubernetes не включает pod в балансировку Service, пока readiness</p>
+<p>не проходит.</p>
+<br/>
+<h2>3. Сначала разберитесь, какой путь реально активен</h2>
+<br/>
+<table><thead><tr><th>Источник истины</th><th>Для чего</th><th>Как применяется</th></tr></thead><tbody>
+<tr><td><code>docker-compose.yml</code></td><td>Локальная/односерверная среда</td><td><code>docker compose up</code></td></tr>
+<tr><td><code>k8s/*.yaml</code></td><td>Сырые K8s-манифесты, ручной путь</td><td><code>kubectl apply -f …</code></td></tr>
+<tr><td><code>helm/queue-chart/</code></td><td>Шаблонный K8s-релиз</td><td><code>helm upgrade --install …</code> или Argo CD</td></tr>
+<tr><td><code>k8s/argocd-app.yaml</code></td><td>Указывает Argo CD использовать Helm chart</td><td>один раз применить в namespace <code>argocd</code></td></tr>
+</tbody></table>
+<br/>
+<p>Не следует применять одновременно <code>k8s/backend-deployment.yaml</code> и Helm chart:</p>
+<p>они создают одноимённые <code>Deployment</code>/<code>Service</code>, но с разными версиями образа и</p>
+<p>настройками. Для GitOps источником истины должен быть Helm chart, потому что</p>
+<p>именно на него ссылается Argo Application.</p>
+<br/>
+<h2>4. Контейнеры: Dockerfile, строка за строкой</h2>
+<br/>
+<h3><code>backend/Dockerfile</code></h3>
+<br/>
+<table><thead><tr><th>Строки</th><th>Что означает</th></tr></thead><tbody>
+<tr><td>1</td><td>Первый этап multi-stage: Go-компилятор на Alpine.</td></tr>
+<tr><td>2</td><td>Рабочая папка в build-контейнере.</td></tr>
+<tr><td>4–5</td><td>Копируются модули и скачиваются зависимости; это отдельный слой cache.</td></tr>
+<tr><td>6–7</td><td>Копируется исходный код; собирается статический (<code>CGO_ENABLED=0</code>) бинарник <code>api</code>. <code>-trimpath</code>, <code>-s</code>, <code>-w</code> уменьшают образ и не вшивают пути сборки.</td></tr>
+<tr><td>9–10</td><td>Второй, runtime-этап. В итоговый образ не попадает Go toolchain.</td></tr>
+<tr><td>11, 15</td><td>Создаётся и выбирается непривилегированный пользователь <code>app</code> — правильнее, чем запуск от root.</td></tr>
+<tr><td>12–14</td><td>В образ копируются бинарник, SQL-миграции и файл политики очереди.</td></tr>
+<tr><td>16</td><td><code>ENTRYPOINT</code>: при старте контейнера всегда запускается <code>/app/api</code>; аргумент Compose <code>notify-demo</code> становится аргументом бинарника.</td></tr>
+</tbody></table>
+<br/>
+<h3><code>frontend/Dockerfile</code> и <code>frontend/Dockerfile.prod</code></h3>
+<br/>
+<table><thead><tr><th>Файл, строки</th><th>Что происходит</th></tr></thead><tbody>
+<tr><td><code>frontend/Dockerfile:1–4</code></td><td>Dev-образ: Node, <code>WORKDIR</code>, lockfile и воспроизводимый <code>npm ci</code>.</td></tr>
+<tr><td><code>:5–8</code></td><td>Копия <code>node_modules</code> сохраняется в <code>/opt</code>: Compose может восстановить named volume после чистого checkout.</td></tr>
+<tr><td><code>:9–11</code></td><td>Копирует исходники, открывает 5173, запускает Vite dev server. Это <strong>не production-образ</strong>.</td></tr>
+<tr><td><code>frontend/Dockerfile.prod:1–6</code></td><td>Build-stage собирает статический Vite <code>dist</code>.</td></tr>
+<tr><td><code>:8–12</code></td><td>Runtime-stage Nginx получает только <code>dist</code> и собственный конфиг, слушает 80. Такой образ предназначен для Kubernetes.</td></tr>
+<tr><td><code>frontend/nginx.conf:1–9</code></td><td>SPA fallback: неизвестный URL возвращает <code>index.html</code>, чтобы роутинг React работал после refresh.</td></tr>
+<tr><td><code>:11–14</code></td><td>Небольшой endpoint <code>/healthz</code> для liveness/readiness probe.</td></tr>
+</tbody></table>
+<br/>
+<p>Python-сервисы (<code>services/ml-service/Dockerfile</code>, <code>services/rag-agent/Dockerfile</code>)</p>
+<p>устроены одинаково: базовый Python, зависимости, код, <code>uvicorn</code> на 8090/8095.</p>
+<p>Они есть в Compose; Helm chart сейчас их <strong>не создаёт</strong>.</p>
+<br/>
+<h2>5. Docker Compose: <code>docker-compose.yml</code></h2>
+<br/>
+<p>YAML anchor <code>x-backend</code> (строки 1–38) — не контейнер. Это переиспользуемый</p>
+<p>набор build-настройки и переменных для <code>backend</code> (строка 145: <code>&lt;&lt;: *backend</code>).</p>
+<p>Конструкция <code>${NAME:?текст}</code> требует переменную; <code>${NAME:-default}</code> допускает</p>
+<p>отсутствие и подставляет default.</p>
+<br/>
+<table><thead><tr><th>Строки</th><th>Разбор</th></tr></thead><tbody>
+<tr><td>1–38</td><td>Общие переменные backend: окружение, БД, CORS, уведомления, OAuth/SMTP и RAG. Секретные значения должны приходить только из <code>.env</code>/secret store, не из YAML.</td></tr>
+<tr><td>40–60</td><td><code>ml-service</code>: build из локального Dockerfile, healthcheck каждые 10 секунд, модель в named volume, порт доступен только localhost, лимиты CPU/RAM. <code>deploy.resources</code> реально учитывается Docker Compose, но поведение зависит от реализации Compose; проверяйте <code>docker compose config</code>.</td></tr>
+<tr><td>62–85</td><td><code>rag-agent</code>: аналогично; адрес backend берётся из Docker DNS-имени <code>backend</code>, а не из внешнего IP.</td></tr>
+<tr><td>87–125</td><td>PostgreSQL 17. Данные сохраняются в <code>postgres_data</code>; init SQL работает <strong>только при первой инициализации пустого тома</strong>. <code>pg_isready</code> — healthcheck. Параметры <code>-c</code> ограничивают соединения и запросы.</td></tr>
+<tr><td>127–142</td><td>Swagger UI монтирует OpenAPI как read-only и ждёт backend только по порядку старта (<code>depends_on</code> без <code>condition</code>).</td></tr>
+<tr><td>144–164</td><td>Backend получает shared settings, policy read-only, публикуется лишь на <code>127.0.0.1</code>, поэтому извне он недоступен напрямую. Ждёт здоровый Postgres и проверяет <code>/health</code>.</td></tr>
+<tr><td>166–184</td><td>Демонстрационный provider уведомлений запускает тот же Go binary с аргументом <code>notify-demo</code>.</td></tr>
+<tr><td>186–210</td><td>Dev frontend: исходники bind-mount, node_modules named volume, Vite; это удобно для разработки, но не подходит для production. Длинная команда в строке 200 чинит пустой/старый volume.</td></tr>
+<tr><td>212–227</td><td>Prometheus: конфиг + правила монтируются read-only, данные остаются в named volume, порт только localhost.</td></tr>
+<tr><td>229–243</td><td><code>postgres-exporter</code> подключается к БД и отдаёт её метрики на 9187.</td></tr>
+<tr><td>245–263</td><td>Alertmanager подставляет Telegram credentials в шаблон через entrypoint.</td></tr>
+<tr><td>265–279</td><td>Loki хранит логи в volume и слушает localhost:3100.</td></tr>
+<tr><td>280–293</td><td>Promtail читает Docker socket read-only для service discovery и отправляет логи в Loki. Docker socket — чувствительный доступ, ограничьте хост и доверенный образ.</td></tr>
+<tr><td>295–317</td><td>Grafana получает credentials из <code>.env</code>, автоподключает источники/дашборды из <code>monitoring/grafana/provisioning</code> и работает за <code>/grafana/</code>.</td></tr>
+<tr><td>319–341</td><td>Отдельный контейнер backup делает дамп PostgreSQL каждые 6 часов и хранит дневные/недельные/месячные копии на host bind mount <code>./backups</code>.</td></tr>
+<tr><td>343–350</td><td>Именованные Docker volumes: переживают пересоздание контейнера.</td></tr>
+<tr><td>352–358</td><td>Docker network намеренно использует <code>172.28.0.0/16</code>, чтобы не пересечься с VPN хоста.</td></tr>
+</tbody></table>
+<br/>
+<h2>6. Сеть на Docker-хосте: Nginx</h2>
+<br/>
+<p><code>nginx/default.conf</code> — <strong>host Nginx</strong>, не Nginx внутри frontend production</p>
+<p>image. Он проксирует запросы в localhost-порты Compose.</p>
+<br/>
+<li>Строки 2–15: HTTP принимает ACME challenge Let’s Encrypt, остальное</li>
+<p>  перенаправляет на HTTPS.</p>
+<li>18–87: fallback для прямого обращения по IP; защищает <code>.env/.git</code>, маршруты</li>
+<p>  <code>/</code> → Vite 5173, <code>/api/</code> → backend 8080, <code>/docs/</code> → Swagger 8081,</p>
+<p>  <code>/grafana</code> → Grafana 3001.</p>
+<li>90–110: HTTPS <code>www</code> переадресовывает на канонический домен.</li>
+<li>114–202 и 205–293: два TLS virtual host, сертификаты Let’s Encrypt, TLS</li>
+<p>  1.2/1.3, заголовки безопасности и те же proxy rules.</p>
+<br/>
+<p><code>nginx/tuning.conf:2–5</code> создаёт корректный <code>Connection</code> для WebSocket upgrade;</p>
+<p>строки 7–35 включают gzip для текстовых ответов. Production K3s использует</p>
+<p>Traefik Ingress, так что это два разных входных контура, а не цепочка друг за</p>
+<p>другом.</p>
+<br/>
+<h2>7. Ansible и K3s</h2>
+<br/>
+<h3>Inventory и playbooks</h3>
+<br/>
+<table><thead><tr><th>Файл/строки</th><th>Объяснение</th></tr></thead><tbody>
+<tr><td><code>ansible/inventory.ini:1–9</code></td><td>Группы <code>k3s_master</code>, <code>k3s_workers</code>, объединённая <code>k3s_cluster</code>. В inventory сейчас записаны реальный IP/путь SSH-ключа: для shared repo это плохая практика; вынести в незакоммиченный inventory или Ansible Vault.</td></tr>
+<tr><td><code>setup_k3s.yml:1–4</code></td><td>Playbook повышает привилегии (<code>become</code>) и нацелен на <code>k3s_nodes</code>; такой группы в текущем inventory нет. Нужно добавить её в inventory или поменять <code>hosts</code> на существующую группу: <code>-l</code> может только сузить уже найденный набор, но не создаёт группу.</td></tr>
+<tr><td><code>:6–23</code></td><td>Создаёт 2GiB swap, выставляет 0600, запускает <code>mkswap/swapon</code>. <code>ignore_errors</code> скрывает ошибку; также Kubernetes обычно требует отключённый swap или настройки kubelet, поэтому это надо перепроверить на конкретной версии K3s.</td></tr>
+<tr><td><code>:25–28</code></td><td>Скачивает install script K3s и запускает его как root; <code>creates</code> делает задачу условно идемпотентной. Лучше закрепить версию/проверить checksum, а не исполнять pipe из сети.</td></tr>
+<tr><td><code>:30–34</code></td><td>Забирает kubeconfig с сервера на controller. Этот файл содержит сертификат и клиентский private key — не коммитить.</td></tr>
+<tr><td><code>join_worker.yml:2–4</code></td><td>Worker-only playbook.</td></tr>
+<tr><td><code>:7–8</code></td><td>Адрес API и join token. Join token уже раскрыт в файле: его нужно немедленно ротировать и заменить на Vault/переменную CI.</td></tr>
+<tr><td><code>:11–28</code></td><td>Повторяет swap setup.</td></tr>
+<tr><td><code>:30–33</code></td><td>Устанавливает <code>k3s-agent</code>, передавая URL master и токен installer’у.</td></tr>
+<tr><td><code>install_fail2ban.yml:2–12</code></td><td>На всех узлах ставит Fail2ban через APT и обновляет apt cache. Остальные строки записывают jail SSH и перезапускают сервис.</td></tr>
+<tr><td><code>ansible/k3s.yaml</code></td><td>Локальный kubeconfig. <code>clusters</code> задаёт API/server+CA; <code>contexts</code> соединяет cluster, namespace и user; <code>users</code> содержит клиентский сертификат <strong>и закрытый ключ</strong>. Файл должен быть исключён из Git.</td></tr>
+</tbody></table>
+<br/>
+<h3>Модель K3s</h3>
+<br/>
+<p>Master/control-plane хранит API/планирует pods; worker выполняет назначенные</p>
+<p>pods. Kubernetes Service даёт DNS (например, <code>http://postgres:5432</code>) независимо</p>
+<p>от IP pod’ов. Flannel в K3s создаёт overlay-сеть между нодами. <code>nodeSelector</code></p>
+<p>в манифестах привязывает pod к ноде по label/hostname; это полезно для</p>
+<p>локального PV, но уменьшает отказоустойчивость.</p>
+<br/>
+<h2>8. Kubernetes без Helm: что означают манифесты <code>k8s/</code></h2>
+<br/>
+<p>Любой YAML начинается с <code>apiVersion</code> (версия API), <code>kind</code> (тип объекта),</p>
+<p><code>metadata</code> (имя/namespace/labels), <code>spec</code> (желаемое состояние). Label</p>
+<p><code>app: backend</code> связывает Deployment → Pod → Service через selector.</p>
+<br/>
+<table><thead><tr><th>Файл</th><th>Построчное чтение ключевых блоков</th></tr></thead><tbody>
+<tr><td><code>backend-configmap.yaml:1–16</code></td><td><code>ConfigMap</code> в <code>queue-system</code>; строки 7–16 — несекретные ENV backend. <code>POSTGRES_HOST=postgres</code> — DNS Service. Нет <code>OTEL_EXPORTER_OTLP_ENDPOINT</code>, поэтому raw-манифест backend отключит трассировку, если не добавлена внешняя ENV.</td></tr>
+<tr><td><code>backend-deployment.yaml:1–55</code></td><td><code>Deployment</code>, 2 реплики; <code>RollingUpdate</code> 13–14 разрешает 1 дополнительный pod и запрещает недоступность; <code>selector</code> и template labels обязаны совпадать; контейнер читает ConfigMap+Secret; <code>requests</code> влияют на scheduler, <code>limits</code> — потолок; <code>/health</code> перезапускает pod при сбое, <code>/ready</code> исключает из Service.</td></tr>
+<tr><td><code>backend-service.yaml:1–15</code></td><td>Внутренний <code>ClusterIP</code>, который на порту 8080 выбирает pods <code>app=backend</code>.</td></tr>
+<tr><td><code>frontend-deployment.yaml:1–52</code></td><td>Те же rolling/probes для frontend; строки 23–24 жёстко выбирают одну hostname-ноду, образ <code>queue-frontend:v3</code>, порт 80, <code>/healthz</code>.</td></tr>
+<tr><td><code>frontend-service.yaml:1–15</code></td><td>DNS <code>frontend</code>, ClusterIP 80 → container 80.</td></tr>
+<tr><td><code>ingress.yaml:1–25</code></td><td>Traefik читает annotation; <code>/api</code> отправляется в backend:8080, <code>/</code> — во frontend:80. У правила нет <code>host</code>, значит оно подходит для всех host headers этого ingress.</td></tr>
+<tr><td><code>postgres-secret.yaml:1–10</code></td><td><code>stringData</code> позволяет записать текст, API кодирует его в <code>data</code>. Secret — не шифрование: base64 легко декодируется. Пароль в Git нужно заменить External Secret/Vault/SealedSecret.</td></tr>
+<tr><td><code>postgres-pvc.yaml:1–12</code></td><td>PVC просит 2Gi, RWO (одна нода для записи), storage class K3s <code>local-path</code>.</td></tr>
+<tr><td><code>postgres-deployment.yaml:1–71</code></td><td>Один pod + <code>Recreate</code>: безопаснее для RWO-диска, но даёт простой при обновлении. Строки 26–28 ENV из Secret; 36–57 проверяют <code>pg_isready</code>; 58–71 монтируют persistent data и ConfigMap init SQL. Init скрипт сработает лишь на новом data directory.</td></tr>
+<tr><td><code>postgres-service.yaml:1–15</code></td><td>Внутреннее имя <code>postgres</code> и порт 5432.</td></tr>
+<tr><td><code>postgres-init-cm.yaml:1–385</code></td><td>Сгенерированный ConfigMap: одна строка <code>data.init.sql</code> содержит объединённые SQL-миграции с <code>\n</code>. Его не нужно учить построчно как YAML: инфраструктурно важны <code>apiVersion</code>, <code>kind: ConfigMap</code>, <code>metadata.name: postgres-init</code> и mount в Deployment. Надёжнее запускать миграции отдельным Job, а не запекать SQL в ConfigMap.</td></tr>
+<tr><td><code>notification-demo-deployment.yaml:1–66</code></td><td>Один demo pod, запускает образ с args <code>notify-demo</code>, публикует сервис 8082.</td></tr>
+<tr><td><code>rag-agent-deployment.yaml:1–65</code></td><td>Один RAG pod, <code>BACKEND_URL=http://backend:8080</code>, health probes; Service 8095. В ingress маршрута к нему нет.</td></tr>
+</tbody></table>
+<br/>
+<h2>9. Helm: «шаблоны + values = Kubernetes YAML»</h2>
+<br/>
+<p><code>helm/queue-chart/Chart.yaml</code>:</p>
+<br/>
+<table><thead><tr><th>Строки</th><th>Значение</th></tr></thead><tbody>
+<tr><td>1</td><td>Helm chart API v2.</td></tr>
+<tr><td>2–3</td><td>Имя и описание пакета.</td></tr>
+<tr><td>4</td><td><code>application</code>, не library chart.</td></tr>
+<tr><td>5</td><td>Версия <strong>chart</strong>, меняется при изменении шаблонов/values.</td></tr>
+<tr><td>6</td><td>Версия приложения для людей/каталогов, не обязана быть Docker tag.</td></tr>
+</tbody></table>
+<br/>
+<p><code>values.yaml</code> — входные данные chart:</p>
+<br/>
+<li>1–19 — образ, credentials, PVC и ресурсы Postgres.</li>
+<li>21–45 — две backend-реплики, image tag, ENV, ресурсы и control-plane</li>
+<p>  <code>nodeSelector</code>.</p>
+<li>47–61 — frontend image/2 реплики/resources.</li>
+<li>63–69 — включённый Traefik ingress и host.</li>
+<br/>
+<p>Шаблонные выражения нужно читать так: <code>{{ .Values.backend.image.tag }}</code> —</p>
+<p>«подставь значение <code>backend.image.tag</code> из values»; <code>quote</code> добавляет YAML</p>
+<p>кавычки; <code>toYaml | nindent 12</code> печатает map с правильным отступом;</p>
+<p><code>{{- … -}}</code> также удаляет пробелы вокруг шаблона.</p>
+<br/>
+<table><thead><tr><th>Template, строки</th><th>Что генерируется</th></tr></thead><tbody>
+<tr><td><code>templates/secret.yaml:1–9</code></td><td>Postgres Secret из values. В текущем виде пароль всё ещё попадает в Git.</td></tr>
+<tr><td><code>templates/pvc.yaml:1–11</code></td><td>PVC, с параметрами <code>storageClass</code>/size из values.</td></tr>
+<tr><td><code>templates/postgres.yaml:1–81</code></td><td>Postgres Deployment/Service. Смысл тот же, что raw manifest, но image/resources/credentials параметризованы.</td></tr>
+<tr><td><code>templates/backend-configmap.yaml:1–16</code></td><td>ConfigMap backend; важная добавка строки 16: OTLP endpoint Jaeger.</td></tr>
+<tr><td><code>templates/backend.yaml:1–68</code></td><td>Deployment+Service backend; 8 — replicaCount, 22–25 — необязательный selector, 28 — image, 33–37 — config+secret, 40–53 — probes.</td></tr>
+<tr><td><code>templates/frontend.yaml:1–59</code></td><td>Deployment+Service frontend; без nodeSelector в chart (в отличие от raw YAML).</td></tr>
+<tr><td><code>templates/ingress.yaml:1–73</code></td><td>Условно создаётся при <code>ingress.enabled</code>; цикл 10–42 строит rules на каждый host. Пути <code>/jaeger</code> и <code>/grafana</code> предполагают, что такие Service уже созданы отдельно; 43–72 добавляет ещё и host-less fallback rule.</td></tr>
+<tr><td><code>templates/postgres-init-cm.yaml</code></td><td>Тот же сгенерированный SQL ConfigMap; Helm не превращает его в миграционный механизм.</td></tr>
+</tbody></table>
+<br/>
+<p>Полезная безопасная проверка рендера: <code>helm template queue-release helm/queue-chart</code></p>
+<p>и затем <code>kubectl apply --dry-run=client -f &lt;(helm template …)</code>.</p>
+<br/>
+<h2>10. Argo CD и GitOps</h2>
+<br/>
+<p><code>k8s/argocd-app.yaml</code> буквально говорит Argo CD:</p>
+<br/>
+<table><thead><tr><th>Строки</th><th>Значение</th></tr></thead><tbody>
+<tr><td>1–2</td><td>CRD Argo <code>Application</code>, это не стандартный Kubernetes kind.</td></tr>
+<tr><td>4–7</td><td>Имя приложения в namespace Argo CD; finalizer удаляет управляемые ресурсы при удалении Application.</td></tr>
+<tr><td>9</td><td>Argo project <code>default</code>.</td></tr>
+<tr><td>10–16</td><td>Git repo, ветка/ревизия и папка Helm chart; <code>values.yaml</code> передаётся Helm.</td></tr>
+<tr><td>17–19</td><td>Целевой API server — текущий кластер — и namespace workload.</td></tr>
+<tr><td>20–25</td><td>Автосинхронизация: <code>selfHeal</code> исправляет ручной drift, <code>prune: false</code> <strong>не удалит</strong> ресурс, исчезнувший из Git; namespace создаётся автоматически.</td></tr>
+</tbody></table>
+<br/>
+<p><code>argocd-ingress.yaml:1–19</code> публикует UI Argo CD через Traefik по <code>/argocd</code>.</p>
+<p>Сам Argo CD должен быть предварительно установлен (этот репозиторий не содержит</p>
+<p>его Helm install manifest). Рабочий цикл: изменить chart/values → commit/push</p>
+<p>в отслеживаемую revision → Argo получает Git → <code>helm template</code> → сравнивает</p>
+<p>live/desired → sync. Не надо параллельно вручную <code>kubectl edit</code> ресурсы Argo:</p>
+<p><code>selfHeal</code> вернёт Git-версию.</p>
+<br/>
+<h2>11. Observability: метрики, логи и traces</h2>
+<br/>
+<h3>Метрики: Prometheus → Alertmanager → Grafana</h3>
+<br/>
+<p><code>backend/internal/httpapi/router.go:31–66</code> ставит middleware и открывает</p>
+<p><code>/metrics</code> через Prometheus handler. В <code>middleware.go:254–295</code> определяются</p>
+<p><code>http_requests_total{method,path,status}</code> и histogram</p>
+<p><code>http_request_duration_seconds</code>; используется route pattern, а не ID в URL,</p>
+<p>поэтому не возникает dangerous high-cardinality label.</p>
+<br/>
+<table><thead><tr><th>Файл, строки</th><th>Что делают</th></tr></thead><tbody>
+<tr><td><code>monitoring/prometheus.yml:1–24</code></td><td>Интервал scrape 15s; подгружает rules; направляет firing alerts на Alertmanager; собирает backend, postgres-exporter, себя и Alertmanager по Compose DNS.</td></tr>
+<tr><td><code>monitoring/prometheus/alerts.yml:1–56</code></td><td>Группа правил: <code>BackendDown</code>, <code>PostgresDown</code>, exporter down, 5xx &gt;5%, p95 &gt;1s, соединения Postgres &gt;80. <code>for</code> означает «условие должно длиться столько времени», чтобы не тревожить из-за одного scrape.</td></tr>
+<tr><td><code>alertmanager.template.yml:1–25</code></td><td>Группирует alerts по имени/критичности, ждёт 10 s, повторяет через час, шлёт в Telegram и уведомляет о resolved. Placeholder подставляет shell entrypoint, а не Prometheus.</td></tr>
+<tr><td><code>entrypoint.sh:1–23</code></td><td><code>set -e</code>; если две Telegram ENV есть, <code>sed</code> строит конфиг во временном файле; иначе создаёт null receiver, затем <code>exec</code> заменяет shell процессом Alertmanager.</td></tr>
+<tr><td><code>k8s/observability/prometheus.yaml:1–83</code></td><td>K8s-вариант ConfigMap + single replica Prometheus + Service. В нём интервал 10 s и retention 15d, но нет <code>rule_files</code>/Alertmanager — это функционально неполнее Compose-конфига.</td></tr>
+<tr><td><code>k8s/observability/postgres-exporter.yaml:1–53</code></td><td>Exporter Deployment+Service. DSN записан открыто — заменить Secret.</td></tr>
+</tbody></table>
+<br/>
+<h3>Логи: slog → Promtail → Loki → Grafana</h3>
+<br/>
+<p><code>backend/internal/observability/logging.go</code>:</p>
+<br/>
+<li>11–34: <code>traceHandler</code> достаёт активный OTel span из context и добавляет</li>
+<p>  <code>trace_id</code>/<code>span_id</code> в каждую JSON log запись.</p>
+<li>36–42: логгер пишет JSON в stdout. Kubernetes/Docker забирает stdout без</li>
+<p>  отдельного файлового агента в приложении.</p>
+<br/>
+<table><thead><tr><th>Файл/строки</th><th>Что означает</th></tr></thead><tbody>
+<tr><td><code>monitoring/promtail/promtail-config.yml:1–29</code></td><td>Compose Promtail: хранит cursor в <code>/tmp</code>, использует Docker socket discovery, оставляет только текущий Compose project, превращает container/service в labels и добавляет <code>job=docker</code>.</td></tr>
+<tr><td><code>monitoring/loki/loki-config.yml:1–33</code></td><td>Loki без auth, HTTP 3100, filesystem storage, single replica/in-memory ring, TSDB schema v13, ruler отправляет alerts в Alertmanager, analytics выключена. Здесь нет retention — она зависит от volume/настройки по умолчанию.</td></tr>
+<tr><td><code>k8s/observability/loki.yaml:1–118</code></td><td>ConfigMap содержит похожий Loki config, но retention 168h. Deployment использует <code>emptyDir</code> для <code>/loki</code>: при пересоздании pod логи исчезнут. Для production нужен PVC/object storage.</td></tr>
+<tr><td><code>k8s/observability/promtail.yaml:1–150</code></td><td>ServiceAccount → ClusterRole (read nodes/services/endpoints/pods) → binding. DaemonSet даёт по одному Promtail на ноду; hostPath <code>/var/log/pods</code> читает CRI logs. Pipeline парсит JSON slog, отбрасывает health и обычные GET, а <code>level/event/component</code> делает Loki labels. Обратная сторона: отброшенные логи уже не восстановить.</td></tr>
+</tbody></table>
+<br/>
+<h3>Traces: OpenTelemetry → Jaeger</h3>
+<br/>
+<p><code>backend/internal/observability/tracing.go</code>:</p>
+<br/>
+<table><thead><tr><th>Строки</th><th>Что происходит</th></tr></thead><tbody>
+<tr><td>21–26</td><td><code>InitTracer</code> получает endpoint аргументом либо ENV <code>OTEL_EXPORTER_OTLP_ENDPOINT</code>.</td></tr>
+<tr><td>28–35</td><td>Нет endpoint / <code>none</code> → noop provider, приложение продолжает работать без trace.</td></tr>
+<tr><td>38–56</td><td>URL очищается от <code>http(s)://</code>; для HTTP endpoint включается insecure, TLS — нет. Таймаут exporter 5 секунд.</td></tr>
+<tr><td>58–73</td><td>Создаётся OTLP/HTTP exporter и resource с <code>service.name</code>, окружением, host/process.</td></tr>
+<tr><td>75–86</td><td>Batch processor и <code>AlwaysSample</code>; provider/propagator становятся глобальными. <code>TraceContext</code> переносит trace-id между сервисами через HTTP headers.</td></tr>
+<tr><td>88–92</td><td>Лог и функция graceful shutdown, которая flush’ит spans.</td></tr>
+<tr><td><code>cmd/api/main.go:63–72</code></td><td>Инициализация на старте; shutdown tracer вызывается с timeout 2s.</td></tr>
+<tr><td><code>httpapi/router.go:34</code></td><td><code>traceMiddleware</code> создаёт/продолжает server span HTTP-запроса; request log получает тот же context. Этот код сам по себе не доказывает трассировку всех downstream HTTP-вызовов или SQL: для них нужна отдельная instrumentation.</td></tr>
+<tr><td><code>k8s/observability/jaeger.yaml:1–76</code></td><td>Jaeger all-in-one, включает OTLP; UI 16686, OTLP gRPC 4317, HTTP 4318; <code>QUERY_BASE_PATH=/jaeger</code> нужен для reverse proxy. Service публикует все три порта внутри кластера.</td></tr>
+<tr><td>Helm ConfigMap:16</td><td>Задаёт backend endpoint <code>http://jaeger:4318</code>, т.е. именно Helm путь включает экспорт trace.</td></tr>
+</tbody></table>
+<br/>
+<p><code>AlwaysSample</code> годится для учебного стенда, но на нагруженном production обычно</p>
+<p>нужны parent-based / ratio sampling и защищённый OTLP endpoint.</p>
+<br/>
+<p><code>k8s/observability/grafana.yaml:1–122</code> provisioning-ом создаёт источники данных</p>
+<p>Prometheus/Loki/Jaeger (строки 7–25), file-provider dashboards (33–44), затем</p>
+<p>Deployment/Service Grafana. Строки 74–77 содержат жёстко заданные admin</p>
+<p>credentials — это нужно вынести в Secret и сменить.</p>
+<br/>
+<h2>12. Операционные скрипты</h2>
+<br/>
+<table><thead><tr><th>Файл</th><th>Для чего / ключевые строки</th></tr></thead><tbody>
+<tr><td><code>scripts/release.sh</code></td><td>Локальный release helper: 14–16 формирует tag из commit+времени, 23–26 запускает Go tests, 30+ собирает образ и импортирует его в containerd K3s, обновляет values и создаёт <strong>локальный</strong> commit. Скрипт лишь печатает предложение вручную <code>git push origin main</code>; он не делает push. Более того, Argo CD отслеживает <code>infra/k8s-gitops</code>, поэтому перед использованием надо согласовать ветку (иначе Argo commit не увидит). Это не GitLab CI.</td></tr>
+<tr><td><code>.gitlab-ci.yml</code></td><td>Файл сейчас пустой: GitLab pipeline в этом репозитории фактически <strong>не настроен</strong>.</td></tr>
+<tr><td><code>scripts/autopull.sh</code></td><td>Отдельный, не-Argo механизм периодически проверяет Git и перезапускает Compose. Не запускайте его для того же production, которым управляет Argo CD: получится два контроллера.</td></tr>
+<tr><td><code>scripts/install_autopull_service.sh:16–34</code></td><td>Генерирует systemd service с циклом autopull, автоперезапуском и логами в <code>/var/log</code>. Скрипт изменяет <code>/etc</code>, запускать только осознанно с root.</td></tr>
+<tr><td><code>scripts/watchdog.sh</code></td><td>Проверяет/рестартует Nginx и K3s, лечит Flannel FDB, проверяет Deployment replicas/external health, а при диске &gt;88% удаляет образы. Последнее — потенциально разрушительное действие; требует ручной политики и backup-проверки.</td></tr>
+<tr><td><code>scripts/restore_backup.sh:19–27</code></td><td>Запрашивает явное подтверждение и вливает <code>.sql.gz</code> в текущую БД — это перезаписывающая операция. Сначала проверить restore на отдельной БД.</td></tr>
+<tr><td><code>scripts/validate_env.sh:13–161</code></td><td>Проверяет <code>.env</code>, required variables, порты, URL, LOG_LEVEL и ловит слабый dev password/localhost в production. <code>source .env</code> безопасен только для доверенного файла: shell выполнит его содержимое.</td></tr>
+<tr><td><code>scripts/optimize_server.sh</code></td><td>Прямо меняет Docker daemon, sysctl и Nginx, чистит кэши. Это одноразовый root-скрипт для конкретного хоста, а не portable deployment manifest.</td></tr>
+</tbody></table>
+<br/>
+<h2>13. Что здесь требует исправления до production</h2>
+<br/>
+<p>1. <strong>Секреты уже в Git.</strong> Join token, kubeconfig/private key, пароли БД,</p>
+<p>   Grafana/Argo credentials и DSN нужно считать скомпрометированными: rotate,</p>
+<p>   удалить из истории по процедуре команды, использовать Vault/External Secrets</p>
+<p>   или хотя бы Sealed Secrets. Никогда не считать Kubernetes Secret шифрованием.</p>
+<p>   Адреса нод не являются секретами, но их лучше вынести из portable manifest в</p>
+<p>   inventory/переменные окружения, чтобы не привязывать конфигурацию к одному</p>
+<p>   провайдеру.</p>
+<p>2. <strong>Один delivery owner.</strong> Выбрать: Compose + host Nginx + autopull *или*</p>
+<p>   Argo CD + Helm + K3s. Для Kubernetes оставить Argo/Helm, отключить autopull</p>
+<p>   на этих ресурсах.</p>
+<p>3. <strong>Свести конфигурации.</strong> Raw K8s и Helm расходятся по tags, node selectors,</p>
+<p>   CORS и OTEL. Для GitOps менять <code>values.yaml</code>, не raw YAML.</p>
+<p>4. <strong>Добавить полноценный production observability chart.</strong> Сейчас Argo следит</p>
+<p>   только за <code>helm/queue-chart</code>, а наблюдаемость находится в отдельных</p>
+<p>   <code>k8s/observability/</code> и в chart не включена. Добавить их как Helm templates</p>
+<p>   или отдельный Argo Application.</p>
+<p>5. <strong>Сделать данные устойчивыми.</strong> PostgreSQL PVC уже есть, но Loki использует</p>
+<p>   <code>emptyDir</code>; Jaeger all-in-one без persistent storage. Нужны PVC/object</p>
+<p>   storage и backup/restore drills.</p>
+<p>6. <strong>Безопасность и supply chain.</strong> Закрепить версии K3s/образов по digest,</p>
+<p>   добавить image registry, сканирование образов, NetworkPolicy, RBAC с</p>
+<p>   минимумом прав, TLS в ingress и resource quotas.</p>
+<p>7. <strong>Миграции.</strong> Backend делает auto-migrate при старте двух реплик; это может</p>
+<p>   конфликтовать при сложной схеме. Для production предпочтительнее отдельный</p>
+<p>   Job/Argo sync hook до rollout.</p>
+<br/>
+<h2>14. Шпаргалка безопасной диагностики</h2>
+<br/>
+<pre><code class="language-bash">
+# Compose
+docker compose config                 # итог после подстановки .env
+docker compose ps
+docker compose logs -f backend
+
+# K3s/Kubernetes (на control-plane, namespace по умолчанию указан явно)
+k3s kubectl get pods,svc,ingress -n queue-system
+k3s kubectl get events -n queue-system --sort-by=&#x27;.metadata.creationTimestamp&#x27;
+k3s kubectl logs -n queue-system deployment/backend --tail=100 -f
+k3s kubectl describe pod -n queue-system &lt;pod-name&gt;
+k3s kubectl rollout status deployment/backend -n queue-system
+
+# Helm / Argo CD
+helm template queue-release helm/queue-chart
+argocd app get queue-system            # если CLI авторизован
+
+# Наблюдаемость
+curl -fsS http://localhost:9090/-/ready
+curl -fsS http://localhost:3100/ready
+</code></pre>
+<br/>
+<p>Не используйте <code>kubectl rollout restart</code> как первый ответ на проблему: сначала</p>
+<p>посмотрите events, <code>describe</code>, readiness, логи и метрики. Иначе перезапуск</p>
+<p>может скрыть первопричину.</p>
+<br/>
+<h2>15. Словарь</h2>
+<br/>
+<li><strong>Image</strong> — неизменяемый шаблон файловой системы + команда запуска.</li>
+<li><strong>Container</strong> — запущенный экземпляр image.</li>
+<li><strong>Pod</strong> — минимальная единица запуска Kubernetes; обычно содержит контейнер</li>
+<p>  приложения.</p>
+<li><strong>Deployment</strong> — поддерживает нужное число pod и rolling update.</li>
+<li><strong>Service</strong> — стабильное DNS-имя/виртуальный IP перед подами.</li>
+<li><strong>Ingress</strong> — HTTP-маршруты снаружи к Service; Traefik их исполняет.</li>
+<li><strong>ConfigMap / Secret</strong> — ENV/файлы конфигурации; Secret — лишь контроль</li>
+<p>  доступа/API-тип, не защита от утечки Git.</p>
+<li><strong>PVC</strong> — запрос на постоянное хранилище.</li>
+<li><strong>Probe</strong> — проверка liveness (перезапустить) или readiness (направлять ли</li>
+<p>  трафик).</p>
+<li><strong>Metric / log / trace</strong> — число во времени / событие-текст / связанный путь</li>
+<p>  одного запроса по компонентам.</p>
+<li><strong>GitOps</strong> — Git объявляет desired state, контроллер в кластере сам тянет и</li>
+<p>  применяет изменения.</p>
+<br/>
+<h2>16. Helm с нуля: зачем он нужен именно здесь</h2>
+<br/>
+<h3>16.1. Проблема, которую решает Helm</h3>
+<br/>
+<p>Без Helm для каждого окружения пришлось бы копировать один и тот же Deployment</p>
+<p>и менять вручную image tag, число реплик, память, домен и пароль. Например,</p>
+<p>минимальный <strong>обычный Kubernetes YAML</strong> для backend выглядел бы так:</p>
+<br/>
+<pre><code class="language-yaml">
+# deployment.yaml — без Helm
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: backend }
+  template:
+    metadata:
+      labels: { app: backend }
+    spec:
+      containers:
+        - name: backend
+          image: queue-backend:v3
+          ports:
+            - containerPort: 8080
+</code></pre>
+<br/>
+<p>Для staging нужно было бы создать почти идентичный файл, заменить <code>2</code> на <code>1</code></p>
+<p>и <code>v3</code> на другой tag. Helm оставляет единственный шаблон и выносит изменяемые</p>
+<p>значения:</p>
+<br/>
+<pre><code class="language-yaml">
+# values.yaml — входные данные
+backend:
+  replicaCount: 2
+  image:
+    repository: queue-backend
+    tag: v3
+</code></pre>
+<br/>
+<pre><code class="language-yaml">
+# templates/backend.yaml — «программа», которая выдаёт YAML
+spec:
+  replicas: {{ .Values.backend.replicaCount }}
+  template:
+    spec:
+      containers:
+        - name: backend
+          image: &quot;{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag }}&quot;
+</code></pre>
+<br/>
+<p>Команда <code>helm template</code> подставляет значения и возвращает первый обычный YAML.</p>
+<p>Kubernetes не знает, что существовал Helm: он получает уже готовые</p>
+<p><code>Deployment</code>, <code>Service</code>, <code>ConfigMap</code> и другие объекты.</p>
+<br/>
+<h3>16.2. Термины, которые надо не путать</h3>
+<br/>
+<table><thead><tr><th>Термин</th><th>В этом проекте</th><th>Смысл</th></tr></thead><tbody>
+<tr><td>Helm</td><td>программа CLI и library</td><td>Рендерит/устанавливает chart.</td></tr>
+<tr><td>Chart</td><td><code>helm/queue-chart/</code></td><td>Пакет шаблонов приложения.</td></tr>
+<tr><td>Template</td><td><code>helm/queue-chart/templates/backend.yaml</code></td><td>Файл, содержащий YAML + <code>{{ … }}</code>.</td></tr>
+<tr><td>Values</td><td><code>helm/queue-chart/values.yaml</code></td><td>Переменные для templates.</td></tr>
+<tr><td>Release</td><td>например <code>queue-release</code></td><td>Конкретная установленная копия chart с конкретными values.</td></tr>
+<tr><td>Revision Helm</td><td>версия установки release</td><td>История Helm. Не то же самое, что Git commit и не то же самое, что ReplicaSet revision.</td></tr>
+<tr><td>Argo Application</td><td><code>queue-system</code></td><td>Argo-объект, который указывает: из какого Git chart рендерить и куда синхронизировать.</td></tr>
+</tbody></table>
+<br/>
+<p>Одна очень полезная формула для защиты:</p>
+<br/>
+<pre><code class="language-text">
+Git commit → Argo Application → Helm chart + values → rendered manifests
+→ Kubernetes Deployment → ReplicaSet → Pod → container
+</code></pre>
+<br/>
+<h3>16.3. Как прочитать ваш chart от значения до pod</h3>
+<br/>
+<p>Возьмём backend образ.</p>
+<br/>
+<p>1. В <a href="../helm/queue-chart/values.yaml"><code>helm/queue-chart/values.yaml</code></a> строки</p>
+<p>   21–28 определяют <code>backend.replicaCount: 2</code>, repository, tag и порт.</p>
+<p>2. В <a href="../helm/queue-chart/templates/backend.yaml"><code>templates/backend.yaml</code></a></p>
+<p>   строка 8 подставляет число в <code>spec.replicas</code> Deployment.</p>
+<p>3. Строка 28 склеивает repository/tag в <code>image</code>, строка 31 делает порт</p>
+<p>   контейнера, 33–37 подставляют ConfigMap и Secret.</p>
+<p>4. Kubernetes Deployment создаёт ReplicaSet с хешем в имени (на скриншоте</p>
+<p>   это <code>backend-5468bcc464</code>).</p>
+<p>5. ReplicaSet создаёт два pod (<code>…-9qjhz</code> и <code>…-qzx6d</code> на скриншоте), потому</p>
+<p>   что desired replicas равны двум.</p>
+<p>6. Service <code>backend</code> выбирает эти pod по label <code>app: backend</code>, а ingress</p>
+<p>   отправляет <code>/api</code> в Service, не в конкретное имя pod.</p>
+<br/>
+<h3>16.4. Helm-команды и безопасный порядок работы</h3>
+<br/>
+<p>Это команды для <strong>изучения и проверки</strong>, а не призыв заменить ими Argo CD на</p>
+<p>production-кластере.</p>
+<br/>
+<pre><code class="language-bash">
+# 1. Проверить структуру chart и базовые ошибки
+helm lint helm/queue-chart
+
+# 2. Увидеть, какие YAML получится применить, ничего не меняя в кластере
+helm template queue-release helm/queue-chart &gt; /tmp/queue-rendered.yaml
+
+# 3. Сравнить production и staging без копирования templates
+helm template queue-release helm/queue-chart --set backend.replicaCount=1
+
+# 4. Установить/обновить chart вручную — только для учебного/не-Argo окружения
+helm upgrade --install queue-release helm/queue-chart \
+  --namespace queue-system --create-namespace
+
+# 5. Посмотреть Helm-release и его историю
+helm list -n queue-system
+helm history queue-release -n queue-system
+helm get manifest queue-release -n queue-system
+</code></pre>
+<br/>
+<p>Почему не делать последний <code>upgrade --install</code> на управляемом Argo production:</p>
+<p>Argo увидит ручное изменение как drift и при <code>selfHeal: true</code> может вернуть</p>
+<p>Git-версию. Там корректное действие — изменить values в правильной Git-ветке,</p>
+<p>сделать review/commit/push и дождаться Sync.</p>
+<br/>
+<h3>16.5. Полезные варианты values</h3>
+<br/>
+<p>Helm объединяет values: chart defaults → <code>-f файл</code> → <code>--set</code>; последнее имеет</p>
+<p>приоритет. Хорошая практика — не править главный values для каждого</p>
+<p>окружения, а добавить (без секретов) <code>values-staging.yaml</code>:</p>
+<br/>
+<pre><code class="language-yaml">
+# пример, файла пока в репозитории нет
+backend:
+  replicaCount: 1
+  image:
+    tag: &quot;candidate-42&quot;
+frontend:
+  replicaCount: 1
+ingress:
+  hosts: [staging.example.test]
+</code></pre>
+<br/>
+<p>Рендер: <code>helm template queue-release helm/queue-chart -f values-staging.yaml</code>.</p>
+<p>Секреты не передают через <code>--set password=…</code>: они попадут в shell history и</p>
+<p>состояние release. Для production используют External Secrets/Vault/Sealed</p>
+<p>Secrets или созданный вне chart Secret с <code>existingSecret</code>-ссылкой.</p>
+<br/>
+<h3>16.6. Конкретные template-приёмы из вашего кода</h3>
+<br/>
+<pre><code class="language-gotemplate">
+# templates/backend.yaml, реальные выражения проекта
+replicas: {{ .Values.backend.replicaCount }}     {{/* число из values */}}
+image: &quot;{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag }}&quot;
+
+{{- with .Values.backend.nodeSelector }}        {{/* если map не пуст */}}
+nodeSelector:
+  {{- toYaml . | nindent 8 }}                    {{/* map в YAML + отступ */}}
+{{- end }}                                       {{/* иначе блока нет */}}
+</code></pre>
+<br/>
+<p><code>with</code> меняет контекст <code>.</code> на содержимое <code>nodeSelector</code>; <code>$</code> в ingress template</p>
+<p>сохраняет ссылку на корневой context, поэтому <code>$.Values.backend.service.port</code></p>
+<p>остаётся доступным внутри <code>range .Values.ingress.hosts</code>.</p>
+<br/>
+<h2>17. Что именно показывает ваш скриншот Argo CD</h2>
+<br/>
+<p>Скриншот показывает <strong>Tree view Application <code>queue-system</code></strong>, а не «список</p>
+<p>запущенных контейнеров». Argo визуализирует зависимости Kubernetes-объектов.</p>
+<p>На момент кадра у приложения два главных статуса:</p>
+<br/>
+<li><strong>Healthy</strong> — Argo считает текущие ресурсы здоровыми: нужные pods готовы,</li>
+<p>  Deployment достиг желаемого состояния, PVC bound и т. п.</p>
+<li><strong>Synced to <code>infra/k8s-gitops</code> (0797866)</strong> — live-состояние соответствует</li>
+<p>  желаемому состоянию из указанной Git revision. Это не означает «ошибок в</p>
+<p>  коде нет» и не заменяет monitoring.</p>
+<li><strong>Auto sync is enabled</strong> — после commit в отслеживаемую ветку Argo сам</li>
+<p>  синхронизирует chart. Статус <code>Sync OK</code> справа — результат последней sync.</p>
+<br/>
+<h3>17.1. Чтение дерева слева направо</h3>
+<br/>
+<pre><code class="language-text">
+Application queue-system
+ ├─ postgres-pvc       (PersistentVolumeClaim: место для данных БД)
+ ├─ postgres-secret    (Secret: параметры запуска PostgreSQL/backend)
+ ├─ backend Service    (стабильное DNS-имя backend)
+ ├─ frontend Service   (стабильное DNS-имя frontend)
+ ├─ postgres Service
+ ├─ backend Deployment
+ │   ├─ ReplicaSet backend-5468bcc464  [текущий]
+ │   │   ├─ Pod backend-…-9qjhz        [running 1/1]
+ │   │   └─ Pod backend-…-qzx6d        [running 1/1]
+ │   ├─ ReplicaSet backend-68f88bfc45  [старый]
+ │   ├─ ReplicaSet backend-668b666b74  [старый]
+ │   └─ …
+ └─ frontend Deployment → ReplicaSets → Pods
+</code></pre>
+<br/>
+<p><strong>Deployment не создаёт pod напрямую.</strong> Он создаёт ReplicaSet, а ReplicaSet</p>
+<p>создаёт pods. Хеш в имени ReplicaSet меняется, если меняется Pod template:</p>
+<p>image, ENV, labels, resources, probe и т. п. Это позволяет выполнить</p>
+<p>rolling update и откатиться к предыдущему шаблону.</p>
+<br/>
+<h3>17.2. Почему у некоторых ReplicaSet «0 pods»</h3>
+<br/>
+<p>Это нормальная картина после обновлений.</p>
+<br/>
+<p>1. Был <code>backend-84fc69dc5b</code> с прежним образом/ENV и двумя pod.</p>
+<p>2. Изменился template, например image tag. Deployment создал новый ReplicaSet</p>
+<p>   с другим hash.</p>
+<p>3. При <code>RollingUpdate</code>, установленном в chart (<code>maxSurge: 1</code>,</p>
+<p>   <code>maxUnavailable: 0</code>), он сначала запускает новый pod сверх целевого числа,</p>
+<p>   ждёт его readiness, затем постепенно уменьшает старый ReplicaSet.</p>
+<p>4. Когда rollout закончен, у старых ReplicaSet <code>spec.replicas=0</code>, поэтому pod</p>
+<p>   нет. Сами ReplicaSet остаются как <strong>история rollout</strong> для rollback.</p>
+<br/>
+<p>На вашем кадре у <code>backend-5468bcc464</code> видно два running pod — это активный</p>
+<p>ReplicaSet. Записи <code>rev:1 … rev:5</code>, у которых нет pod, — старые ReplicaSet;</p>
+<p>Argo показывает их специально, чтобы была понятна история. Иконка/статус</p>
+<p>зелёный означает, что объект сам по себе корректен, а <strong>не</strong> что у него</p>
+<p>обязательно должен быть pod.</p>
+<br/>
+<p>Это отличается от проблемного нуля:</p>
+<br/>
+<table><thead><tr><th>Ситуация</th><th>Нормально?</th><th>Как отличить</th></tr></thead><tbody>
+<tr><td>Старый ReplicaSet после успешного rollout, replicas=0</td><td>Да</td><td>Есть новый RS с нужными ready pods; Deployment Healthy.</td></tr>
+<tr><td>Deployment <code>replicas=2</code>, но готово 0/2</td><td>Нет</td><td><code>kubectl describe deployment</code>, events, ImagePullBackOff/Pending/CrashLoopBackOff.</td></tr>
+<tr><td>Service имеет 0 endpoints</td><td>Нет для работающего сервиса</td><td>Проверить labels selector и readiness pod.</td></tr>
+<tr><td>Stateful PostgreSQL один pod</td><td>Да</td><td>В chart намеренно <code>replicas: 1</code>, PVC RWO.</td></tr>
+</tbody></table>
+<br/>
+<p>Проверить доказательно, а не «по картинке»:</p>
+<br/>
+<pre><code class="language-bash">
+k3s kubectl get deployment,rs,pods -n queue-system -l app=backend
+k3s kubectl get rs -n queue-system -o wide
+k3s kubectl describe deployment backend -n queue-system
+k3s kubectl get endpointslice -n queue-system -l kubernetes.io/service-name=backend
+</code></pre>
+<br/>
+<h3>17.3. Почему на screenshot видны именно эти элементы</h3>
+<br/>
+<li><strong>PVC</strong> создан chart template <code>pvc.yaml</code> и должен существовать до запуска</li>
+<p>  PostgreSQL; он остаётся даже при пересоздании pod.</p>
+<li><strong>Secret</strong> создан <code>secret.yaml</code>, затем одновременно читается Postgres и</li>
+<p>  backend через <code>envFrom</code>.</p>
+<li><strong>Service</strong> не имеет собственных pods: это виртуальная точка доступа,</li>
+<p>  выбирающая pod по labels. Поэтому карточка <code>svc</code> не раскрывается как pod.</p>
+<li><strong>Deployment</strong> является контроллером, поэтому к нему привязаны ReplicaSet.</li>
+<li><strong>ReplicaSet</strong> — контроллер версии pod-template; «0 pods» у старого RS —</li>
+<p>  сохранённая история, а не простаивающий сервис.</p>
+<li><strong>Pod <code>running 1/1</code></strong> означает: в pod один container и он ready. <code>2/2</code></li>
+<p>  означало бы два контейнера (например app + sidecar), не две реплики.</p>
+<br/>
+<h2>18. Мини-практика: от примера к этому репозиторию</h2>
+<br/>
+<h3>Упражнение A — предсказать Helm render</h3>
+<br/>
+<p>Вопрос: если поменять в values:</p>
+<br/>
+<pre><code class="language-yaml">
+backend:
+  replicaCount: 3
+  image:
+    tag: v4
+</code></pre>
+<br/>
+<p>то что изменится? Правильный ответ: Helm сгенерирует Deployment с</p>
+<p><code>replicas: 3</code> и <code>image: queue-backend:v4</code>; Service, имя pod и port не меняются.</p>
+<p>Kubernetes создаст новый ReplicaSet из-за изменения image и постепенно</p>
+<p>переведёт на него три pod. Старый RS в конце будет scale down до нуля.</p>
+<br/>
+<h3>Упражнение B — проследить конфигурацию OTEL</h3>
+<br/>
+<p>1. <code>templates/backend-configmap.yaml:16</code> задаёт</p>
+<p>   <code>OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318</code>.</p>
+<p>2. <code>templates/backend.yaml:33–35</code> загружает весь ConfigMap в ENV backend.</p>
+<p>3. <code>cmd/api/main.go:63</code> вызывает <code>observability.InitTracer</code>.</p>
+<p>4. <code>tracing.go:24–26</code> берёт endpoint из ENV.</p>
+<p>5. <code>tracing.go:58</code> создаёт OTLP/HTTP exporter.</p>
+<p>6. <code>k8s/observability/jaeger.yaml:74–76</code> публикует Service port 4318.</p>
+<br/>
+<p>Итог: это работающий путь <strong>только если</strong> Jaeger Service реально применён в</p>
+<p>том же namespace. Потому и важен вопрос комиссии: «Кто деплоит observability</p>
+<p>resources, если Argo Application указывает лишь на <code>helm/queue-chart</code>?»</p>
+<p>Честный ответ: сейчас это отдельные raw manifests; их нужно либо применить</p>
+<p>отдельной Argo Application, либо перенести в templates chart.</p>
+<br/>
+<h3>Упражнение C — почему Service находит новые pod после rollout</h3>
+<br/>
+<pre><code class="language-yaml">
+# из Service backend
+selector:
+  app: backend
+
+# из pod template Deployment
+labels:
+  app: backend
+</code></pre>
+<br/>
+<p>Service не знает hash ReplicaSet и имена pod. Пока label совпадает и readiness</p>
+<p>успешна, новый pod автоматически попадает в EndpointSlice Service. Поэтому</p>
+<p>можно заменить pod без смены URL <code>http://backend:8080</code>.</p>
+<br/>
+<h2>19. План живой демонстрации на защите (5–7 минут)</h2>
+<br/>
+<p>1. Откройте Argo CD и скажите: «Это GitOps controller. Healthy — ресурсы</p>
+<p>   готовы; Synced — они совпадают с Git revision, а не просто с тем, что я</p>
+<p>   нажал вручную».</p>
+<p>2. Покажите <code>values.yaml</code>: «В этом файле меняются параметры release: tag,</p>
+<p>   replicas, resources; шаблоны не дублируются для каждого окружения».</p>
+<p>3. Откройте <code>templates/backend.yaml</code>, покажите строки <code>replicas</code>, <code>image</code>,</p>
+<p>   <code>envFrom</code>, probes. Проговорите цепочку values → template → Deployment → RS</p>
+<p>   → Pod.</p>
+<p>4. Вернитесь к дереву: «0 pod у старых ReplicaSet — нормальная история</p>
+<p>   rollout. Активный RS имеет текущие ready pod; service выбирает их по</p>
+<p>   label». Не утверждайте это без команды <code>kubectl get rs</code>.</p>
+<p>5. Откройте <code>backend-configmap.yaml</code> Helm и <code>tracing.go</code>: «ENV Jaeger →</p>
+<p>   InitTracer → OTLP/HTTP → Jaeger; JSON logs несут trace_id, Prometheus берёт</p>
+<p>   <code>/metrics</code>».</p>
+<p>6. Закончите честным improvement: «Я бы убрал секреты из Git, вынес</p>
+<p>   observability в тот же GitOps контур, добавил persistent storage Loki и</p>
+<p>   отделил DB migrations в Job».</p>
+<br/>
+<h2>20. Вопросы комиссии и короткие сильные ответы</h2>
+<br/>
+<table><thead><tr><th>Вопрос</th><th>Ответ</th></tr></thead><tbody>
+<tr><td>Зачем Kubernetes, если есть Compose?</td><td>Compose хорошо запускает набор контейнеров на одном host. Kubernetes добавляет scheduler, desired state, rolling update, service discovery, probes и multi-node модель.</td></tr>
+<tr><td>Что делает Helm?</td><td>Рендерит параметризованные Kubernetes YAML из templates и values. Helm не заменяет Kubernetes и не запускает container сам.</td></tr>
+<tr><td>Helm и Argo CD — одно и то же?</td><td>Нет. Helm — packaging/template engine. Argo CD — GitOps controller, который в данном проекте вызывает Helm render и синхронизирует результат с кластером.</td></tr>
+<tr><td>Что является source of truth?</td><td>Для GitOps — chart/values <strong>в revision, указанной Argo Application</strong>. Для локальной среды — Compose+<code>.env</code>. Raw <code>k8s/</code> нельзя считать source of truth одновременно с chart.</td></tr>
+<tr><td>Почему старые ReplicaSet не удалены?</td><td>Это revision history Deployment для rollback. После rollout их replicas=0, поэтому pods нет. Историю ограничивают <code>revisionHistoryLimit</code>, если она становится слишком большой.</td></tr>
+<tr><td>Почему Service не создаёт pod?</td><td>Service — стабильный виртуальный адрес и selector, controller’ом pod является Deployment/ReplicaSet.</td></tr>
+<tr><td>Чем liveness отличается от readiness?</td><td>Liveness failure перезапускает container. Readiness failure не перезапускает, но убирает pod из endpoints Service до готовности.</td></tr>
+<tr><td>Почему PostgreSQL один pod?</td><td>Это stateful сервис с RWO disk; текущий chart выбирает простоту. Высокая доступность БД потребует StatefulSet, replication/failover и другой storage design.</td></tr>
+<tr><td>Что произойдёт при изменении tag образа?</td><td>Изменится pod template → новый ReplicaSet → rolling update согласно maxSurge/maxUnavailable → старый scale down. <code>IfNotPresent</code> означает, что нужный tag уже должен быть доступен на node/в registry.</td></tr>
+<tr><td>Почему <code>:latest</code> плох?</td><td>Tag изменяемый, сложно понять что реально запущено и откатиться. Лучше immutable tag или image digest.</td></tr>
+<tr><td>Что такое ConfigMap и Secret?</td><td>Оба передают config в pod; Secret — отдельный API-object/access policy, но <code>stringData</code>/base64 не защищают секрет, если он лежит в Git.</td></tr>
+<tr><td>Что делает <code>envFrom</code>?</td><td>Импортирует все keys ConfigMap/Secret как ENV контейнера. Это удобно, но скрывает список зависимостей; для критичных values иногда лучше явный <code>env</code>.</td></tr>
+<tr><td>Почему <code>/ready</code> проверяет БД?</td><td>Backend без БД не может обслужить бизнес-запрос; kube-proxy не должен отправлять ему трафик.</td></tr>
+<tr><td>Что такое OTEL trace?</td><td>Связанный набор span одного запроса. Trace ID общий, у каждого span свой span ID и timing/attributes.</td></tr>
+<tr><td>Что показывает Prometheus, а что Loki?</td><td>Prometheus — агрегируемые числовые time series и alerts; Loki — дискретные logs и поиск по labels/тексту.</td></tr>
+<tr><td>Для чего Jaeger?</td><td>Посмотреть задержки и ошибки по участкам одной трассы. Нужна instrumentation каждого интересующего вызова, одного server span недостаточно для SQL/downstream детализации.</td></tr>
+<tr><td>Почему Promtail DaemonSet?</td><td>Нужен агент на каждой ноде, чтобы читать node-local pod logs. Deployment дал бы лишь несколько произвольных агентов и потерял логи других nodes.</td></tr>
+<tr><td>Что делает Ansible?</td><td>Идемпотентно описывает настройку хостов по SSH: пакеты, файлы, K3s agent/server. Он не является Kubernetes deployment engine.</td></tr>
+<tr><td>Чем <code>kubectl apply</code> хуже в GitOps?</td><td>Не хуже как инструмент, но ручное применение обходит review/audit Git и создаёт drift. В этом проекте <code>selfHeal</code> Argo может его отменить.</td></tr>
+<tr><td>Что проверите при CrashLoopBackOff?</td><td><code>kubectl describe pod</code> и events, затем <code>kubectl logs --previous</code>; ENV/Secret, command, probes, port, image tag и resource limit. Не начну с restart.</td></tr>
+<tr><td>Что проверите при Pending?</td><td><code>describe pod</code>: обычно нет ресурсов, nodeSelector/taint, PVC не bound или image scheduling constraint.</td></tr>
+<tr><td>Что улучшите первым?</td><td>Ротация раскрытых секретов и вынос из Git; затем один GitOps owner и включение observability в тот же Argo flow.</td></tr>
+</tbody></table>
+<br/>
+<h2>21. Чего не стоит утверждать на защите</h2>
+<br/>
+<li>Не говорите «Kubernetes гарантирует отсутствие простоя»: текущие backend</li>
+<p>  settings (<code>maxUnavailable: 0</code>) помогают, но реальные гарантии зависят от</p>
+<p>  ресурсов, readiness и доступности базы/ingress.</p>
+<li>Не говорите «Secret зашифрован»: в manifest <code>stringData</code>, а Kubernetes Secret</li>
+<p>  обычно base64; защита зависит от RBAC, encryption at rest и secret manager.</p>
+<li>Не говорите «Argo построит Docker image»: Argo CD в этой схеме рендерит и</li>
+<p>  применяет manifests; сборка/push/import image — другой шаг CI/release.</p>
+<li>Не говорите «все логи есть в Loki»: K8s Promtail специально отбрасывает</li>
+<p>  health и routine GET, а Loki на <code>emptyDir</code> теряет данные после пересоздания.</p>
+<li>Не говорите «все вызовы уже trace’ятся»: доказан inbound HTTP span и export;</li>
+<p>  downstream/SQL instrumentation нужно проверить отдельно.</p>
+<br/>
+<h2>22. Переход Docker Compose → Kubernetes: правильная ментальная модель</h2>
+<br/>
+<h3>22.1. Короткий ответ</h3>
+<br/>
+<p>**Нет, pod — не копия <code>docker-compose.yml</code>, и Kubernetes не запускает Docker</p>
+<p>Compose внутри каждой pod.** Compose и Kubernetes — два разных оркестратора.</p>
+<br/>
+<pre><code class="language-text">
+Docker Compose                              Kubernetes / K3s
+────────────────────────────────────────    ──────────────────────────────────
+docker-compose.yml                          Helm templates → K8s manifests
+Docker Engine                               container runtime (в K3s — containerd)
+service: backend                            Deployment backend
+container backend                           Pod backend → container backend
+Compose network + DNS                       Service backend + cluster DNS
+depends_on + healthcheck                    readiness/liveness probes + scheduler
+docker compose up                           Argo CD / kubectl / Helm reconciliation
+</code></pre>
+<br/>
+<p><strong>Контейнеры</strong> остаются как базовый способ запустить процесс: backend всё ещё</p>
+<p>работает в image <code>queue-backend:&lt;tag&gt;</code>, frontend — в <code>queue-frontend:&lt;tag&gt;</code>.</p>
+<p>Меняется тот, кто их создаёт и поддерживает:</p>
+<br/>
+<li>Compose создаёт контейнеры Docker на одной машине на основании одного YAML.</li>
+<li>Kubernetes создаёт Pod из <code>Deployment</code>; внутри Pod запускает один или</li>
+<p>  несколько OCI-контейнеров runtime’ом <code>containerd</code> (у K3s по умолчанию).</p>
+<li>Docker CLI может вообще не быть установлен на Kubernetes-ноде. Команды</li>
+<p>  <code>docker ps</code> там не обязаны показать Kubernetes Pod; вместо них используют</p>
+<p>  <code>kubectl get pods</code> или <code>k3s crictl ps</code>.</p>
+<br/>
+<p>Если Docker Compose продолжает быть запущенным на том же сервере, его</p>
+<p>контейнеры <strong>физически останутся</strong>, пока их явно не остановить:</p>
+<br/>
+<pre><code class="language-bash">
+# Только проверить Compose-сервисы; ничего не останавливает
+docker compose ps
+
+# Посмотреть Kubernetes workload
+k3s kubectl get pods -A
+</code></pre>
+<br/>
+<p>Это две независимые группы процессов. Останавливать <code>docker compose down</code></p>
+<p>можно только после того, как новый K8s-путь проверен, трафик переведён и есть</p>
+<p>backup; иначе можно выключить работающий production.</p>
+<br/>
+<h3>22.2. Почему «одна pod = весь Compose» неверно</h3>
+<br/>
+<p>В Compose project — это группа сервисов. В Kubernetes разбиение явное:</p>
+<br/>
+<pre><code class="language-text">
+docker-compose.yml                           Kubernetes-объекты
+────────────────────────────────────────     ──────────────────────────────────────────
+backend service                         →    Deployment backend (2 pod) + Service backend
+frontend service                        →    Deployment frontend (2 pod) + Service frontend
+postgres service                        →    Deployment/лучше StatefulSet postgres + Service + PVC
+prometheus service                      →    отдельный Deployment prometheus + Service
+promtail service                        →    DaemonSet promtail (по одному на node)
+postgres-exporter service               →    Deployment exporter + Service
+network default                         →    cluster network + DNS + Service selectors
+volumes postgres_data                   →    PersistentVolumeClaim postgres-pvc
+</code></pre>
+<br/>
+<p>Поэтому на node может находиться только часть приложения. Scheduler решает,</p>
+<p>где запускать pod, с учётом requests, limits, nodeSelector, taints, PVC и</p>
+<p>доступности ноды. В текущем проекте часть манифестов жёстко закрепляет</p>
+<p>workload по <code>kubernetes.io/hostname</code> или <code>control-plane</code> label; это ограничивает</p>
+<p>scheduler и делает текущую схему ближе к «нескольким специально назначенным</p>
+<p>серверам», чем к полностью динамичному кластеру.</p>
+<br/>
+<h3>22.3. Что переехало в Kubernetes в этом репозитории, а что нет</h3>
+<br/>
+<table><thead><tr><th>Компонент</th><th>Есть в Compose</th><th>Есть в raw <code>k8s/</code></th><th>Есть в Helm chart, который применяет Argo</th><th>Вывод</th></tr></thead><tbody>
+<tr><td>Backend</td><td>Да</td><td>Да</td><td>Да</td><td>Полностью описан двумя альтернативными способами K8s.</td></tr>
+<tr><td>Frontend</td><td>Да</td><td>Да</td><td>Да</td><td>То же.</td></tr>
+<tr><td>PostgreSQL + PVC</td><td>Да</td><td>Да</td><td>Да</td><td>В K8s есть диск/PVC, но это не HA БД.</td></tr>
+<tr><td>Ingress</td><td>Host Nginx</td><td>Да</td><td>Да</td><td>Compose и K8s используют разные входные контуры.</td></tr>
+<tr><td>Prometheus/Loki/Promtail/Grafana/Jaeger</td><td>Да (Jaeger отсутствует в Compose)</td><td>Да</td><td>Нет, кроме маршрутов Ingress к Jaeger/Grafana</td><td>Их надо включить отдельным Argo Application или перенести в chart.</td></tr>
+<tr><td>Alertmanager / backup</td><td>Да</td><td>Нет</td><td>Нет</td><td>При переходе на чистый K8s их нельзя «считать переехавшими».</td></tr>
+<tr><td>ML service / RAG agent / notification demo</td><td>Да</td><td>Частично</td><td>Нет</td><td>Raw manifests есть для RAG/demo, но Helm/Argo их не создаёт; ML-service вообще не имеет K8s manifest.</td></tr>
+<tr><td>Swagger</td><td>Да</td><td>Нет</td><td>Нет</td><td>В K8s-пути не описан.</td></tr>
+</tbody></table>
+<br/>
+<p>Из этого следует честный ответ для защиты: **в проекте есть гибридный период</p>
+<p>миграции, а не один законченный бесшовный deployment definition**. Argo на</p>
+<p>скриншоте управляет тем, что рендерит <code>helm/queue-chart</code>; остальное нужно</p>
+<p>проверять по отдельным Application/<code>kubectl get</code>.</p>
+<br/>
+<h3>22.4. Как один сервис «поднимается» в Kubernetes</h3>
+<br/>
+<p>Возьмём backend и пройдём цепочку без магии:</p>
+<br/>
+<pre><code class="language-text">
+1. Docker build / CI строит queue-backend:&lt;immutable-tag&gt;
+2. Image попадает в registry, доступный каждой K8s node
+3. Git меняет backend.image.tag в Helm values
+4. Argo CD замечает новый Git commit
+5. Argo CD запускает Helm render и отправляет Deployment в Kubernetes API
+6. Deployment controller создаёт новый ReplicaSet
+7. ReplicaSet просит scheduler создать Pod
+8. Scheduler выбирает node
+9. kubelet выбранной node говорит containerd скачать image и запустить container
+10. /health и /ready проходят; EndpointSlice добавляет pod к Service backend
+11. Traefik начинает направлять новые /api запросы в готовый pod
+12. Старый ReplicaSet scale down; его Pod завершаются grace period’ом
+</code></pre>
+<br/>
+<p>В Compose шаги 3–11 заменяются одной локальной командой `docker compose up -d</p>
+<p>--build`; нет API-server, scheduler, ReplicaSet, Pod, cluster Service или</p>
+<p>desired-state reconciliation.</p>
+<br/>
+<h3>22.5. Важный нюанс про images в текущей реализации</h3>
+<br/>
+<p><code>scripts/release.sh</code> делает <code>docker save | ssh … k3s ctr images import -</code> на</p>
+<p>один <code>MASTER_HOST</code>. Это может работать, когда backend всегда назначен на master</p>
+<p>через <code>nodeSelector</code>, как в Helm values. Но если pod сможет попасть на worker,</p>
+<p>на worker image может отсутствовать, и появится <code>ImagePullBackOff</code>.</p>
+<br/>
+<p>Production-подход масштабируется так:</p>
+<br/>
+<pre><code class="language-text">
+CI builds image → push registry.example/queue-backend@sha256:…
+→ Helm values stores immutable tag/digest → every node can pull it
+→ scheduler may safely place pod on any eligible node
+</code></pre>
+<br/>
+<p>Для защиты: не надо утверждать, что текущий <code>ctr import</code> — полноценный image</p>
+<p>registry. Это учебный/малый-cluster workaround; registry решает distribution,</p>
+<p>а CI добавляет scan, provenance и повторяемость build.</p>
+<br/>
+<h2>23. Как DevOps проектируют такой проект: от простого к сложному</h2>
+<br/>
+<p>Ниже не «единственный правильный порядок», а практичный порядок зависимостей.</p>
+<p>Нельзя развернуть приложение в кластере, пока нет нод и сети; нельзя полезно</p>
+<p>строить алерты, пока неизвестны health/SLO и приложение не отдаёт метрики.</p>
+<br/>
+<pre><code class="language-text">
+0. Требования и границы
+1. Код приложения, контейнеры, локальная среда
+2. Базовая инфраструктура серверов
+3. Kubernetes-кластер и доступ к нему
+4. Registry, namespaces, policy и storage
+5. Platform-слой: ingress, certs, secrets, GitOps
+6. Application manifests/Helm и миграции
+7. Observability: metrics/logs/traces/alerts
+8. CI/CD и release process
+9. Надёжность: backup, restore drill, scaling, security, runbooks
+</code></pre>
+<br/>
+<h3>Шаг 0. Сформулировать эксплуатационные требования</h3>
+<br/>
+<p>До выбора Helm или Kubernetes DevOps вместе с командой фиксирует:</p>
+<br/>
+<li>какие компоненты есть: frontend, API, БД, внешние integrations, background</li>
+<p>  workers, ML/RAG;</p>
+<li>SLO: например доступность API, p95 latency, RPO/RTO базы;</li>
+<li>предполагаемую нагрузку, бюджет CPU/RAM/disk;</li>
+<li>где будут храниться secrets, образы, бэкапы и логи;</li>
+<li>окружения (local/dev/staging/prod), домены/TLS и кто имеет доступ;</li>
+<li>как делать rollback и кто реагирует на alert.</li>
+<br/>
+<p>Это объясняет, <strong>почему</strong> в проекте есть <code>resources</code>, probes, backup, Loki и</p>
+<p>Alertmanager, а не просто набор YAML «для галочки».</p>
+<br/>
+<h3>Шаг 1. Сначала сделать приложение пригодным для запуска</h3>
+<br/>
+<p>Разработчик и DevOps совместно задают договор контейнера:</p>
+<br/>
+<pre><code class="language-text">
+image → command → port → ENV → persistent data → health/readiness → logs → metrics
+</code></pre>
+<br/>
+<p>В вашем backend это уже видно:</p>
+<br/>
+<table><thead><tr><th>Нужда платформы</th><th>Реализация в проекте</th></tr></thead><tbody>
+<tr><td>Предсказуемый процесс</td><td><code>backend/Dockerfile</code>, <code>ENTRYPOINT [&quot;/app/api&quot;]</code>.</td></tr>
+<tr><td>Настройка без пересборки</td><td><code>config.Load()</code> читает ENV; K8s даёт их через ConfigMap/Secret.</td></tr>
+<tr><td>Готовность/живость</td><td><code>router.go</code> реализует <code>/health</code>, <code>/ready</code>; Deployment использует их в probes.</td></tr>
+<tr><td>Корректное завершение</td><td><code>main.go</code> слушает SIGTERM/SIGINT и вызывает server shutdown. Kubernetes посылает SIGTERM при rollout.</td></tr>
+<tr><td>Логи</td><td><code>slog</code> пишет JSON stdout; Promtail читает stdout через node logs.</td></tr>
+<tr><td>Метрики</td><td><code>promhttp.Handler()</code> выдаёт <code>/metrics</code>; Prometheus scrape’ит endpoint.</td></tr>
+<tr><td>Трейсы</td><td><code>InitTracer</code> и middleware создают/экспортируют spans.</td></tr>
+</tbody></table>
+<br/>
+<p>Именно поэтому observability встраивают <strong>в код рано</strong>, вместе с endpoint</p>
+<p>здоровья и graceful shutdown, а инфраструктуру сбора/хранения можно подключить</p>
+<p>следующим шагом. Иначе после инцидента будет нечем доказательно диагностировать</p>
+<p>проблему.</p>
+<br/>
+<h3>Шаг 2. Собрать и проверить локальную среду Compose</h3>
+<br/>
+<p>Compose — полезная нижняя ступень, не «устаревшая ошибка»:</p>
+<br/>
+<pre><code class="language-bash">
+./scripts/validate_env.sh .env       # проверка конфигурации
+docker compose up --build -d         # собрать и запустить сервисы
+docker compose ps                    # статус контейнеров
+docker compose logs -f backend       # посмотреть JSON-логи
+curl -fsS http://127.0.0.1:&lt;HTTP_PORT&gt;/ready
+</code></pre>
+<br/>
+<p>Здесь проверяют: image действительно собирается, ENV достаточны, API видит БД,</p>
+<p>ports не конфликтуют, logs/metrics существуют. Compose остаётся для локальной</p>
+<p>разработки, интеграционных тестов и небольшого single-host deployment даже</p>
+<p>после появления K8s; он не обязан «исчезнуть из репозитория».</p>
+<br/>
+<h3>Шаг 3. Подготовить серверы Ansible-ом</h3>
+<br/>
+<p>Ansible работает <strong>до Kubernetes workload</strong>, потому что ему нужны SSH-доступ,</p>
+<p>ОС и ноды. Типовая последовательность:</p>
+<br/>
+<pre><code class="language-text">
+VM/servers provisioned
+→ SSH keys, users, firewall, update OS
+→ Ansible inventory/group vars/Vault
+→ install K3s server на control-plane
+→ забрать/настроить kubeconfig
+→ install K3s agents на workers
+→ проверить nodes и cluster networking
+</code></pre>
+<br/>
+<p>Команды с текущими файлами требуют сначала исправить <code>hosts: k3s_nodes</code> в</p>
+<p><code>ansible/setup_k3s.yml</code> или добавить такую inventory group:</p>
+<br/>
+<pre><code class="language-bash">
+ansible-inventory -i ansible/inventory.ini --graph
+ansible-playbook -i ansible/inventory.ini ansible/install_fail2ban.yml
+# После исправления inventory/playbook target:
+ansible-playbook -i ansible/inventory.ini ansible/setup_k3s.yml
+ansible-playbook -i ansible/inventory.ini ansible/join_worker.yml
+</code></pre>
+<br/>
+<p>Проверка кластера:</p>
+<br/>
+<pre><code class="language-bash">
+export KUBECONFIG=/path/to/private/k3s.yaml
+kubectl get nodes -o wide
+kubectl get pods -A
+kubectl cluster-info
+</code></pre>
+<br/>
+<p>Нельзя безопасно копировать literal join token/kubeconfig из этого репозитория:</p>
+<p>они раскрыты и подлежат ротации. В нормальном проекте это Ansible Vault или</p>
+<p>секрет CI, а не <code>vars</code> playbook.</p>
+<br/>
+<h3>Шаг 4. Развернуть базовый platform layer</h3>
+<br/>
+<p>До application обычно создают:</p>
+<br/>
+<p>1. <strong>Namespace</strong> — логическая граница (<code>queue-system</code>).</p>
+<p>2. <strong>StorageClass/PVC policy</strong> — где Postgres/Loki будут хранить данные.</p>
+<p>3. <strong>Ingress controller</strong> — в K3s обычно уже включён Traefik; проверить,</p>
+<p>   а не предполагать: <code>kubectl get pods -n kube-system</code>.</p>
+<p>4. <strong>TLS/cert-manager</strong> и DNS — чтобы ingress был HTTPS, а не только HTTP.</p>
+<p>5. <strong>Registry</strong> — доступный всем nodes, и <code>imagePullSecrets</code> если нужен.</p>
+<p>6. <strong>Secrets policy</strong> — Vault/External Secrets/Sealed Secrets и минимальный</p>
+<p>   RBAC.</p>
+<p>7. <strong>ResourceQuota/LimitRange/NetworkPolicy</strong> — когда есть несколько команд</p>
+<p>   или production risk.</p>
+<br/>
+<p>В текущем chart namespace может создать Argo (<code>CreateNamespace=true</code>),</p>
+<p><code>local-path</code> storage использован для PostgreSQL, а Traefik указан через</p>
+<p>annotation. cert-manager, registry, NetworkPolicy, quotas и внешнее secret</p>
+<p>management пока не описаны в репозитории.</p>
+<br/>
+<h3>Шаг 5. Поставить Argo CD и описать GitOps</h3>
+<br/>
+<p>Это platform component, устанавливаемый <strong>до</strong> приложения. Типовая схема:</p>
+<br/>
+<pre><code class="language-bash">
+# пример команд; версия/репозиторий выбираются командой и фиксируются в IaC
+kubectl create namespace argocd
+helm repo add argo https://argoproj.github.io/argo-helm
+helm repo update
+helm upgrade --install argocd argo/argo-cd -n argocd
+
+# Затем применяют только Argo Application из Git
+kubectl apply -f k8s/argocd-app.yaml
+</code></pre>
+<br/>
+<p>В результате Argo получает ограниченный доступ к Git и Kubernetes API. Его</p>
+<p>Application указывает repo/revision/path/destination. Для production</p>
+<p>обычно добавляют <code>AppProject</code>, ограничивающий allowed repos/namespaces/kinds,</p>
+<p>SSO/RBAC и защищённый HTTPS ingress, а не используют <code>project: default</code>.</p>
+<br/>
+<h3>Шаг 6. Описать application в Helm, затем развернуть</h3>
+<br/>
+<p>Сначала проверяют chart локально:</p>
+<br/>
+<pre><code class="language-bash">
+helm lint helm/queue-chart
+helm template queue-release helm/queue-chart &gt; /tmp/queue.yaml
+kubectl apply --dry-run=client -f /tmp/queue.yaml
+</code></pre>
+<br/>
+<p>Далее GitOps-путь:</p>
+<br/>
+<pre><code class="language-text">
+build/push immutable image
+→ change values image tag in Argo-tracked branch
+→ pull request/review
+→ merge/push
+→ Argo refresh/sync
+→ kubectl checks + application smoke test
+</code></pre>
+<br/>
+<p>В этом проекте надо явно устранить расхождение: Argo Application следит за</p>
+<p><code>infra/k8s-gitops</code>, а <code>release.sh</code> предлагает <code>git push origin main</code>.</p>
+<p>Без единой согласованной ветки commit может быть успешным, но deployment не</p>
+<p>изменится.</p>
+<br/>
+<h3>Шаг 7. Добавить наблюдаемость как часть платформы, а не «после аварии»</h3>
+<br/>
+<p>Логический порядок такой:</p>
+<br/>
+<pre><code class="language-text">
+код отдаёт /health, /ready, /metrics, JSON logs, OTEL spans
+→ collectors/storage (Prometheus, Promtail, Loki, Jaeger)
+→ Grafana dashboards
+→ alert rules + Alertmanager route
+→ runbook: кто, что и за сколько делает при alert
+</code></pre>
+<br/>
+<p>В этом проекте прикладная часть уже реализует health/readiness/metrics/traces,</p>
+<p>а K8s manifests для collectors есть в <code>k8s/observability</code>. Но они пока не</p>
+<p>входят в Helm chart, который синхронизирует Argo. Следующий логичный шаг —</p>
+<p>отдельный <code>Application</code> для observability или перенос manifests в chart;</p>
+<p>так monitoring получает тот же audit trail/reconciliation, что и приложение.</p>
+<br/>
+<h3>Шаг 8. Построить CI, release и rollback</h3>
+<br/>
+<p>Полноценный pipeline отличается от текущего локального <code>release.sh</code>:</p>
+<br/>
+<pre><code class="language-text">
+commit → unit/integration tests → build image → vulnerability scan
+→ push immutable image to registry → update GitOps values
+→ Argo deploys → smoke test / metrics check → promote/rollback
+</code></pre>
+<br/>
+<p><code>.gitlab-ci.yml</code> пуст, поэтому GitLab CI ещё не выполняет эту цепочку.</p>
+<p>На защите корректно назвать <code>release.sh</code> временным release helper, а не</p>
+<p>полноценным CI/CD. Rollback обычно означает вернуть Git commit/tag и дождаться</p>
+<p>Argo sync; <code>kubectl rollout undo</code> полезен аварийно, но после него Git должен</p>
+<p>быть приведён к тому же desired state.</p>
+<br/>
+<h3>Шаг 9. Усложнять только после базовой работоспособности</h3>
+<br/>
+<p>Когда базовый путь стабилен, добавляют HPA/VPA, PDB, multi-zone storage,</p>
+<p>Postgres HA, canary/blue-green, policy-as-code, cost monitoring, disaster</p>
+<p>recovery exercises. Это нельзя достоверно «получить» одним YAML — каждое</p>
+<p>усложнение требует метрик, тестов отказа и runbook.</p>
+<br/>
+<h2>24. Полная логика проекта как рассказ на защите</h2>
+<br/>
+<p>Вот последовательный рассказ, который связывает все инструменты без прыжков:</p>
+<br/>
+<p>1. «У нас Go API, React frontend и PostgreSQL. Я сначала сделал каждый</p>
+<p>   компонент контейнеризуемым: Dockerfile даёт повторяемый image, ENV —</p>
+<p>   конфигурацию, <code>/health</code>/<code>/ready</code> — контракт с оркестратором». </p>
+<p>2. «Для разработки и проверки всего набора на одной машине использую Compose.</p>
+<p>   Он создаёт Docker containers и сеть, но не даёт multi-node scheduling и</p>
+<p>   desired-state controller». </p>
+<p>3. «Для серверов Ansible по SSH готовит OS/ноды и устанавливает K3s; K3s даёт</p>
+<p>   Kubernetes API, scheduler, containerd runtime и сетевую модель кластера». </p>
+<p>4. «В Kubernetes я не переношу Compose как один pod. Backend, frontend и DB —</p>
+<p>   самостоятельные workload; Service даёт стабильную связь, PVC — постоянные</p>
+<p>   данные, Ingress/Traefik — внешний HTTP». </p>
+<p>5. «Helm убирает копирование YAML: values хранят параметры, templates создают</p>
+<p>   Deployment/Service. Изменение image tag создаёт новый ReplicaSet и rolling</p>
+<p>   update, поэтому старые RS с 0 pod в Argo — ожидаемая history». </p>
+<p>6. «Argo CD берёт этот Helm chart из Git и синхронизирует desired state, что</p>
+<p>   делает Git audit trail. Ручной <code>kubectl edit</code> не является обычным путём». </p>
+<p>7. «Наблюдаемость проектировалась контрактом приложения: Prometheus metrics,</p>
+<p>   JSON logs → Loki, OTel spans → Jaeger, Grafana объединяет просмотр; alerts</p>
+<p>   идут через Alertmanager». </p>
+<p>8. «Дальнейшие улучшения: удалить secrets из Git, единый registry/CI, сделать</p>
+<p>   monitoring частью Argo, persistent storage observability и отдельный Job</p>
+<p>   миграций». </p>
+<br/>
+<p>Если вас спросят «почему не сразу Kubernetes?», ответ: «Compose быстрее</p>
+<p>отлаживает локальный комплект и остаётся dev-инструментом. Kubernetes</p>
+<p>оправдан, когда нужны управляемые rollout, self-healing, стабильная сервисная</p>
+<p>сеть и несколько нод. Мы не дублируем Compose в pod, мы переводим каждый</p>
+<p>сервис в подходящий Kubernetes workload».</p>
+<br/>
+<h2>25. Kubernetes без магии: 12 основ, которые должен знать новичок</h2>
+<br/>
+<h3>25.1. Desired state и controllers</h3>
+<br/>
+<p>В Kubernetes обычно не пишут «запусти container прямо сейчас». Вместо этого</p>
+<p>пишут desired state: «должны существовать два ready pod backend с таким image».</p>
+<p>Controller постоянно сравнивает желаемое (<code>spec</code>) и фактическое (<code>status</code>):</p>
+<br/>
+<pre><code class="language-text">
+spec.replicas = 2, а фактически один pod жив
+→ Deployment controller создаёт/просит ReplicaSet
+→ ReplicaSet создаёт второй Pod
+→ scheduler назначает node
+→ kubelet запускает container
+→ status.readyReplicas становится 2
+</code></pre>
+<br/>
+<p>Это и называется <strong>reconciliation loop</strong>. Self-healing — не магическое</p>
+<p>свойство контейнера: если pod умер, controller замечает расхождение и создаёт</p>
+<p>новый. Данные в <code>emptyDir</code> при этом потеряются; состояние должно жить во</p>
+<p>внешней БД/PVC/object storage.</p>
+<br/>
+<h3>25.2. Namespace — не node и не окружение автоматически</h3>
+<br/>
+<p>Namespace группирует API-объекты и ограничивает их scope. <code>queue-system</code> в</p>
+<p>этом проекте — namespace приложения, <code>argocd</code> — namespace GitOps-controller.</p>
+<br/>
+<pre><code class="language-bash">
+# Одна и та же команда с разными scope
+kubectl get pods -n queue-system
+kubectl get pods -n argocd
+kubectl get pods -A                 # все namespaces
+kubectl config set-context --current --namespace=queue-system
+</code></pre>
+<br/>
+<p><code>namespace=staging</code> сам по себе не создаёт отдельный кластер, DNS, secrets и</p>
+<p>database. Изоляцию дополняют отдельными values, RBAC, quotas, NetworkPolicy и,</p>
+<p>иногда, отдельным кластером.</p>
+<br/>
+<h3>25.3. Labels, selectors и annotations</h3>
+<br/>
+<pre><code class="language-yaml">
+metadata:
+  labels:
+    app: backend                 # короткое индексируемое свойство
+    app.kubernetes.io/version: v3
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
+</code></pre>
+<br/>
+<li><strong>Label</strong> — короткое поле для отбора/группировки. Service выбирает pods по</li>
+<p>  label; <code>kubectl get pods -l app=backend</code> использует тот же механизм.</p>
+<li><strong>Selector</strong> — запрос к labels. Если Service selector не совпал с Pod labels,</li>
+<p>  Service будет иметь ноль endpoints, хотя pod может быть <code>Running</code>.</p>
+<li><strong>Annotation</strong> — не предназначена для selector, это произвольная метаинформация</li>
+<p>  для controller/инструмента. В project Traefik читает annotation Ingress.</p>
+<br/>
+<h3>25.4. Pod, container и sidecar</h3>
+<br/>
+<p>Pod — единица scheduling: контейнеры внутри одного pod разделяют сеть</p>
+<p>(<code>localhost</code>), IP и volumes. Не обязательно один pod = один контейнер.</p>
+<br/>
+<pre><code class="language-text">
+Pod backend
+ ├─ app container        :8080
+ └─ (возможный) sidecar  : например proxy/agent
+</code></pre>
+<br/>
+<p>В текущем backend pod один container, поэтому <code>1/1</code>. Sidecar для логов в этом</p>
+<p>проекте не нужен: Promtail как DaemonSet читает node-level stdout logs. Не</p>
+<p>добавляйте sidecar «потому что так принято» — он увеличивает ресурсы, probes и</p>
+<p>сложность shutdown.</p>
+<br/>
+<h3>25.5. Service и DNS</h3>
+<br/>
+<p>Pod IP временный. Pod после restart получит новое имя/IP. Service создаёт</p>
+<p>постоянное виртуальное имя и выбирает готовые endpoints:</p>
+<br/>
+<pre><code class="language-text">
+backend pod IPs: 10.42.1.18, 10.42.2.91 (могут меняться)
+Service DNS:    backend.queue-system.svc.cluster.local
+Короткое имя:   backend          (из pod того же namespace)
+</code></pre>
+<br/>
+<p>Поэтому ConfigMap задаёт <code>POSTGRES_HOST: postgres</code>, а RAG —</p>
+<p><code>BACKEND_URL=http://backend:8080</code>: это cluster DNS, не хардкод IP. <code>ClusterIP</code></p>
+<p>доступен внутри кластера. Внешний трафик приходит через Ingress/LoadBalancer,</p>
+<p>а не через pod IP.</p>
+<br/>
+<h3>25.6. Ingress и Traefik</h3>
+<br/>
+<p>Ingress — правило маршрутизации HTTP(S), сам YAML не открывает порт. Его</p>
+<p>исполняет ingress controller; в K3s это обычно Traefik.</p>
+<br/>
+<pre><code class="language-text">
+Internet → DNS → node:80/443 → Traefik
+  /api/* → Service backend:8080 → ready backend Pod
+  /*     → Service frontend:80  → ready frontend Pod
+</code></pre>
+<br/>
+<p>Порядок маршрутов, <code>pathType</code>, host и TLS имеют значение. <code>pathType: Prefix</code></p>
+<p>в проекте означает, что <code>/api</code> покрывает <code>/api/...</code>. Для реального домена</p>
+<p>нужны DNS record, TLS certificate и ingress-controller; одного файла Ingress</p>
+<p>недостаточно.</p>
+<br/>
+<h3>25.7. Scheduler, requests, limits, taints, nodeSelector</h3>
+<br/>
+<pre><code class="language-yaml">
+resources:
+  requests:
+    cpu: 100m       # scheduler резервирует 0.1 CPU
+    memory: 64Mi    # scheduler учитывает минимум RAM
+  limits:
+    cpu: 500m       # потолок CPU: throttling при превышении
+    memory: 256Mi   # превышение обычно приводит к OOMKilled
+</code></pre>
+<br/>
+<p><code>m</code> у CPU означает millicores: <code>100m = 0.1</code> CPU. <code>Mi</code> — mebibytes.</p>
+<p>Requests помогают scheduler решить, поместится ли pod; limits защищают node от</p>
+<p>одного прожорливого container. Неверные маленькие requests дают Pending/OOM,</p>
+<p>а слишком большие — пустой дорогой кластер. Их выбирают по измерениям.</p>
+<br/>
+<p><code>nodeSelector</code> в chart backend требует label control-plane. Это **жёсткое</p>
+<p>условие**: scheduler не разместит pod на worker без этого label. Taint</p>
+<p>отталкивает pods от node, toleration разрешает игнорировать конкретный taint.</p>
+<p>В Promtail DaemonSet есть tolerations, поэтому он работает и на control-plane.</p>
+<br/>
+<h3>25.8. Liveness, readiness и startup probe</h3>
+<br/>
+<table><thead><tr><th>Проверка</th><th>Вопрос</th><th>При ошибке</th><th>В вашем проекте</th></tr></thead><tbody>
+<tr><td>livenessProbe</td><td>«Процесс безнадёжно завис?»</td><td>kubelet перезапускает container</td><td>backend <code>/health</code>; frontend <code>/healthz</code>.</td></tr>
+<tr><td>readinessProbe</td><td>«Можно ли давать трафик?»</td><td>Pod исключается из Service endpoints</td><td>backend <code>/ready</code> проверяет БД.</td></tr>
+<tr><td>startupProbe</td><td>«Долго ли приложение стартует?»</td><td>Пока она не прошла, liveness/readiness не мешают запуску</td><td>Сейчас нет; полезна для медленных migration/cold start.</td></tr>
+</tbody></table>
+<br/>
+<p>Не делайте liveness проверкой удалённой БД: временный сбой БД начнёт бесконечно</p>
+<p>перезапускать здоровые API pod. Для backend корректно разделить лёгкий</p>
+<p><code>/health</code> и зависимый <code>/ready</code>, как сделано здесь.</p>
+<br/>
+<h3>25.9. Deployment, StatefulSet, DaemonSet, Job и CronJob</h3>
+<br/>
+<table><thead><tr><th>Workload</th><th>Когда выбирать</th><th>Пример из/для проекта</th></tr></thead><tbody>
+<tr><td>Deployment</td><td>Stateless API/UI, взаимозаменяемые replicas</td><td>backend, frontend, Grafana, Jaeger.</td></tr>
+<tr><td>StatefulSet</td><td>Stable identity/storage/упорядоченный lifecycle</td><td>Лучше подходит для production PostgreSQL, чем Deployment.</td></tr>
+<tr><td>DaemonSet</td><td>Один pod на каждую eligible node</td><td>Promtail.</td></tr>
+<tr><td>Job</td><td>Одноразовая работа до успешного завершения</td><td>DB migration, data import.</td></tr>
+<tr><td>CronJob</td><td>Job по расписанию</td><td>backup PostgreSQL.</td></tr>
+</tbody></table>
+<br/>
+<p>Текущий Postgres описан Deployment + PVC — допустимо для учебного singleton,</p>
+<p>но не превращает его в HA БД. Compose backup-container при переносе в K8s</p>
+<p>логичнее стать CronJob с Secret/PVC/object-storage target.</p>
+<br/>
+<h3>25.10. Volumes: ephemeral и persistent</h3>
+<br/>
+<table><thead><tr><th>Тип</th><th>Живёт сколько</th><th>Пример</th></tr></thead><tbody>
+<tr><td>container filesystem</td><td>до пересоздания container</td><td>временные файлы приложения.</td></tr>
+<tr><td><code>emptyDir</code></td><td>до удаления Pod</td><td>positions Promtail, текущий Loki storage — поэтому логи теряются.</td></tr>
+<tr><td>ConfigMap/Secret volume</td><td>управляется API, read-only по смыслу</td><td>config/credentials, init.sql.</td></tr>
+<tr><td>PVC/PV</td><td>независимо от pod (по policy storage)</td><td>Postgres data.</td></tr>
+</tbody></table>
+<br/>
+<p>PVC — запрос на storage, PV — выделенный actual volume. <code>ReadWriteOnce</code> не</p>
+<p>значит «ровно один pod всегда»: обычно это запрет одновременного mount с записью</p>
+<p>несколькими node. Semantics зависят от storage provider. Перед удалением PVC</p>
+<p>обязательно понять <code>reclaimPolicy</code> и сделать проверенный backup.</p>
+<br/>
+<h3>25.11. API version, manifest и server-side truth</h3>
+<br/>
+<p>YAML в Git — desired state, но Kubernetes API добавляет defaults/status и может</p>
+<p>изменять объект admission controllers. Поэтому полезны три взгляда:</p>
+<br/>
+<pre><code class="language-bash">
+# desired render до кластера
+helm template queue-release helm/queue-chart
+
+# live object и status из API server
+kubectl get deployment backend -n queue-system -o yaml
+
+# человекочитаемые причина/Events
+kubectl describe deployment backend -n queue-system
+</code></pre>
+<br/>
+<p><code>kubectl apply --dry-run=client</code> ловит часть YAML ошибок без кластера;</p>
+<p><code>--dry-run=server</code> проверяет также API/admission, но требует доступ к кластеру.</p>
+<br/>
+<h3>25.12. Почему не нужно всегда делать <code>kubectl delete pod</code></h3>
+<br/>
+<p>Удаление pod может временно заставить controller пересоздать его, но это не</p>
+<p>лечит неверный Secret, image, limit или DNS. При Stateful service может ещё и</p>
+<p>усложнить восстановление. Привычка инженера: сначала <code>get</code>, <code>describe</code>,</p>
+<p>events, <code>logs --previous</code>, затем меняем <strong>desired state</strong> в Git/Helm и</p>
+<p>проверяем rollout.</p>
+<br/>
+<h2>26. Диагностика: симптом → причина → первая безопасная команда</h2>
+<br/>
+<table><thead><tr><th>Симптом</th><th>Что чаще всего означает</th><th>Первые команды</th><th>Чего не делать первым</th></tr></thead><tbody>
+<tr><td><code>Pending</code></td><td>Scheduler не нашёл подходящую node: request, selector, taint, PVC</td><td><code>kubectl describe pod &lt;pod&gt; -n queue-system</code></td><td>Не перезапускать pod: он ещё не запускался.</td></tr>
+<tr><td><code>ImagePullBackOff</code></td><td>Image/tag недоступен node, registry auth/network</td><td><code>kubectl describe pod &lt;pod&gt;</code>; сверить rendered image</td><td>Не менять tag на <code>latest</code> наугад.</td></tr>
+<tr><td><code>CrashLoopBackOff</code></td><td>Процесс завершается: ENV, command, panic, port, migration</td><td><code>kubectl logs &lt;pod&gt; --previous</code>; <code>describe pod</code></td><td>Не запускать бесконечный rollout restart.</td></tr>
+<tr><td><code>OOMKilled</code></td><td>Container превысил memory limit</td><td><code>kubectl describe pod</code>; metrics; profile memory</td><td>Не увеличивать limit без измерений/причины.</td></tr>
+<tr><td><code>0/2 ready</code></td><td>Probe/зависимость/запуск не прошли</td><td><code>kubectl get pods</code>; <code>kubectl describe deploy backend</code></td><td>Не считать <code>Running</code> синонимом <code>Ready</code>.</td></tr>
+<tr><td>Service 0 endpoints</td><td>Labels selector не совпал либо pod не ready</td><td><code>kubectl get svc,endpointslice -n queue-system</code>; проверить labels</td><td>Не хардкодить Pod IP.</td></tr>
+<tr><td>502/504 от Ingress</td><td>Traefik не дошёл до Service/endpoints либо timeout</td><td><code>kubectl describe ingress</code>; endpoints; Traefik logs</td><td>Не сразу менять frontend.</td></tr>
+<tr><td>Argo <code>OutOfSync</code></td><td>Live отличается от Git desired state</td><td>Argo Diff; <code>argocd app diff queue-system</code></td><td>Не делать ручной edit без понимания drift.</td></tr>
+<tr><td>Argo <code>Degraded</code></td><td>Один ресурс unhealthy, не вся система обязательно мертва</td><td>Открыть resource в Tree → <code>describe</code>/logs</td><td>Не нажимать Sync многократно.</td></tr>
+</tbody></table>
+<br/>
+<p>Базовый investigation loop:</p>
+<br/>
+<pre><code class="language-bash">
+NS=queue-system
+kubectl get pods,deploy,rs,svc,ingress -n &quot;$NS&quot; -o wide
+kubectl get events -n &quot;$NS&quot; --sort-by=&#x27;.metadata.creationTimestamp&#x27; | tail -n 30
+kubectl describe pod -n &quot;$NS&quot; &lt;pod-name&gt;
+kubectl logs -n &quot;$NS&quot; &lt;pod-name&gt; --all-containers --tail=150
+kubectl logs -n &quot;$NS&quot; &lt;pod-name&gt; --previous --tail=150  # если restart был
+</code></pre>
+<br/>
+<p><code>Events</code> — часто самый быстрый источник причины: <code>FailedScheduling</code>,</p>
+<p><code>FailedMount</code>, <code>ErrImagePull</code>, <code>Unhealthy</code>. Они не хранятся вечно, поэтому</p>
+<p>важные инциденты фиксируют в тикете/логах.</p>
+<br/>
+<h2>27. GitOps, CI и release: кто за что отвечает</h2>
+<br/>
+<h3>27.1. Чёткое разделение ролей</h3>
+<br/>
+<table><thead><tr><th>Стадия</th><th>Обычный ответственный инструмент</th><th>Результат</th></tr></thead><tbody>
+<tr><td>Проверка кода</td><td>CI (в проекте пока локально <code>go test</code>)</td><td>test report.</td></tr>
+<tr><td>Build</td><td>Docker/BuildKit в CI</td><td>immutable image.</td></tr>
+<tr><td>Хранение образа</td><td>Container registry</td><td>image доступен каждой node.</td></tr>
+<tr><td>Изменение желаемой версии</td><td>Git PR/commit в values</td><td>audited Git revision.</td></tr>
+<tr><td>Render/Sync</td><td>Argo CD + Helm</td><td>Kubernetes objects.</td></tr>
+<tr><td>Запуск</td><td>K8s scheduler + kubelet + containerd</td><td>running Pod.</td></tr>
+<tr><td>Контроль после deploy</td><td>smoke test, Prometheus/Grafana/alerts</td><td>evidence that release works.</td></tr>
+</tbody></table>
+<br/>
+<p>Argo CD <strong>не является CI</strong>: он не обязан компилировать Go, запускать unit tests</p>
+<p>или строить image. Docker/registry <strong>не являются CD</strong>: они дают артефакт, но не</p>
+<p>говорят кластеру переключиться на него. Это популярная ловушка в вопросах.</p>
+<br/>
+<h3>27.2. Хорошая транзакция release</h3>
+<br/>
+<pre><code class="language-text">
+1. Developer merges application code
+2. CI tests code and builds queue-backend:&lt;git-sha&gt;
+3. CI scans and pushes image to registry
+4. Bot/engineer changes only image digest/tag in GitOps repository
+5. Review confirms rendered manifest/diff
+6. Argo syncs desired Git revision
+7. Kubernetes rolls out new RS while old remains serving
+8. Smoke test + dashboards/alerts validate release
+9. Failure → revert GitOps commit → Argo rolls back desired state
+</code></pre>
+<br/>
+<p>Отдельный GitOps repo необязателен для учебного проекта, но часто удобен:</p>
+<p>права на app code и право выкатывать production тогда можно разделить. В этом</p>
+<p>репозитории chart лежит рядом с кодом; это нормально, если protected branch и</p>
+<p>review discipline соблюдаются.</p>
+<br/>
+<h3>27.3. Rollout, rollback и четыре разных «версии»</h3>
+<br/>
+<p>Не смешивайте:</p>
+<br/>
+<p>1. <strong>Git commit</strong> — история исходников/values.</p>
+<p>2. <strong>Docker image tag/digest</strong> — какой бинарник запущен.</p>
+<p>3. <strong>Helm release revision</strong> — история Helm installation (если Helm управляет</p>
+<p>   release напрямую).</p>
+<p>4. <strong>Deployment/ReplicaSet revision</strong> — история изменения Pod template.</p>
+<br/>
+<p>Лучший GitOps rollback — revert commit с image tag и дождаться Argo Sync. Это</p>
+<p>сохраняет Git/live согласованными. <code>kubectl rollout undo deployment/backend</code></p>
+<p>может быстро восстановить старый ReplicaSet, но затем надо зафиксировать</p>
+<p>соответствующий desired state в Git, иначе Argo вернёт новую версию.</p>
+<br/>
+<h2>28. Security: базовая модель угроз для этой схемы</h2>
+<br/>
+<h3>28.1. Что защищаем</h3>
+<br/>
+<li>credentials БД, внешних API, Telegram, OAuth, TLS private keys;</li>
+<li>kubeconfig и service-account tokens — они дают доступ к кластеру;</li>
+<li>container registry credentials;</li>
+<li>персональные данные и backup PostgreSQL;</li>
+<li>возможность изменить image tag/Helm values/Argo Application;</li>
+<li>ingress и сетевые пути между services.</li>
+<br/>
+<h3>28.2. Минимальные правила</h3>
+<br/>
+<p>1. Секрет не хранится в Git, shell history, Dockerfile или Docker image layer.</p>
+<p>2. При утечке token/password <strong>ротируют</strong>, а не только удаляют строку из файла.</p>
+<p>3. Каждый человек/CI service account получает минимальные RBAC права.</p>
+<p>4. Для production image закрепляют digest/tag, сканируют и берут из trusted</p>
+<p>   registry.</p>
+<p>5. TLS завершается в ingress; доступ к Grafana/Argo защищён SSO/RBAC, а не</p>
+<p>   общим <code>admin</code> password.</p>
+<p>6. NetworkPolicy ограничивает, кому доступны Postgres и observability ports.</p>
+<p>7. Backup шифруют, ограничивают к нему доступ и регулярно делают restore test.</p>
+<br/>
+<h3>28.3. Почему Kubernetes Secret недостаточен сам по себе</h3>
+<br/>
+<p><code>Secret</code> удобен, потому что Pod может прочитать его по ссылке и RBAC способен</p>
+<p>ограничить API access. Но <code>stringData</code> становится base64 <code>data</code>, а base64 не</p>
+<p>шифрует. Security зависит от того, кто читает Git/etcd/API, включено ли</p>
+<p>encryption at rest и откуда secret попал в cluster. В текущем проекте пароли и</p>
+<p>tokens уже в tracked manifests, поэтому учебно важное улучшение — их ротация и</p>
+<p>внешний secret manager.</p>
+<br/>
+<h2>29. Scaling и отказоустойчивость — что реально означает «2 реплики»</h2>
+<br/>
+<p>Две backend replicas помогают, если одновременно верны условия:</p>
+<br/>
+<pre><code class="language-text">
+оба pod готовы
+AND Service имеет оба endpoint
+AND Ingress/cluster network работают
+AND PostgreSQL/внешние зависимости доступны
+AND replicas не лежат на единственной упавшей node
+</code></pre>
+<br/>
+<p>В текущем values backend имеет 2 replicas, но <code>nodeSelector</code> целит их в</p>
+<p>control-plane. Если это одна node, две replicas защищают от падения процесса</p>
+<p>или rollout, но не от падения самой node. Для node-level HA нужны как минимум</p>
+<p>несколько eligible nodes, anti-affinity/topology spread и доступное shared/</p>
+<p>replicated storage. Это хороший зрелый ответ вместо обещания «у нас HA, потому</p>
+<p>что replicas: 2».</p>
+<br/>
+<h3>HPA, PDB и autoscaling простыми словами</h3>
+<br/>
+<li><strong>HPA</strong> меняет <code>spec.replicas</code> по CPU/memory/custom metrics. Нужны metrics</li>
+<p>  API, корректные requests и stateless API; HPA не решает capacity, если node</p>
+<p>  уже полны.</p>
+<li><strong>Cluster autoscaler</strong> добавляет node, если cloud/infra позволяет; он не</li>
+<p>  заменяет HPA.</p>
+<li><strong>PDB</strong> задаёт, сколько pod приложения может быть добровольно недоступно</li>
+<p>  при drain/maintenance. Он не спасает от внезапного падения node.</p>
+<li><strong>Anti-affinity/topology spread</strong> стараются разнести replicas по node/zone.</li>
+<br/>
+<p>Их пока нет в chart — это нормальное обозначение следующего этапа, а не то,</p>
+<p>что стоит симулировать без метрик и capacity plan.</p>
+<br/>
+<h2>30. Практический чек-лист перед защитой</h2>
+<br/>
+<h3>За день до защиты</h3>
+<br/>
+<li>[ ] Не показывать реальные токены, kubeconfig, IP/пароли; подготовить</li>
+<p>  redacted screenshots/values.</p>
+<li>[ ] Открыть Argo CD Tree и убедиться, что <code>Healthy</code>/<code>Synced</code> актуальны.</li>
+<li>[ ] Выполнить <code>kubectl get deploy,rs,pods,svc -n queue-system</code> и понять,</li>
+<p>  какой ReplicaSet текущий и почему старые имеют 0 pods.</p>
+<li>[ ] Проверить <code>/health</code>, <code>/ready</code>, <code>/metrics</code>, один Grafana dashboard и один</li>
+<p>  Jaeger trace (если компоненты реально запущены).</p>
+<li>[ ] Подготовить вывод <code>helm template</code> или два файла рядом: values + template.</li>
+<li>[ ] Знать различие current implementation vs roadmap: отдельные raw</li>
+<p>  observability manifests, secrets в Git, отсутствующий registry/CI pipeline.</p>
+<li>[ ] Не запускать destructive backup restore, <code>docker compose down</code>, prune или</li>
+<p>  rollout во время демонстрации без заранее проверенного плана.</p>
+<br/>
+<h3>Во время демонстрации</h3>
+<br/>
+<pre><code class="language-text">
+Сначала — архитектура и задача.
+Затем — один конкретный путь: values → Helm template → Argo → Deployment/RS/Pod.
+Потом — один пользовательский запрос: Ingress → Service → backend → DB.
+В конце — observability и 2–3 честных улучшения.
+</code></pre>
+<br/>
+<p>Если что-то live не открылось, не импровизируйте ложное объяснение. Скажите:</p>
+<p>«Сейчас проверю desired/live через Tree и <code>kubectl describe</code>; это именно</p>
+<p>стандартный incident workflow». Такой ответ демонстрирует инженерный подход.</p>
+<br/>
+<h2>31. Карманная шпаргалка команд</h2>
+<br/>
+<pre><code class="language-bash">
+# Где я и какой кластер использую?
+kubectl config current-context
+kubectl config view --minify
+kubectl get nodes -o wide
+
+# Что живо в namespace?
+kubectl get all -n queue-system
+kubectl get pvc,ingress -n queue-system
+
+# Почему конкретный pod не готов?
+kubectl describe pod -n queue-system &lt;pod&gt;
+kubectl logs -n queue-system &lt;pod&gt; --tail=100
+kubectl logs -n queue-system &lt;pod&gt; --previous --tail=100
+
+# Связь Service → endpoints → labels
+kubectl get svc backend -n queue-system -o yaml
+kubectl get endpointslice -n queue-system \
+  -l kubernetes.io/service-name=backend -o yaml
+kubectl get pods -n queue-system -l app=backend --show-labels
+
+# Роллаут
+kubectl rollout status deployment/backend -n queue-system
+kubectl rollout history deployment/backend -n queue-system
+
+# До применения посмотреть Helm-результат
+helm lint helm/queue-chart
+helm template queue-release helm/queue-chart &gt; /tmp/queue-rendered.yaml
+
+# Argo CD, если CLI установлен и авторизован
+argocd app get queue-system
+argocd app diff queue-system
+argocd app history queue-system
+</code></pre>
+<br/>
+<p>Подставляйте реальное имя pod только после <code>kubectl get pods</code>; не копируйте</p>
+<p>старые имена ReplicaSet/Pod из скриншота — они намеренно изменяются при каждом</p>
+<p>rollout.</p>
+<br/>
+</body>
+</html>

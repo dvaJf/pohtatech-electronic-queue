@@ -600,7 +600,29 @@ function QualitySection({ quality }: { quality: AdminBranchOverview['quality'] }
     </div>
     {total > 0 && <div className="mt-5 grid gap-5 lg:grid-cols-2">
       <div><h3 className="mb-3 text-sm font-bold text-slate-800">Распределение оценок</h3>{[5,4,3,2,1].map(star => { const count = quality.distribution[String(star) as '1']; const percent = Math.round(count / total * 100); return <div key={star} className="mb-2 flex items-center gap-2 text-xs"><span className="w-8 font-bold">{star} ★</span><div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-amber-400" style={{ width: `${percent}%` }} /></div><span className="w-9 text-right text-slate-600">{percent}%</span></div>; })}</div>
-      <div className="space-y-3"><div className="rounded-2xl bg-rose-50 p-3 text-sm text-rose-900"><strong>{quality.lowRatingCount}</strong> · Низкие оценки (1–2 ★)</div>{quality.recentFeedback.length > 0 && <div><h3 className="mb-2 text-sm font-bold text-slate-800">Последние отзывы</h3>{quality.recentFeedback.map((item, i) => <div className="mb-2 rounded-xl bg-slate-50 p-2 text-xs" key={`${item.createdAt}-${i}`}><strong className="text-amber-600">{'★'.repeat(item.rating)}</strong><span className="ml-2 text-slate-700">{item.comment}</span></div>)}</div>}</div>
+      <div className="space-y-3">
+        <div className="rounded-2xl bg-rose-50 p-3 text-sm text-rose-900">
+          <strong>{quality.lowRatingCount}</strong> · Низкие оценки (1–2 ★)
+        </div>
+        {quality.recentFeedback.length > 0 && (
+          <div>
+            <h3 className="mb-2 text-sm font-bold text-slate-800">Последние отзывы клиентов</h3>
+            <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+              {quality.recentFeedback.map((item, i) => (
+                <div className="rounded-xl bg-slate-50 border border-slate-200/80 p-2.5 text-xs" key={`${item.createdAt}-${i}`}>
+                  <div className="flex items-center justify-between mb-1">
+                    <strong className="text-amber-500 font-bold">{'★'.repeat(item.rating)}</strong>
+                    <span className="text-[10px] text-slate-400 font-mono">
+                      {new Date(item.createdAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}
+                    </span>
+                  </div>
+                  <p className="text-slate-700 leading-relaxed text-[11px]">{item.comment}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
     </div>}
   </section>;
 }

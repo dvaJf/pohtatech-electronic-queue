@@ -272,7 +272,7 @@ class RAGAgent:
             if scheduled_at:
                 res = await backend_client.create_appointment(branch_id, service_id, scheduled_at)
             else:
-                res = await backend_client.create_live_ticket(branch_id, service_id)
+                res = await backend_client.create_qr_ticket(branch_id, service_id)
             if res:
                 return {"success": True, "ticket": res}
             return {"error": "Не удалось создать талон. Попробуйте еще раз."}
@@ -615,11 +615,11 @@ def _extract_conversation_state(messages: List[Dict[str, str]], context: Dict[st
         scheduled_iso, scheduled_text = _parse_appointment_date_time(last_user_lower)
         is_appointment = True
 
-    if any(k in last_user_lower for k in ["в живую", "живая очередь", "прямо сейчас", "сейчас"]):
+    if any(k in last_user_lower for k in ["в живую", "живая очередь", "прямо сейчас", "сейчас", "онлайн", "qr", "кьюар"]):
         if not has_datetime:
             is_appointment = False
             scheduled_iso = None
-            scheduled_text = "Живая очередь (прямо сейчас)"
+            scheduled_text = "Онлайн-талон по QR-коду (электронная очередь)"
 
     # Confirmation & Cancellation
     confirmation_patterns = [
@@ -766,10 +766,10 @@ class RAGAgent:
             scheduled_iso = state["scheduled_iso"]
             scheduled_text = state["scheduled_text"]
         else:
-            booking_type = "LIVE"
-            booking_type_name = "Живая очередь"
+            booking_type = "QR"
+            booking_type_name = "Онлайн-талон по QR-коду"
             scheduled_iso = None
-            scheduled_text = "Живая очередь (прямо сейчас)"
+            scheduled_text = "Онлайн по QR-коду (электронная очередь)"
 
         return {
             "bookingType": booking_type,
@@ -811,7 +811,7 @@ class RAGAgent:
 
                 branch_id = pending.get("branchId")
                 service_id = pending.get("serviceId")
-                booking_type = pending.get("bookingType", "LIVE")
+                booking_type = pending.get("bookingType", "QR")
 
                 if booking_type == "APPOINTMENT":
                     ticket_res = await backend_client.create_appointment(
@@ -822,7 +822,7 @@ class RAGAgent:
                         email=user_email
                     )
                 else:
-                    ticket_res = await backend_client.create_live_ticket(
+                    ticket_res = await backend_client.create_qr_ticket(
                         branch_id=branch_id,
                         service_id=service_id
                     )
@@ -846,12 +846,13 @@ class RAGAgent:
                         )
                     else:
                         msg_text = (
-                            f"{user_greeting}🎉 **Ваш талон успешно оформлен!**\n\n"
+                            f"{user_greeting}🎉 **Ваш онлайн-талон по QR-коду успешно оформлен!**\n\n"
                             f"🎫 Номер талона: **{t_num}**\n"
                             f"🏢 Отделение: **{br_name}** ({br_addr})\n"
+                            f"📱 Тип: **Онлайн-талон по QR-коду**\n"
                             f"📦 Услуга: **{t_srv}**\n\n"
-                            f"Талон автоматически сохранён и привязан к вашему Личному кабинету в разделе **«Мои талоны»**.\n"
-                            f"🔔 Ожидайте вызова на центральном табло отделения. Мы уведомим вас звуковым сигналом и сообщением при вызове к окну!"
+                            f"Талон автоматически сохранён и отображается в вашем Личном кабинете в разделе **«Мои талоны»**. Вам не требуется брать бумажный талон в терминале отделения.\n"
+                            f"🔔 Ожидайте вызова на центральном табло отделения. Мы уведомим вас сообщением и звуковым сигналом при вызове к окну!"
                         )
 
                     return {

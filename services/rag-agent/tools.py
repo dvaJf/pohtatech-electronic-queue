@@ -84,22 +84,27 @@ class BackendClient:
 
         return result
 
-    async def create_live_ticket(self, branch_id: str, service_id: str) -> Optional[Dict[str, Any]]:
-        """Create a live queue ticket with automatic fallback."""
+    async def create_qr_ticket(self, branch_id: str, service_id: str) -> Optional[Dict[str, Any]]:
+        """Create an online QR queue ticket."""
         target_branch = branch_id or "11111111-1111-1111-1111-111111111111"
         headers = {
             "Idempotency-Key": str(uuid.uuid4()),
             "Content-Type": "application/json"
         }
         body = {"serviceId": service_id}
-        resp = await self._request("POST", f"/api/v1/branches/{target_branch}/tickets/live", json=body, headers=headers)
+        resp = await self._request("POST", f"/api/v1/branches/{target_branch}/tickets/qr", json=body, headers=headers)
         if resp and resp.status_code in (200, 201):
             return resp.json()
         if target_branch != "11111111-1111-1111-1111-111111111111":
-            resp2 = await self._request("POST", "/api/v1/branches/11111111-1111-1111-1111-111111111111/tickets/live", json=body, headers=headers)
+            resp2 = await self._request("POST", "/api/v1/branches/11111111-1111-1111-1111-111111111111/tickets/qr", json=body, headers=headers)
             if resp2 and resp2.status_code in (200, 201):
                 return resp2.json()
         return None
+
+    async def create_live_ticket(self, branch_id: str, service_id: str) -> Optional[Dict[str, Any]]:
+        """Forbidden for AI agent: physical live queue tickets are terminal-only. Redirects to online QR ticket."""
+        logger.info("create_live_ticket invoked: redirecting to create_qr_ticket (terminal-only live queue constraint)")
+        return await self.create_qr_ticket(branch_id, service_id)
 
     async def create_appointment(
         self,

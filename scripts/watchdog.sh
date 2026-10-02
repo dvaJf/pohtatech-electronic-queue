@@ -147,3 +147,5 @@ if [ "$DISK_USAGE" -gt 88 ]; then
     DISK_AFTER=$(df / | awk 'NR==2 {print $5}' | tr -d '%')
     notify_telegram "⚠️ [Watchdog] Высокая заполненность диска (${DISK_USAGE}% → ${DISK_AFTER}% после очистки)."
 fi
+
+

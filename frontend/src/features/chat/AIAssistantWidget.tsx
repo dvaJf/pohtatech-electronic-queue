@@ -4,6 +4,7 @@ import {
   X,
   Send,
   RotateCcw,
+  Sparkles,
   Ticket as TicketIcon,
   Clock,
   BookOpen,
@@ -427,11 +428,7 @@ export const AIAssistantWidget: React.FC = () => {
           title="Цифровой ассистент Почты"
         >
           <div className="ai-widget-trigger-pulse" />
-          <img
-            src="/images/ai_pigeon_logo.jpg"
-            alt="Цифровой ассистент"
-            className="w-full h-full object-cover rounded-full transition-transform duration-200 group-hover:scale-105"
-          />
+          <Sparkles className="w-6 h-6 transition-transform group-hover:rotate-12" />
           {unreadCount > 0 && <span className="ai-badge">{unreadCount}</span>}
         </button>
       )}
@@ -442,12 +439,8 @@ export const AIAssistantWidget: React.FC = () => {
           {/* Header */}
           <div className="ai-chat-header">
             <div className="ai-chat-title-group">
-              <div className="ai-avatar overflow-hidden p-0.5 bg-white border border-white/40 shadow-sm">
-                <img
-                  src="/images/ai_pigeon_logo.jpg"
-                  alt="Цифровой ассистент"
-                  className="w-full h-full object-cover rounded-[10px]"
-                />
+              <div className="ai-avatar">
+                <Sparkles className="w-5 h-5 text-white" />
                 <div className="ai-status-dot" title="Ассистент онлайн" />
               </div>
               <div>

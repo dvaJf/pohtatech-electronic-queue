@@ -22,9 +22,9 @@ Spacing scale: 4, 8, 12, 16, 24, 32, 48. Radius: 4, 8, 12, 16, 20, 999. `--shado
 
 Use Solar Icons v2 via static tree-shakable `@solar-icons/react` imports: Linear for actions/navigation and restrained LineDuotone only for feature entry points. Standard size is 20px, compact 18px, feature 24px, with a 44px hit area. Header uses Linear sound, GPS, accessibility, chevron and avatar/account iconography. Migrate the client shell/header/home/map together so a screen never mixes Solar and Lucide; keep brand SVG, QR and specialised map markers custom. Compare bundle output while Lucide and Solar coexist, then remove client Lucide imports only after migration.
 
-## Header direction (frozen selection method)
+## Header direction (frozen)
 
-Evaluate two candidates in deterministic 390×844 and 1440×900 screenshots before committing: A, light navigation chrome with blue brand accent; B, refined navy brand header with ghost/subtle controls. Choose the variant that keeps Russian Post recognition while making utility actions subordinate to Geo and a single account cluster. Mobile is always logo + Geo + overflow; desktop is logo, utility actions, secondary time, then avatar/name/dropdown. No row of equal white rectangles.
+Use light navigation chrome with a navy brand mark. Geo is the sole visible utility control; sound, accessibility, time and account remain a compact secondary cluster. Mobile is always logo + Geo + overflow; desktop is logo, utility actions, secondary time, then avatar/name/dropdown. No row of equal-strength controls.
 
 ## Button hierarchy and surfaces
 
@@ -37,6 +37,14 @@ Status messages are concise and actionable. Use skeletons that preserve layout f
 ## Map UI and mobile
 
 Mobile map is a compact header, large map canvas, and a non-portal three-state sheet: collapsed, medium, expanded. Selected branch replaces list controls with its detail state. Sheet size is viewport/safe-area aware and map padding derives from measured overlay size; a background location update only moves the user marker. Desktop retains sidebar plus large map.
+
+Open mobile maps in the medium sheet state so search and the branch list are visibly discoverable; the collapsed state is an optional, labelled reduction. Hide unrelated floating assistants and nearby prompts while a map dialog is open.
+
+## Smart Route
+
+Treat Smart Route as a decision pattern, not a promo card: branch and address → travel → queue → total time → one contextual primary action. The three time values sit on one restrained route connector; its start, intermediate and destination nodes provide the relationship without presenting a literal arithmetic equation. Total time is the dominant destination metric. The primary action starts the normal branch/service selection flow; it must not issue a ticket until the service is known. Route and appointment actions are secondary/tertiary and never compete with the primary.
+
+Route motion is a one-shot state explanation: path draw → travel → queue → total, with one short pulse toward the destination. It may replay only when the recommendation changes; `prefers-reduced-motion` renders the final route immediately.
 
 ## Accessibility and motion
 

@@ -281,6 +281,10 @@ export function BranchMapModal({
 }: BranchMapModalProps) {
   const dialogRef = useRef<HTMLDivElement | null>(null);
   useModalFocus(isOpen, dialogRef, onClose);
+  useEffect(() => {
+    document.documentElement.classList.toggle('map-dialog-open', isOpen);
+    return () => document.documentElement.classList.remove('map-dialog-open');
+  }, [isOpen]);
   // Быстрые фильтр-чипы: «Все», «Посылки», «Письма», «Пенсии», «Доступная среда»
   const [selectedFilter, setSelectedFilter] = useState<FilterCategory>(initialFilter);
   const [searchQuery, setSearchQuery] = useState('');
@@ -296,7 +300,7 @@ export function BranchMapModal({
   const [ymapsError, setYmapsError] = useState<string | null>(null);
 
   // Мобильный bottom sheet: 'collapsed' | 'half' | 'expanded'
-  const [bottomSheetState, setBottomSheetState] = useState<'collapsed' | 'half' | 'expanded'>('collapsed');
+  const [bottomSheetState, setBottomSheetState] = useState<'collapsed' | 'half' | 'expanded'>('half');
   const touchStartYRef = useRef<number | null>(null);
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
@@ -417,7 +421,8 @@ export function BranchMapModal({
       setSelectedFilter(initialFilter);
       setSearchQuery('');
       setSelectedBranchId(null);
-      setBottomSheetState('collapsed');
+      // A visible search/list affordance is needed on first open; a gesture-only 80px sheet hides the product.
+      setBottomSheetState('half');
       hasAutoCenteredRef.current = Boolean(targetBranchId);
       const target = allBranchesRef.current.find(branch => branch.id === targetBranchId);
       setFallbackCenter(target?.coordinates ?? userLocationRef.current ?? [55.7618, 37.6385]);
@@ -1240,7 +1245,7 @@ export function BranchMapModal({
             <div
               ref={mobileBottomSheetRef}
               data-testid="mobile-branch-bottom-sheet"
-              className={`md:hidden absolute bottom-0 inset-x-0 bg-white rounded-t-3xl shadow-2xl border-t border-[#E2E8F0] transition-all duration-300 z-30 flex flex-col ${
+              className={`md:hidden absolute bottom-0 inset-x-0 bg-white rounded-t-2xl shadow-xl border-t border-[#E2E8F0] transition-[height] duration-200 z-30 flex flex-col pb-[env(safe-area-inset-bottom)] ${
                 bottomSheetState === 'collapsed'
                   ? 'h-20'
                   : bottomSheetState === 'half'
@@ -1263,8 +1268,8 @@ export function BranchMapModal({
                 className="w-full min-h-11 pt-3 pb-2 flex flex-col items-center justify-center cursor-grab active:cursor-grabbing border-b border-slate-100"
               >
                 <div className="w-12 h-1.5 rounded-full bg-slate-300 mb-1" />
-                <div className="flex items-center gap-2 text-[11px] font-bold text-slate-500">
-                  <span>Отделения</span>
+                <div className="flex items-center gap-2 text-xs font-bold text-slate-600">
+                  <span>{selectedBranch ? 'Выбранное отделение' : `Отделения · ${filteredBranches.length}`}</span>
                   {bottomSheetState === 'collapsed' ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                 </div>
               </button>
@@ -1304,11 +1309,13 @@ export function BranchMapModal({
                   <input
                     type="text"
                     aria-label="Поиск отделения"
+                    name="branch-search"
+                    autoComplete="off"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder="Поиск по адресу, метро, индексу..."
                     style={{ paddingLeft: '2.75rem', paddingRight: '2.5rem' }}
-                    className="w-full pl-11 pr-10 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#052F85] focus:bg-white transition-all placeholder:text-slate-400"
+                    className="w-full pl-11 pr-10 py-2 rounded-xl bg-slate-50 border border-slate-200 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#052F85] focus:bg-white transition-[background-color,border-color,box-shadow] placeholder:text-slate-400"
                   />
                   {searchQuery && (
                     <button
@@ -1329,6 +1336,8 @@ export function BranchMapModal({
                   <DetailedBranchCard
                     branch={selectedBranch}
                     workload={workloads[selectedBranch.id]}
+                    compact
+                    informationalOnly
                     showCollapseLink
                     userLocation={userLocation}
                     onClose={clearBranchSelection}
@@ -1418,6 +1427,19 @@ export function BranchMapModal({
                   </div>
                 )}
               </div>}
+              {selectedBranch && bottomSheetState !== 'collapsed' && (() => {
+                const scheduleStatus = getBranchScheduleStatus(selectedBranch, workloads[selectedBranch.id]);
+                return <div className="shrink-0 border-t border-slate-200 bg-white p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-4px_12px_rgb(13_37_61_/_8%)]">
+                  <div className="grid grid-cols-2 gap-2">
+                    <button type="button" disabled={scheduleStatus.isClosed} onClick={() => handleTakeTicket(selectedBranch)} className="flex min-h-11 items-center justify-center rounded-lg bg-[#003B73] px-2 text-xs font-bold text-white transition-colors hover:bg-[#00519B] disabled:bg-slate-100 disabled:text-slate-400">
+                      {scheduleStatus.isClosed ? 'Сейчас закрыто' : 'Взять талон'}
+                    </button>
+                    <button type="button" onClick={() => handleBookAppointment(selectedBranch)} className="min-h-11 rounded-lg border border-[#003B73] px-2 text-xs font-bold text-[#003B73] hover:bg-blue-50">
+                      {scheduleStatus.isClosed ? 'Выбрать время' : 'Записаться'}
+                    </button>
+                  </div>
+                </div>;
+              })()}
             </div>
           </main>
         </div>
@@ -1700,7 +1722,7 @@ export function DetailedBranchCard({
         </div>}
 
         {/* Кнопки действий: «Взять талон» / «Записаться» */}
-        {(!compact || isExpanded) && !informationalOnly && <div className="grid grid-cols-2 gap-2 pt-1">
+        {!informationalOnly && <div className="grid grid-cols-2 gap-2 pt-1">
           <button
             type="button"
             onClick={() => {

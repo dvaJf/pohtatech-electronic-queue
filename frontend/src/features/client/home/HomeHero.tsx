@@ -2,7 +2,6 @@ import type { ReactNode } from 'react';
 import type { Branch, QueuePosition, Ticket, TicketETA } from '../../../api/client/types';
 import { ActiveTicketHero, HomeHeroSkeleton } from './ActiveTicketHero';
 import { isActiveTicketStatus } from './activeTicketPresentation';
-import { PostalHeroBackground } from './PostalHeroBackground';
 
 export function HomeHero({
   ticketsLoading,
@@ -37,5 +36,5 @@ export function HomeHero({
   } else {
     content = smartRoute;
   }
-  return <div className="cx-home-hero"><PostalHeroBackground /><div className="cx-home-hero-content">{content}</div></div>;
+  return <div className="cx-home-hero"><div className="cx-home-hero-content">{content}</div></div>;
 }

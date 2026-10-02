@@ -11,7 +11,7 @@ interface NearbyBranchCardProps {
 export function NearbyBranchCard({ branch, distanceMeters, onTakeTicket, onDetails, onDismiss }: NearbyBranchCardProps) {
   return (
     <aside aria-label="Отделение рядом" data-testid="nearby-branch-card"
-      className="fixed bottom-4 left-4 right-4 z-[60] mx-auto max-w-md rounded-2xl border border-blue-200 bg-white p-4 text-slate-900 shadow-lg">
+      className="fixed bottom-[max(1rem,calc(env(safe-area-inset-bottom)+0.75rem))] left-4 right-4 z-[60] mx-auto max-w-md rounded-xl border border-blue-200 bg-white p-4 text-slate-900 shadow-lg">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="text-xs font-semibold text-[#052F85]">Отделение рядом</p>

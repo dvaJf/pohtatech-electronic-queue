@@ -11,6 +11,27 @@ spec:
     - host: {{ . | quote }}
       http:
         paths:
+          - path: /health
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port:
+                  number: {{ $.Values.backend.service.port }}
+          - path: /ready
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port:
+                  number: {{ $.Values.backend.service.port }}
+          - path: /docs
+            pathType: Prefix
+            backend:
+              service:
+                name: swagger
+                port:
+                  number: 8080
           - path: /jaeger
             pathType: Prefix
             backend:
@@ -42,6 +63,27 @@ spec:
     {{- end }}
     - http:
         paths:
+          - path: /health
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port:
+                  number: {{ .Values.backend.service.port }}
+          - path: /ready
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port:
+                  number: {{ .Values.backend.service.port }}
+          - path: /docs
+            pathType: Prefix
+            backend:
+              service:
+                name: swagger
+                port:
+                  number: 8080
           - path: /jaeger
             pathType: Prefix
             backend:

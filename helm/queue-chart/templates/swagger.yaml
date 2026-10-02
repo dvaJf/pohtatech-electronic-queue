@@ -1,0 +1,85 @@
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: strip-docs
+spec:
+  stripPrefix:
+    prefixes:
+      - /docs
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: swagger
+  labels:
+    app: swagger
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: swagger
+  template:
+    metadata:
+      labels:
+        app: swagger
+    spec:
+      containers:
+        - name: swagger
+          image: swaggerapi/swagger-ui:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: SWAGGER_JSON
+              value: /openapi.yaml
+          ports:
+            - containerPort: 8080
+              name: http
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          volumeMounts:
+            - name: openapi
+              mountPath: /openapi.yaml
+              subPath: openapi.yaml
+      volumes:
+        - name: openapi
+          configMap:
+            name: swagger-spec
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: swagger
+  labels:
+    app: swagger
+spec:
+  type: ClusterIP
+  selector:
+    app: swagger
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: swagger-ingress
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web, websecure
+    traefik.ingress.kubernetes.io/router.middlewares: queue-system-strip-docs@kubernetescrd
+    traefik.ingress.kubernetes.io/router.priority: "100"
+spec:
+  rules:
+    - http:
+        paths:
+          - path: /docs
+            pathType: Prefix
+            backend:
+              service:
+                name: swagger
+                port:
+                  number: 8080

@@ -411,7 +411,7 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
 
             {/* Часы: точное московское время (Europe/Moscow) */}
             <div
-              className="header-time hidden h-11 items-center gap-2 px-2.5 select-none cursor-default md:flex"
+              className="header-time hidden h-11 items-center gap-1.5 px-2 select-none cursor-default md:flex"
               title="Московское время (Europe/Moscow)"
               aria-label={`Московское время: ${timeStr || 'МСК'}`}
               role="status"
@@ -419,11 +419,10 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
               <LiveClockIcon
                 hours={clockTime.hours}
                 minutes={clockTime.minutes}
-                className="h-5 w-5 text-blue-200 shrink-0"
-                size={20}
+                className="h-4 w-4 text-slate-500 shrink-0"
+                size={18}
               />
-              <div className="h-4 w-px bg-slate-200" aria-hidden="true" />
-              <span className="text-xs font-semibold tracking-wide text-slate-800 tabular-nums">
+              <span className="text-xs font-semibold tracking-tight text-slate-800 tabular-nums">
                 {timeStr || '--:--'}
               </span>
               <div className="flex items-center gap-1 rounded-md bg-slate-100 px-1.5 py-0.5">
@@ -503,7 +502,7 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
 
                 {/* Font Scale */}
                 <div className="mb-3" role="group" aria-label="Размер текста">
-                  <div className="text-[11px] font-bold text-blue-200 mb-1.5">Размер текста</div>
+                  <div className="text-[11px] font-bold text-slate-700 mb-1.5">Размер текста</div>
                   <div className="grid grid-cols-3 gap-1.5">
                     {[
                       { val: 100, label: 'А 100%' },
@@ -529,7 +528,7 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
 
                 {/* Color Theme / Contrast */}
                 <div className="mb-3" role="group" aria-label="Цветовая схема">
-                  <div className="text-[11px] font-bold text-blue-200 mb-1.5">Цветовая схема</div>
+                  <div className="text-[11px] font-bold text-slate-700 mb-1.5">Цветовая схема</div>
                   <div className="grid grid-cols-2 gap-1.5">
                     <button
                       type="button"

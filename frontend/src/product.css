@@ -135,6 +135,10 @@ html.map-dialog-open .ai-widget-container { display: none; }
   overflow-y: auto;
   overflow-wrap: anywhere;
 }
+#a11y-settings [role="group"] > div:first-child {
+  color: #334155 !important;
+  font-weight: 700 !important;
+}
 #a11y-settings button, #mobile-service-menu button {
   height: auto;
   line-height: 1.4;

@@ -431,8 +431,8 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
 
             {/* Часы: точное московское время (Europe/Moscow) */}
             <div
-              className="header-time hidden h-11 items-center gap-1.5 px-2 select-none cursor-default md:flex"
-              title="Московское время (Europe/Moscow)"
+              className="header-time hidden h-11 items-center gap-1.5 px-1.5 select-none cursor-default md:flex"
+              title={`Московское время (Europe/Moscow) — ${isBackendHealthy ? 'сервер онлайн' : 'нет связи'}`}
               aria-label={`Московское время: ${timeStr || 'МСК'}`}
               role="status"
             >
@@ -440,27 +440,19 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
                 hours={clockTime.hours}
                 minutes={clockTime.minutes}
                 className="h-4 w-4 text-slate-500 shrink-0"
-                size={18}
+                size={16}
               />
               <span className="text-xs font-semibold tracking-tight text-slate-800 tabular-nums">
                 {timeStr || '--:--'}
               </span>
-              <div
-                className="flex items-center gap-1 rounded-md bg-slate-100 px-1.5 py-0.5"
-                title={isBackendHealthy ? 'Связь с сервером очереди активна' : 'Нет связи с сервером'}
-              >
-                <span className="relative flex h-1.5 w-1.5" role="status" aria-label={isBackendHealthy ? 'Онлайн' : 'Офлайн'}>
-                  {isBackendHealthy ? (
-                    <>
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
-                    </>
-                  ) : (
-                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-rose-500"></span>
-                  )}
-                </span>
-                <span className="text-[10px] font-semibold text-slate-600">МСК</span>
-              </div>
+              <span className="text-[10px] font-bold text-slate-500 tracking-tight">
+                МСК
+              </span>
+              <span
+                className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${isBackendHealthy ? 'bg-emerald-500' : 'bg-rose-500'}`}
+                title={isBackendHealthy ? 'Связь с сервером активна' : 'Нет связи с сервером'}
+                aria-label={isBackendHealthy ? 'Онлайн' : 'Офлайн'}
+              />
             </div>
 
             {currentUser ? (
@@ -548,18 +540,18 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
                 id="a11y-settings"
                 role="dialog"
                 aria-labelledby="a11y-settings-title"
-                className="absolute right-2 sm:right-4 top-[3.25rem] sm:top-14 z-50 w-[calc(100vw-1rem)] sm:w-80 max-w-[340px] rounded-2xl border border-white/20 bg-[#002B55] p-3.5 text-left text-xs text-white shadow-2xl backdrop-blur-md"
+                className="absolute right-2 sm:right-4 top-[3.25rem] sm:top-14 z-50 w-[calc(100vw-1rem)] sm:w-80 max-w-[340px] rounded-2xl border border-slate-200 bg-white p-3.5 text-left text-xs text-slate-900 shadow-2xl"
               >
                 {/* Header */}
-                <div className="flex items-center justify-between pb-2.5 border-b border-white/15 mb-3">
+                <div className="flex items-center justify-between pb-2.5 border-b border-slate-100 mb-3">
                   <div className="flex items-center gap-2">
-                    <AccessibilityIcon className="w-4 h-4 text-blue-300" />
-                    <span id="a11y-settings-title" className="font-bold text-sm text-white">Панель доступности</span>
+                    <AccessibilityIcon className="w-4 h-4 text-[#003B73]" />
+                    <span id="a11y-settings-title" className="font-bold text-sm text-slate-900">Панель доступности</span>
                   </div>
                   <button
                     type="button"
                     onClick={closeA11y}
-                    className="flex h-10 w-10 min-h-10 min-w-10 items-center justify-center rounded-xl border border-white/20 bg-transparent p-0 text-white/80 transition-colors hover:bg-white/10 hover:text-white shrink-0"
+                    className="flex h-8 w-8 min-h-8 min-w-8 items-center justify-center rounded-xl border border-slate-200 bg-transparent p-0 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 shrink-0"
                     aria-label="Закрыть настройки доступности"
                   >
                     <CloseCircleIcon size={20} className="shrink-0" />
@@ -580,10 +572,10 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
                         type="button"
                         aria-pressed={scale === val}
                         onClick={() => setScale(val)}
-                        className={`py-1.5 px-1 text-center rounded-lg text-xs font-bold border transition-all ${
+                        className={`py-1.5 px-1 text-center rounded-xl text-xs font-bold border transition-all ${
                           scale === val
-                            ? 'bg-[#0B4DA2] text-white border-blue-400 shadow-sm'
-                            : 'bg-white/10 text-white border-white/20 hover:bg-white/20'
+                            ? '!bg-[#003B73] !text-white !border-[#003B73] shadow-xs'
+                            : '!bg-slate-50 hover:!bg-slate-100 !text-slate-800 !border-slate-200'
                         }`}
                       >
                         {label}
@@ -600,10 +592,10 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
                       type="button"
                       aria-pressed={!contrast}
                       onClick={() => setContrast(false)}
-                      className={`py-1.5 px-2 rounded-lg text-xs font-bold border transition-all ${
+                      className={`py-1.5 px-2 rounded-xl text-xs font-bold border transition-all ${
                         !contrast
-                          ? 'bg-[#0B4DA2] text-white border-blue-400 shadow-sm'
-                          : 'bg-white/10 text-white border-white/20 hover:bg-white/20'
+                          ? '!bg-[#003B73] !text-white !border-[#003B73] shadow-xs'
+                          : '!bg-slate-50 hover:!bg-slate-100 !text-slate-800 !border-slate-200'
                       }`}
                     >
                       Стандартная
@@ -612,10 +604,10 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
                       type="button"
                       aria-pressed={contrast}
                       onClick={() => setContrast(true)}
-                      className={`py-1.5 px-2 rounded-lg text-xs font-bold border transition-all ${
+                      className={`py-1.5 px-2 rounded-xl text-xs font-bold border transition-all ${
                         contrast
-                          ? 'bg-black text-white border-white shadow'
-                          : 'bg-white/10 text-white border-white/20 hover:bg-white/20'
+                          ? '!bg-black !text-white !border-black shadow-xs'
+                          : '!bg-slate-50 hover:!bg-slate-100 !text-slate-800 !border-slate-200'
                       }`}
                     >
                       Контрастная (ч/б)
@@ -624,11 +616,11 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
                 </div>
 
                 {/* Footer Controls */}
-                <div className="mt-3.5 pt-2.5 border-t border-white/15 flex items-center justify-between">
+                <div className="mt-3.5 pt-2.5 border-t border-slate-100 flex items-center justify-between">
                   <button
                     type="button"
                     onClick={handleResetA11y}
-                    className="header-reset-button text-[11px] text-blue-200 hover:text-white flex items-center gap-1 transition-colors"
+                    className="header-reset-button text-[11px] text-slate-500 hover:text-[#003B73] flex items-center gap-1 transition-colors font-medium"
                   >
                     <RestartIcon className="w-3 h-3" />
                     <span>Сбросить</span>
@@ -636,7 +628,7 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
                   <button
                     type="button"
                     onClick={closeA11y}
-                    className="px-3 py-1 bg-white/15 hover:bg-white/25 rounded-lg text-xs font-bold text-white transition-colors"
+                    className="px-3.5 py-1.5 !bg-[#003B73] hover:!bg-[#054FA6] rounded-xl text-xs font-bold !text-white transition-colors shadow-xs"
                   >
                     Готово
                   </button>

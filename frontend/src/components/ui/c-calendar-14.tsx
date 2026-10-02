@@ -6,7 +6,6 @@ import { ru } from "date-fns/locale";
 
 import { Calendar } from "@/components/ui/c-calendar-14-utils/calendar";
 import { Card, CardContent } from "@/components/ui/card";
-import { ScrollArea } from "@/components/ui/scroll-area";
 
 export interface TimeSlotItem {
   time: string;
@@ -123,9 +122,9 @@ export function Pattern({
   return (
     <Card className={`p-0 overflow-hidden border border-slate-200/90 rounded-3xl shadow-xs bg-white ${className}`}>
       <CardContent className="p-0">
-        <div className="flex flex-col sm:flex-row items-stretch">
+        <div className="flex flex-col sm:flex-row items-stretch sm:h-[315px]">
           {/* Сетка календаря дней месяца */}
-          <div className="p-2 sm:p-3 flex-1 flex justify-center items-center">
+          <div className="p-2 sm:p-2.5 flex-1 flex justify-center items-center min-w-0 overflow-hidden">
             <Calendar
               locale={ru}
               disabled={[{ before: effectiveMinDate }]}
@@ -136,86 +135,85 @@ export function Pattern({
           </div>
 
           {/* Правая панель выбора времени в две колонки: Часы и Минуты (шаг 15 мин) */}
-          <div className="flex flex-col w-full sm:w-64 max-sm:border-t sm:border-s border-slate-200/80 bg-slate-50/50">
+          <div className="flex flex-col w-full sm:w-56 max-sm:h-[260px] max-sm:border-t sm:border-s border-slate-200/80 bg-slate-50/50 min-h-0">
             {/* Заголовок с датой — комфортный padding, шрифт не обрезается сверху в Safari/Yandex */}
-            <div className="px-4 pt-3.5 pb-2.5 border-b border-slate-200/70 bg-white shrink-0">
+            <div className="px-3 pt-2.5 pb-2 border-b border-slate-200/70 bg-white shrink-0">
               <p className="text-xs font-bold text-slate-900 capitalize leading-normal truncate" title={format(date, "EEEE, d MMMM", { locale: ru })}>
                 {format(date, "EEEE, d MMMM", { locale: ru })}
               </p>
-              <div className="flex items-center justify-between text-[11px] text-slate-500 mt-1">
-                <span>Время визита:</span>
+              <div className="flex items-center justify-between text-[11px] text-slate-600 mt-1">
+                <span className="font-medium">Время визита:</span>
                 <span className="font-mono font-bold text-[#003B73] px-2 py-0.5 rounded-lg bg-blue-50 border border-blue-200/60 shadow-2xs">
                   {currentHour}:{currentMinute} МСК
                 </span>
               </div>
             </div>
 
-            {/* Две колонки выбора: Часы (08-20) и Минуты (раз в 15 минут) */}
-            <div className="grid grid-cols-2 divide-x divide-slate-200/70 flex-1 h-[270px]">
-              {/* Колонка 1: Часы */}
-              <div className="flex flex-col min-w-0 h-full">
-                <div className="px-2 py-1.5 bg-slate-100/90 text-[10px] font-bold text-slate-600 uppercase tracking-wider text-center border-b border-slate-200/70 shrink-0">
-                  Часы
-                </div>
-                <ScrollArea className="flex-1 h-full">
-                  <div className="p-1.5 space-y-1">
-                    {hoursList.map(h => {
-                      const isSelected = h === currentHour;
-                      const isAvail = isHourAvailable(h);
-                      return (
-                        <button
-                          key={h}
-                          type="button"
-                          disabled={!isAvail}
-                          onClick={() => handleHourSelect(h)}
-                          className={`w-full py-1.5 px-2 rounded-xl text-xs font-mono font-bold transition-all text-center select-none ${
-                            isSelected
-                              ? 'bg-[#003B73] text-white shadow-xs'
-                              : isAvail
-                              ? 'bg-white hover:bg-blue-50 text-slate-800 border border-slate-200/70 hover:border-blue-200'
-                              : 'bg-slate-100/60 text-slate-300 border border-transparent cursor-not-allowed opacity-40'
-                          }`}
-                          aria-pressed={isSelected}
-                        >
-                          {h}:00
-                        </button>
-                      );
-                    })}
-                  </div>
-                </ScrollArea>
+            {/* Заголовки колонок */}
+            <div className="grid grid-cols-2 divide-x divide-slate-200/70 border-b border-slate-200/70 bg-slate-100/90 shrink-0">
+              <div className="px-2 py-1.5 text-[10px] font-bold text-slate-700 uppercase tracking-wider text-center">
+                Часы
+              </div>
+              <div className="px-2 py-1.5 text-[10px] font-bold text-slate-700 uppercase tracking-wider text-center">
+                Минуты
+              </div>
+            </div>
+
+            {/* Списки часов и минут с фиксированной высотой для 100% надёжного скролла */}
+            <div className="grid grid-cols-2 divide-x divide-slate-200/70 h-[235px]">
+              {/* Колонка 1: Часы (скроллится) */}
+              <div
+                className="h-[235px] overflow-y-auto calendar-slots-scroll p-1.5 pb-4 space-y-1 overscroll-contain"
+                style={{ WebkitOverflowScrolling: 'touch' }}
+              >
+                {hoursList.map(h => {
+                  const isSelected = h === currentHour;
+                  const isAvail = isHourAvailable(h);
+                  return (
+                    <button
+                      key={h}
+                      type="button"
+                      disabled={!isAvail}
+                      onClick={() => handleHourSelect(h)}
+                      className={`w-full py-1.5 px-2 rounded-xl text-xs font-mono font-bold transition-all text-center select-none ${
+                        isSelected
+                          ? '!bg-[#003B73] !text-white shadow-xs !border-transparent'
+                          : isAvail
+                          ? '!bg-white hover:!bg-blue-50 !text-slate-800 hover:!text-[#003B73] border border-slate-200/80 hover:border-blue-200'
+                          : '!bg-slate-100/60 !text-slate-400 !border-transparent cursor-not-allowed opacity-40'
+                      }`}
+                      aria-pressed={isSelected}
+                    >
+                      {h}:00
+                    </button>
+                  );
+                })}
               </div>
 
-              {/* Колонка 2: Минуты с шагом 15 мин */}
-              <div className="flex flex-col min-w-0 h-full">
-                <div className="px-2 py-1.5 bg-slate-100/90 text-[10px] font-bold text-slate-600 uppercase tracking-wider text-center border-b border-slate-200/70 shrink-0">
-                  Минуты (:15)
-                </div>
-                <ScrollArea className="flex-1 h-full">
-                  <div className="p-1.5 space-y-1">
-                    {minutesList.map(m => {
-                      const isSelected = m === currentMinute;
-                      const isAvail = isMinuteAvailable(currentHour, m);
-                      return (
-                        <button
-                          key={m}
-                          type="button"
-                          disabled={!isAvail}
-                          onClick={() => handleMinuteSelect(m)}
-                          className={`w-full py-2 px-2 rounded-xl text-xs font-mono font-bold transition-all text-center select-none ${
-                            isSelected
-                              ? 'bg-[#003B73] text-white shadow-xs'
-                              : isAvail
-                              ? 'bg-white hover:bg-blue-50 text-slate-800 border border-slate-200/70 hover:border-blue-200'
-                              : 'bg-slate-100/60 text-slate-300 border border-transparent cursor-not-allowed opacity-40'
-                          }`}
-                          aria-pressed={isSelected}
-                        >
-                          :{m}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </ScrollArea>
+              {/* Колонка 2: Минуты */}
+              <div className="h-[235px] overflow-y-auto p-1.5 space-y-1">
+                {minutesList.map(m => {
+                  const isSelected = m === currentMinute;
+                  const isAvail = isMinuteAvailable(currentHour, m);
+                  return (
+                    <button
+                      key={m}
+                      type="button"
+                      disabled={!isAvail}
+                      onClick={() => handleMinuteSelect(m)}
+                      className={`w-full py-2 px-2 rounded-xl text-xs font-mono font-bold transition-all text-center select-none ${
+                        isSelected
+                          ? '!bg-[#003B73] !text-white shadow-xs !border-transparent'
+                          : isAvail
+                          ? '!bg-white hover:!bg-blue-50 !text-slate-800 hover:!text-[#003B73] border border-slate-200/80 hover:border-blue-200'
+                          : '!bg-slate-100/60 !text-slate-400 !border-transparent cursor-not-allowed opacity-40'
+                      }`}
+                      aria-pressed={isSelected}
+                    >
+                      :{m}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           </div>

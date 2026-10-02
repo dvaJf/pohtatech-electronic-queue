@@ -6,11 +6,12 @@
   right: 24px;
   z-index: 9999;
   font-family: inherit;
+  transition: bottom 0.2s ease, right 0.2s ease;
 }
 
 @media (max-width: 640px) {
   .ai-widget-container {
-    bottom: 84px;
+    bottom: 64px;
     right: 16px;
   }
 }
@@ -30,6 +31,13 @@
   border: 2px solid rgba(255, 255, 255, 0.3);
   transition: all 0.28s cubic-bezier(0.34, 1.56, 0.64, 1);
   position: relative;
+}
+
+@media (max-width: 640px) {
+  .ai-widget-trigger {
+    width: 52px;
+    height: 52px;
+  }
 }
 
 .ai-widget-trigger:hover {
@@ -105,6 +113,80 @@
   to {
     opacity: 1;
     transform: scale(1) translateY(0);
+  }
+}
+
+/* Mobile full-screen mode - Overcomes footer interference & virtual keyboard */
+@media (max-width: 768px) {
+  .ai-widget-container.ai-widget-open {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100vw !important;
+    width: 100dvw !important;
+    height: 100% !important;
+    height: 100dvh !important;
+    max-width: 100vw !important;
+    max-height: 100dvh !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    z-index: 10000 !important;
+    background: transparent;
+  }
+
+  .ai-widget-container.ai-widget-open .ai-chat-window {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: 100% !important;
+    height: 100dvh !important;
+    max-height: 100% !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+    transform: none !important;
+    animation: none !important;
+    z-index: 10001 !important;
+  }
+
+  .ai-chat-header {
+    padding: 12px 16px !important;
+    padding-top: max(12px, env(safe-area-inset-top, 12px)) !important;
+    border-radius: 0 !important;
+    flex-shrink: 0 !important;
+  }
+
+  .ai-messages-list {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    padding: 12px 14px !important;
+    overscroll-behavior: contain !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+
+  .ai-chat-input-area {
+    padding: 8px 12px !important;
+    padding-bottom: max(8px, env(safe-area-inset-bottom, 8px)) !important;
+    background: #ffffff !important;
+    border-top: 1px solid #e2e8f0 !important;
+    flex-shrink: 0 !important;
+  }
+
+  .ai-input {
+    font-size: 16px !important; /* Prevents auto-zoom on iOS Safari */
+    padding: 10px 12px !important;
+    max-height: 80px !important;
+  }
+
+  .ai-header-btn {
+    width: 36px !important;
+    height: 36px !important;
   }
 }
 

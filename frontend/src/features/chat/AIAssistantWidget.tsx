@@ -46,17 +46,100 @@ export const AIAssistantWidget: React.FC = () => {
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
-  const scrollToBottom = () => {
+  // Mobile visual viewport and virtual keyboard adaptation
+  const [viewportStyle, setViewportStyle] = useState<React.CSSProperties>({});
+  const [isMobile, setIsMobile] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return window.innerWidth <= 768;
+    }
+    return false;
+  });
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth <= 768);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  }, []);
+
+  // Keyboard navigation & Close on Escape
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) {
+        setIsOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [isOpen]);
+
+  // Handle mobile visualViewport resize when virtual keyboard opens/closes
+  // and lock background page scrolling so the footer/page never interferes
+  useEffect(() => {
+    if (!isOpen) {
+      setViewportStyle({});
+      return;
+    }
+
+    if (!isMobile) {
+      setViewportStyle({});
+      return;
+    }
+
+    const prevOverflow = document.body.style.overflow;
+    const prevTouchAction = document.body.style.touchAction;
+    document.body.style.overflow = 'hidden';
+    document.body.style.touchAction = 'none';
+
+    const handleViewportChange = () => {
+      if (window.visualViewport) {
+        const vv = window.visualViewport;
+        setViewportStyle({
+          height: `${vv.height}px`,
+          top: `${vv.offsetTop}px`,
+          bottom: 'auto',
+        });
+      } else {
+        setViewportStyle({
+          height: '100dvh',
+          top: '0px',
+          bottom: 'auto',
+        });
+      }
+    };
+
+    handleViewportChange();
+
+    const vv = window.visualViewport;
+    if (vv) {
+      vv.addEventListener('resize', handleViewportChange);
+      vv.addEventListener('scroll', handleViewportChange);
+    }
+
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      document.body.style.touchAction = prevTouchAction;
+      if (vv) {
+        vv.removeEventListener('resize', handleViewportChange);
+        vv.removeEventListener('scroll', handleViewportChange);
+      }
+    };
+  }, [isOpen, isMobile]);
 
   useEffect(() => {
     if (isOpen) {
       scrollToBottom();
       setUnreadCount(0);
-      inputRef.current?.focus();
+      if (!isMobile) {
+        inputRef.current?.focus();
+      }
     }
-  }, [isOpen, messages]);
+  }, [isOpen, messages, isMobile, scrollToBottom]);
 
   const getClientContext = useCallback(async () => {
     let branchId = localStorage.getItem('client_selected_branch_id') || undefined;
@@ -417,7 +500,7 @@ export const AIAssistantWidget: React.FC = () => {
   };
 
   return (
-    <div className="ai-widget-container">
+    <div className={`ai-widget-container ${isOpen ? 'ai-widget-open' : ''}`}>
       {/* Floating Launcher Button */}
       {!isOpen && (
         <button
@@ -433,9 +516,12 @@ export const AIAssistantWidget: React.FC = () => {
         </button>
       )}
 
-      {/* Floating Chat Modal */}
+      {/* Floating Chat Modal (Desktop) / Fullscreen Modal (Mobile) */}
       {isOpen && (
-        <div className="ai-chat-window">
+        <div
+          className="ai-chat-window"
+          style={isMobile && viewportStyle.height ? viewportStyle : undefined}
+        >
           {/* Header */}
           <div className="ai-chat-header">
             <div className="ai-chat-title-group">
@@ -463,9 +549,10 @@ export const AIAssistantWidget: React.FC = () => {
                 type="button"
                 className="ai-header-btn"
                 onClick={() => setIsOpen(false)}
-                title="Свернуть"
+                title={isMobile ? 'Закрыть чат' : 'Свернуть'}
+                aria-label={isMobile ? 'Закрыть чат' : 'Свернуть'}
               >
-                <ChevronDown className="w-4 h-4" />
+                {isMobile ? <X className="w-5 h-5" /> : <ChevronDown className="w-4 h-4" />}
               </button>
             </div>
           </div>
@@ -646,6 +733,9 @@ export const AIAssistantWidget: React.FC = () => {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
+              onFocus={() => {
+                setTimeout(scrollToBottom, 280);
+              }}
             />
             <button
               type="button"

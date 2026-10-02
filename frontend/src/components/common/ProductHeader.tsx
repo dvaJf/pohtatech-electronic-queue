@@ -393,8 +393,6 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
               </button>
             </div>
 
-            {!isStaffArea && <a href="/faq" className="hidden h-11 items-center rounded-xl border border-white/15 bg-white/[0.045] px-3 text-xs font-semibold text-white hover:bg-white/10 lg:flex">Помощь</a>}
-
             <button type="button" onClick={handleRequestGeo} disabled={geoStatus === 'locating'}
               aria-busy={geoStatus === 'locating'} aria-pressed={geoStatus === 'granted'}
               aria-label={geoStatus === 'locating' ? 'Определяем местоположение' : 'Определить местоположение'}

@@ -2,10 +2,17 @@
 
 .ai-widget-container {
   position: fixed;
-  bottom: 24px;
+  bottom: 60px;
   right: 24px;
   z-index: 9999;
   font-family: inherit;
+}
+
+@media (max-width: 640px) {
+  .ai-widget-container {
+    bottom: 84px;
+    right: 16px;
+  }
 }
 
 /* Floating Launch Button */

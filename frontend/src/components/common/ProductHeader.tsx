@@ -376,9 +376,8 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
       <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:bg-[#FFE600] focus:text-black focus:px-4 focus:py-2">К содержимому</a>
       <header className="main-product-header relative sticky top-0 z-40 bg-[#082E5A] text-white shadow-[0_2px_12px_rgba(4,29,59,0.16)]">
         <div className="product-header-row mx-auto flex max-w-7xl items-center justify-between gap-2 px-3 py-2 md:gap-4 md:px-5 md:py-2.5">
-          <a href="/" className="group flex min-w-0 shrink-0 items-center gap-2.5 select-none md:gap-3" aria-label="Почта России — на главную">
-            <PochtaEmblem className="h-8 w-8 shrink-0 md:h-9 md:w-9" bg="#082E5A" fg="#FFFFFF" />
-            <span className="hidden min-w-0 flex-col sm:flex">
+          <a href="/" className="group flex min-w-0 shrink-0 items-center select-none" aria-label="Почта России — на главную">
+            <span className="flex min-w-0 flex-col">
               <PochtaWordmark className="h-4 w-auto md:h-5" color="#FFFFFF" />
               <span className="mt-0.5 text-[10px] leading-none tracking-[0.08em] text-blue-100/70">Электронная очередь</span>
             </span>

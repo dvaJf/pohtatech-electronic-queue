@@ -20,11 +20,9 @@ spec:
       labels:
         app: frontend
     spec:
-      nodeSelector:
-        kubernetes.io/hostname: vm289265.it-garage.network
       containers:
         - name: frontend
-          image: queue-frontend:v3
+          image: vacuumxvx/queue-frontend:v-86d0067
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 80

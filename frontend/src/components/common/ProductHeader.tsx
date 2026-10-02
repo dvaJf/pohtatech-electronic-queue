@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState, useRef } from 'react';
 import { AccessibilityIcon, AltArrowDownIcon, AltArrowRightIcon, ChartIcon, CheckCircleIcon, ClockCircleIcon, CloseCircleIcon, LogoutIcon, MapPointIcon, MenuDotsVerticalIcon, RestartIcon, UserCircleIcon, VolumeCrossIcon, VolumeIcon } from '@solar-icons/react/linear';
 import { PochtaEmblem, PochtaWordmark } from './PochtaBrand';
 import { getMe, logout, User } from '../../api/authApi';
+import { checkHealth } from '../../api/health';
 import { ClientAuthModal } from '../../features/auth/ClientAuthModal';
 import { UserProfileModal } from '../../features/auth/UserProfileModal';
 import { isSoundEnabled, setSoundEnabled } from '../../utils/postalVoice';
@@ -137,7 +138,26 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
   const [timeStr, setTimeStr] = useState('');
   const [clockTime, setClockTime] = useState({ hours: 0, minutes: 0 });
   const [geoStatus, setGeoStatus] = useState<'prompt' | 'locating' | 'granted' | 'denied' | 'unavailable'>('prompt');
+  const [isBackendHealthy, setIsBackendHealthy] = useState<boolean>(true);
   const accessibilityActive = scale !== 100 || contrast;
+
+  useEffect(() => {
+    let mounted = true;
+    const check = () => {
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 4000);
+      checkHealth(controller.signal)
+        .then(() => { if (mounted) setIsBackendHealthy(true); })
+        .catch(() => { if (mounted) setIsBackendHealthy(false); })
+        .finally(() => window.clearTimeout(timeout));
+    };
+    check();
+    const interval = window.setInterval(check, 15000);
+    return () => {
+      mounted = false;
+      window.clearInterval(interval);
+    };
+  }, []);
 
   const a11yRef = useRef<HTMLDivElement>(null);
   const a11yButtonRef = useRef<HTMLButtonElement>(null);
@@ -425,12 +445,21 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
               <span className="text-xs font-semibold tracking-tight text-slate-800 tabular-nums">
                 {timeStr || '--:--'}
               </span>
-              <div className="flex items-center gap-1 rounded-md bg-slate-100 px-1.5 py-0.5">
-                <span className="relative flex h-1.5 w-1.5">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-400"></span>
+              <div
+                className="flex items-center gap-1 rounded-md bg-slate-100 px-1.5 py-0.5"
+                title={isBackendHealthy ? 'Связь с сервером очереди активна' : 'Нет связи с сервером'}
+              >
+                <span className="relative flex h-1.5 w-1.5" role="status" aria-label={isBackendHealthy ? 'Онлайн' : 'Офлайн'}>
+                  {isBackendHealthy ? (
+                    <>
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
+                    </>
+                  ) : (
+                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-rose-500"></span>
+                  )}
                 </span>
-                <span className="text-[10px] font-semibold text-slate-500">МСК</span>
+                <span className="text-[10px] font-semibold text-slate-600">МСК</span>
               </div>
             </div>
 
@@ -457,6 +486,43 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
                     <span className="mt-2 inline-flex rounded-md bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-600">{roleLabel}</span>
                   </div>
                   <div className="my-1 border-t border-slate-100" />
+                  {currentUser.role === 'opc_chief' && (
+                    <>
+                      <a
+                        role="menuitem"
+                        href="/admin"
+                        onClick={() => setAccountMenuOpen(false)}
+                        className="account-menu-row flex items-center justify-between group"
+                      >
+                        <span className="font-semibold text-slate-800 group-hover:text-[#003B73]">Панель администратора</span>
+                        <span className="text-[10px] font-mono font-bold bg-blue-50 text-[#003B73] px-2 py-0.5 rounded">ОПС</span>
+                      </a>
+                      <a
+                        role="menuitem"
+                        href="/operator"
+                        onClick={() => setAccountMenuOpen(false)}
+                        className="account-menu-row flex items-center justify-between group"
+                      >
+                        <span className="font-semibold text-slate-800 group-hover:text-[#003B73]">Панель оператора</span>
+                        <span className="text-[10px] font-mono font-bold bg-slate-100 text-slate-600 px-2 py-0.5 rounded">Окно</span>
+                      </a>
+                      <div className="my-1 border-t border-slate-100" />
+                    </>
+                  )}
+                  {currentUser.role === 'employee' && (
+                    <>
+                      <a
+                        role="menuitem"
+                        href="/operator"
+                        onClick={() => setAccountMenuOpen(false)}
+                        className="account-menu-row flex items-center justify-between group"
+                      >
+                        <span className="font-semibold text-slate-800 group-hover:text-[#003B73]">Панель оператора</span>
+                        <span className="text-[10px] font-mono font-bold bg-blue-50 text-[#003B73] px-2 py-0.5 rounded">Окно</span>
+                      </a>
+                      <div className="my-1 border-t border-slate-100" />
+                    </>
+                  )}
                   <button role="menuitem" type="button" onClick={() => { setAccountMenuOpen(false); setIsProfileOpen(true); }} className="account-menu-row">Профиль</button>
                   <button role="menuitem" type="button" onClick={() => { setAccountMenuOpen(false); setA11yOpen(true); }} className="account-menu-row">Настройки</button>
                   <div className="my-1 border-t border-slate-100" />
@@ -657,6 +723,38 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
                     <span>Выйти</span>
                   </button>
                 </div>
+                {currentUser.role === 'opc_chief' && (
+                  <div className="flex flex-col gap-1.5 pt-2 border-t border-white/15">
+                    <a
+                      href="/admin"
+                      onClick={() => setMobileMenuOpen(false)}
+                      className="py-1.5 px-2.5 bg-white/15 hover:bg-white/20 rounded-lg text-xs font-bold text-white flex items-center justify-between"
+                    >
+                      <span>Панель администратора</span>
+                      <span className="text-[10px] bg-white/20 px-1.5 py-0.5 rounded">ОПС</span>
+                    </a>
+                    <a
+                      href="/operator"
+                      onClick={() => setMobileMenuOpen(false)}
+                      className="py-1.5 px-2.5 bg-white/15 hover:bg-white/20 rounded-lg text-xs font-bold text-white flex items-center justify-between"
+                    >
+                      <span>Панель оператора</span>
+                      <span className="text-[10px] bg-white/20 px-1.5 py-0.5 rounded">Окно</span>
+                    </a>
+                  </div>
+                )}
+                {currentUser.role === 'employee' && (
+                  <div className="flex flex-col gap-1.5 pt-2 border-t border-white/15">
+                    <a
+                      href="/operator"
+                      onClick={() => setMobileMenuOpen(false)}
+                      className="py-1.5 px-2.5 bg-white/15 hover:bg-white/20 rounded-lg text-xs font-bold text-white flex items-center justify-between"
+                    >
+                      <span>Панель оператора</span>
+                      <span className="text-[10px] bg-white/20 px-1.5 py-0.5 rounded">Окно</span>
+                    </a>
+                  </div>
+                )}
               </div>
             ) : !isStaffArea ? (
               <button

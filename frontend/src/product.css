@@ -125,8 +125,10 @@ html[data-text-scale="150"] { --client-text-scale: 1.5; }
 .main-product-header .header-account-trigger { border: 1px solid var(--border-subtle) !important; background: var(--surface-muted) !important; color: var(--text-primary) !important; }
 .main-product-header .header-account-trigger:hover { border-color: var(--border-strong) !important; background: var(--surface-card) !important; }
 .main-product-header .account-popover { color: var(--text-primary) !important; }
-.main-product-header .account-popover button.account-menu-row { display: flex; min-height: 40px; width: 100%; align-items: center; border: 0 !important; border-radius: 8px; background: transparent !important; padding: 0 10px; color: var(--text-primary) !important; font-size: 14px; font-weight: 500; text-align: left; }
-.main-product-header .account-popover button.account-menu-row:hover { background: var(--surface-muted) !important; }
+.main-product-header .account-popover button.account-menu-row,
+.main-product-header .account-popover a.account-menu-row { display: flex; min-height: 40px; width: 100%; align-items: center; border: 0 !important; border-radius: 8px; background: transparent !important; padding: 0 10px; color: var(--text-primary) !important; font-size: 14px; font-weight: 500; text-align: left; text-decoration: none; cursor: pointer; transition: background-color 0.15s ease, color 0.15s ease; }
+.main-product-header .account-popover button.account-menu-row:hover,
+.main-product-header .account-popover a.account-menu-row:hover { background: var(--surface-muted) !important; }
 .main-product-header .account-popover button.account-menu-row-danger { color: var(--color-danger) !important; }
 html.map-dialog-open .ai-widget-container { display: none; }
 #a11y-settings, #mobile-service-menu {

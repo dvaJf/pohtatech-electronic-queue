@@ -285,13 +285,12 @@ test('TV board shows only called tickets, not tickets already in service', async
   assert.match(handler, /t\.Status != domain\.TicketStatusWaiting/);
 });
 
-test('Admin overview hall board uses the reference queue-card layout', async () => {
+test('Admin live queue is dedicated to queue tab and not duplicated on overview', async () => {
   const admin = await readFile(new URL('../src/features/admin/AdminWorkspace.tsx', import.meta.url), 'utf8');
 
-  assert.match(admin, /admin-live-preview bg-white rounded-3xl/);
-  assert.match(admin, /admin-live-preview__grid grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6/);
-  assert.match(admin, /admin-live-preview__ticket p-4 rounded-2xl/);
-  assert.match(admin, /style=\{\{ minHeight: 198 \}\}/);
+  assert.match(admin, /activeTab === 'queue'/);
+  assert.match(admin, /<LiveQueueView/);
+  assert.doesNotMatch(admin, /admin-live-preview bg-white rounded-3xl/);
 });
 
 test('printable branch QR poster has no red accent stripe', async () => {

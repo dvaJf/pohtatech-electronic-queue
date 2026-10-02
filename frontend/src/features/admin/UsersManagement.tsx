@@ -35,6 +35,8 @@ export function UsersManagement() {
   const [userBranches, setUserBranches] = useState<Record<string, string>>({});
   const [savedBranchUserId, setSavedBranchUserId] = useState<string | null>(null);
   const [assigningUser, setAssigningUser] = useState<User | null>(null);
+  const [editingFioUserId, setEditingFioUserId] = useState<string | null>(null);
+  const [tempFio, setTempFio] = useState('');
   const requestId = useRef(0);
 
   useEffect(() => {
@@ -114,6 +116,34 @@ export function UsersManagement() {
       const branchName = branches.find(b => b.id === branchId)?.name || 'Выбранное отделение';
       setNotice(`Почтовое отделение для ${user.email} установлено: ${branchName}`);
     }
+  };
+
+  const handleSaveUserFio = (user: User, newFio: string) => {
+    const trimmed = newFio.trim();
+    if (typeof localStorage !== 'undefined') {
+      if (trimmed) {
+        localStorage.setItem(`user_fio:${user.id}`, trimmed);
+        localStorage.setItem(`user_fio:${user.email}`, trimmed);
+        if (user.role === 'employee' || user.role === 'opc_chief') {
+          localStorage.setItem(`operator_fio:${user.id}`, trimmed);
+          localStorage.setItem(`operator_fio:${user.email}`, trimmed);
+          localStorage.setItem('operator_fio', trimmed);
+        }
+      } else {
+        localStorage.removeItem(`user_fio:${user.id}`);
+        localStorage.removeItem(`user_fio:${user.email}`);
+        localStorage.removeItem(`operator_fio:${user.id}`);
+        localStorage.removeItem(`operator_fio:${user.email}`);
+      }
+      window.dispatchEvent(
+        new CustomEvent('auth_fio_updated', {
+          detail: { userId: user.id, email: user.email, fio: trimmed, role: user.role }
+        })
+      );
+    }
+    setUsers(prev => prev.map(u => u.id === user.id ? { ...u, fio: trimmed || undefined } : u));
+    setEditingFioUserId(null);
+    setNotice(trimmed ? `Имя в профиле для ${user.email} сохранено: ${trimmed}` : `Имя в профиле для ${user.email} очищено`);
   };
 
   if (!chief) return null;
@@ -304,7 +334,64 @@ export function UsersManagement() {
             ) : (
               users.map(user => (
                 <tr key={user.id} className="hover:bg-slate-50 transition-colors">
-                  <td className="p-3 font-semibold text-slate-900">{user.email}</td>
+                  <td className="p-3">
+                    <div className="font-semibold text-slate-900">{user.email}</div>
+                    {editingFioUserId === user.id ? (
+                      <div className="mt-1 flex items-center gap-1.5 font-sans">
+                        <input
+                          type="text"
+                          value={tempFio}
+                          onChange={e => setTempFio(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleSaveUserFio(user, tempFio);
+                            } else if (e.key === 'Escape') {
+                              setEditingFioUserId(null);
+                            }
+                          }}
+                          placeholder="ФИО сотрудника"
+                          className="px-2 py-1 text-xs border border-blue-400 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#003B73] bg-white text-slate-900"
+                          autoFocus
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleSaveUserFio(user, tempFio)}
+                          className="p-1 bg-[#003B73] text-white rounded hover:bg-[#054FA6] transition-colors"
+                          title="Сохранить имя"
+                        >
+                          <Check className="w-3 h-3" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditingFioUserId(null)}
+                          className="p-1 text-slate-400 hover:text-slate-600 transition-colors"
+                          title="Отмена"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="mt-0.5 flex items-center gap-1.5 font-sans text-[11px] text-slate-600">
+                        <span className={user.fio ? 'font-medium text-slate-700' : 'text-slate-400 italic'}>
+                          {user.fio || (user.role === 'employee' || user.role === 'opc_chief' ? 'Имя в профиле не указано' : 'Клиент')}
+                        </span>
+                        {(user.role === 'employee' || user.role === 'opc_chief') && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingFioUserId(user.id);
+                              setTempFio(user.fio || '');
+                            }}
+                            className="p-0.5 text-blue-400 hover:text-[#003B73] transition-colors cursor-pointer"
+                            title="Изменить имя в профиле сотрудника"
+                          >
+                            <Pencil className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </td>
                   <td className="p-3">
                     <span
                       className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${

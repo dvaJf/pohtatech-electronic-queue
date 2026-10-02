@@ -80,13 +80,25 @@ export function OperatorWorkspace() {
   }, []);
 
   const getEffectiveOperatorFio = () => {
-    return (
+    const fromProfile = (
       currentUser?.fio?.trim() ||
       (currentUser?.id ? localStorage.getItem(`user_fio:${currentUser.id}`)?.trim() : '') ||
       (currentUser?.email ? localStorage.getItem(`user_fio:${currentUser.email}`)?.trim() : '') ||
       localStorage.getItem('operator_fio')?.trim() ||
+      localStorage.getItem('admin_fio')?.trim() ||
+      localStorage.getItem('user_fio')?.trim() ||
       ''
     );
+    if (fromProfile) return fromProfile;
+
+    if (currentUser?.role === 'opc_chief' || currentUser?.role === 'admin') {
+      return 'Администратор ОПС';
+    }
+    const win = windows.find(w => w.id === windowId);
+    if (win?.number) {
+      return `Оператор окна №${win.number}`;
+    }
+    return 'Оператор';
   };
 
   useEffect(() => {

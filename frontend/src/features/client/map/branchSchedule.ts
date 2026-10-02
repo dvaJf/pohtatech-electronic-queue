@@ -134,10 +134,9 @@ export function getBranchWeeklySchedule(
     else if (name.includes('Новослободская')) matchedConfig = AUTHENTIC_BRANCH_SCHEDULES['127055'];
   }
 
-  const baseHours = rawWorkHours || '08:00–20:00';
-  const weekdayHours = matchedConfig?.weekday || baseHours;
+  const weekdayHours = rawWorkHours?.trim() || matchedConfig?.weekday || '08:00–20:00';
   const saturdayHours = matchedConfig ? matchedConfig.saturday : '09:00–18:00';
-  const sundayHours = matchedConfig !== undefined ? matchedConfig.sunday : (baseHours.includes('22:00') ? '09:00–18:00' : null);
+  const sundayHours = matchedConfig !== undefined ? matchedConfig.sunday : (weekdayHours.includes('22:00') ? '09:00–18:00' : null);
 
   return DAY_NAMES.map((d, index) => {
     let hoursText = weekdayHours;

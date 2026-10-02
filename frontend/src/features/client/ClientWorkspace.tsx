@@ -47,21 +47,8 @@ const ANON_SCOPE = 'anon';
 
 type ClientScreen = 'home' | 'booking' | 'walkin' | 'my';
 
-const DEFAULT_OPERATOR_NAMES: Record<number, string> = {
-  1: 'Иванова Анна',
-  2: 'Смирнов Дмитрий',
-  3: 'Ковалев Михаил',
-  4: 'Кузнецова Ольга',
-  5: 'Морозов Алексей',
-  6: 'Соколова Екатерина',
-  7: 'Попов Андрей',
-  8: 'Васильева Елена',
-  9: 'Новиков Сергей',
-  10: 'Федорова Мария',
-};
-
 function getTicketOperatorName(ticket: Ticket): string {
-  return resolveOperatorName(ticket, DEFAULT_OPERATOR_NAMES);
+  return resolveOperatorName(ticket);
 }
 
 function getCompletedTicketMetadata(ticket: Ticket) {
@@ -927,9 +914,9 @@ function BranchCard({
 
                 {/* Правый нижний угол: статус закрытия */}
                 {isClosed && (
-                  <span className="shrink-0 inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-50 border border-rose-200 text-rose-700 shadow-2xs ml-auto">
-                    <Clock size={11} className="text-rose-500 shrink-0" />
-                    <span>Отделение закрыто {scheduleStatus.closedUntilText}</span>
+                  <span className="max-w-full inline-flex items-center gap-1 px-2.5 py-0.5 rounded-xl sm:rounded-full text-[11px] font-bold bg-rose-50 border border-rose-200 text-rose-700 shadow-2xs ml-auto text-left leading-tight break-words">
+                    <Clock size={11} className="text-rose-500 shrink-0 self-start mt-0.5" />
+                    <span className="break-words">Отделение закрыто {scheduleStatus.closedUntilText}</span>
                   </span>
                 )}
               </div>
@@ -1200,6 +1187,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
     return v && v !== 'undefined' && v !== 'null' ? v : '';
   });
   const [scheduledAtInput, setScheduledAtInput] = useState('');
+  const [isAppointmentDateDayOff, setIsAppointmentDateDayOff] = useState(false);
   const [smsReminderEnabled, setSmsReminderEnabled] = useState(true);
   const [bookingStep, setBookingStep] = useState(0);
   const [walkinStep, setWalkinStep] = useState(qrBranchId ? 1 : 0);
@@ -1208,6 +1196,17 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
   const [error, setError] = useState<string | null>(null);
 
   const [notice, setNotice] = useState<string | null>(null);
+
+  const [, setFioSyncVersion] = useState(0);
+  useEffect(() => {
+    const handleFioSync = () => setFioSyncVersion(v => v + 1);
+    window.addEventListener('auth_fio_updated', handleFioSync);
+    window.addEventListener('storage', handleFioSync);
+    return () => {
+      window.removeEventListener('auth_fio_updated', handleFioSync);
+      window.removeEventListener('storage', handleFioSync);
+    };
+  }, []);
 
   useEffect(() => {
     if (!notice) return;
@@ -1395,6 +1394,13 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
       setScreen('booking');
       setBookingStep(1);
     } else if (action === 'walkin') {
+      const scheduleStatus = getBranchScheduleStatus(b, workloads[b.id]);
+      if (scheduleStatus.isClosed) {
+        setScreen('booking');
+        setBookingStep(1);
+        setNotice('Отделение сейчас закрыто. Запись доступна на следующий рабочий день.');
+        return;
+      }
       setScreen('walkin');
       setWalkinStep(1);
     }
@@ -2107,8 +2113,20 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
     setServiceId('');
     sessionStorage.removeItem(STORAGE_SERVICE_KEY);
     sessionStorage.setItem(STORAGE_BRANCH_KEY, id);
-    if (screen === 'booking') setBookingStep(1);
-    if (screen === 'walkin') setWalkinStep(1);
+    const selectedBranchObj = branches.find((b) => b.id === id);
+    const scheduleStatus = selectedBranchObj ? getBranchScheduleStatus(selectedBranchObj, workloads[id]) : null;
+
+    if (screen === 'booking') {
+      setBookingStep(1);
+    } else if (screen === 'walkin') {
+      if (scheduleStatus?.isClosed) {
+        setScreen('booking');
+        setBookingStep(1);
+        setNotice('Отделение сейчас закрыто. Запись доступна на следующий рабочий день.');
+      } else {
+        setWalkinStep(1);
+      }
+    }
 
     if (id !== branchId) {
       setServices([]);
@@ -2513,21 +2531,21 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
               </div>
 
               {/* Поиск отделения */}
-              <div className="relative">
+              <div className="relative flex items-center">
                 <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                 <input
                   type="text"
                   value={branchSearchQuery}
                   onChange={(e) => setBranchSearchQuery(e.target.value)}
                   placeholder="Поиск по названию, адресу, метро или индексу..."
-                  style={{ paddingLeft: '2.75rem' }}
-                  className="w-full pl-11 pr-9 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#052F85]/20 focus:border-[#052F85]"
+                  style={{ paddingLeft: '2.75rem', paddingRight: '2.5rem' }}
+                  className="w-full pl-11 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#052F85]/20 focus:border-[#052F85]"
                 />
                 {branchSearchQuery && (
                   <button
                     type="button"
                     onClick={() => setBranchSearchQuery('')}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-200/60 transition-colors border-0 bg-transparent p-0 cursor-pointer"
                     aria-label="Очистить поиск"
                   >
                     <X size={14} />
@@ -2635,12 +2653,15 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                 onChange={setScheduledAtInput}
                 disabled={creating}
                 workHours={branches.find(b => b.id === branchId)?.workHours}
+                branch={branches.find(b => b.id === branchId)}
+                workload={branchId ? workloads[branchId] : undefined}
+                onDayOffChange={setIsAppointmentDateDayOff}
               />
 
               <button
                 type="button"
                 className="w-full min-h-[48px] py-3 bg-[#003B73] hover:bg-[#054FA6] active:bg-[#00274D] text-white rounded-xl font-bold text-xs uppercase tracking-wider transition-all shadow-md active:scale-[0.99] disabled:opacity-50 flex items-center justify-center gap-2"
-                disabled={creating || !scheduledAtInput}
+                disabled={creating || !scheduledAtInput || isAppointmentDateDayOff}
                 onClick={createAppointmentData}
               >
                 {creating ? (
@@ -2648,6 +2669,8 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                     <span className="w-4 h-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
                     <span>Оформляем...</span>
                   </>
+                ) : isAppointmentDateDayOff ? (
+                  <span>Выберите рабочий день</span>
                 ) : (
                   <span>Подтвердить запись</span>
                 )}
@@ -2710,21 +2733,21 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
               </div>
 
               {/* Поиск отделения */}
-              <div className="relative">
+              <div className="relative flex items-center">
                 <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                 <input
                   type="text"
                   value={branchSearchQuery}
                   onChange={(e) => setBranchSearchQuery(e.target.value)}
                   placeholder="Поиск по названию, адресу, метро или индексу..."
-                  style={{ paddingLeft: '2.75rem' }}
-                  className="w-full pl-11 pr-9 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#052F85]/20 focus:border-[#052F85]"
+                  style={{ paddingLeft: '2.75rem', paddingRight: '2.5rem' }}
+                  className="w-full pl-11 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#052F85]/20 focus:border-[#052F85]"
                 />
                 {branchSearchQuery && (
                   <button
                     type="button"
                     onClick={() => setBranchSearchQuery('')}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-200/60 transition-colors border-0 bg-transparent p-0 cursor-pointer"
                     aria-label="Очистить поиск"
                   >
                     <X size={14} />

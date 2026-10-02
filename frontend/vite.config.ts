@@ -15,7 +15,7 @@ import { defineConfig, loadEnv } from 'vite';
  */
 
 export default defineConfig(({ mode }) => {
-  const backendTarget = process.env.VITE_BACKEND_TARGET || 'http://localhost:8080';
+  const backendTarget = process.env.VITE_BACKEND_TARGET || 'https://pointers-team.tech';
   return ({
   define: {
     'import.meta.env.PUBLIC_APP_BASE_URL': JSON.stringify(
@@ -38,18 +38,22 @@ export default defineConfig(({ mode }) => {
       '/health': {
         target: backendTarget,
         changeOrigin: true,
+        secure: false,
       },
       '/ready': {
         target: backendTarget,
         changeOrigin: true,
+        secure: false,
       },
       '/api/agent': {
-        target: process.env.VITE_RAG_TARGET || 'http://localhost:8095',
+        target: process.env.VITE_RAG_TARGET || 'https://pointers-team.tech',
         changeOrigin: true,
+        secure: false,
       },
       '/api': {
         target: backendTarget,
         changeOrigin: true,
+        secure: false,
       },
       '/grafana': {
         target: 'http://grafana:3000' ? (process.env.VITE_GRAFANA_TARGET || 'http://localhost:3001') : 'http://grafana:3000',

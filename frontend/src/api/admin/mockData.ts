@@ -58,7 +58,7 @@ export const DEMO_ADMIN_OVERVIEW: AdminBranchOverview = {
       currentTicketNumber: 'Q-000012',
       currentService: 'Посылки',
       servedCount: 28,
-      operatorName: 'Иванова Анна',
+      operatorName: 'Оператор окна №1',
       services: [
         { id: '22222222-2222-2222-2222-222222222222', code: 'PARCELS', name: 'Посылки' },
       ],
@@ -70,7 +70,7 @@ export const DEMO_ADMIN_OVERVIEW: AdminBranchOverview = {
       currentTicketNumber: 'П-000004',
       currentService: 'Платежи',
       servedCount: 22,
-      operatorName: 'Смирнов Дмитрий',
+      operatorName: 'Оператор окна №2',
       services: [
         { id: '55555555-5555-5555-5555-555555555555', code: 'PAYMENTS', name: 'Платежи' },
       ],
@@ -82,7 +82,7 @@ export const DEMO_ADMIN_OVERVIEW: AdminBranchOverview = {
       currentTicketNumber: null,
       currentService: null,
       servedCount: 28,
-      operatorName: 'Ковалев Михаил',
+      operatorName: 'Оператор окна №3',
       services: [
         { id: '22222222-2222-2222-2222-222222222222', code: 'PARCELS', name: 'Посылки' },
       ],

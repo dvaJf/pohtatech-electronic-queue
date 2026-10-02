@@ -47,21 +47,8 @@ const ANON_SCOPE = 'anon';
 
 type ClientScreen = 'home' | 'booking' | 'walkin' | 'my';
 
-const DEFAULT_OPERATOR_NAMES: Record<number, string> = {
-  1: 'Иванова Анна',
-  2: 'Смирнов Дмитрий',
-  3: 'Ковалев Михаил',
-  4: 'Кузнецова Ольга',
-  5: 'Морозов Алексей',
-  6: 'Соколова Екатерина',
-  7: 'Попов Андрей',
-  8: 'Васильева Елена',
-  9: 'Новиков Сергей',
-  10: 'Федорова Мария',
-};
-
 function getTicketOperatorName(ticket: Ticket): string {
-  return resolveOperatorName(ticket, DEFAULT_OPERATOR_NAMES);
+  return resolveOperatorName(ticket);
 }
 
 function getCompletedTicketMetadata(ticket: Ticket) {
@@ -1208,6 +1195,17 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
   const [error, setError] = useState<string | null>(null);
 
   const [notice, setNotice] = useState<string | null>(null);
+
+  const [, setFioSyncVersion] = useState(0);
+  useEffect(() => {
+    const handleFioSync = () => setFioSyncVersion(v => v + 1);
+    window.addEventListener('auth_fio_updated', handleFioSync);
+    window.addEventListener('storage', handleFioSync);
+    return () => {
+      window.removeEventListener('auth_fio_updated', handleFioSync);
+      window.removeEventListener('storage', handleFioSync);
+    };
+  }, []);
 
   useEffect(() => {
     if (!notice) return;

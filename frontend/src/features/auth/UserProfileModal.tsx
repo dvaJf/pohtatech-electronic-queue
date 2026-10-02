@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, Phone, ShieldCheck, X, AlertCircle, Loader2, ArrowRight, User as UserIcon, Clock, Bell, ExternalLink } from 'lucide-react';
 import { User, sendPhoneCode, verifyPhoneCode } from '../../api/authApi';
 import { PochtaEmblem } from '../../components/common/PochtaBrand';
-import { ClientServiceRecord, getClientServiceHistory } from '../client/serviceHistory';
+import { ClientServiceRecord, getClientServiceHistory, MOCK_OPERATOR_NAMES, resolveOperatorName, STORAGE_SERVICE_HISTORY_KEY } from '../client/serviceHistory';
 
 function TelegramIcon({ size = 18 }: { size?: number }) {
   return (
@@ -46,8 +46,7 @@ export function UserProfileModal({ isOpen, onClose, user, onUserUpdate }: UserPr
   }, [user.id, user.email, user.fio]);
 
   const history = useMemo<ClientServiceRecord[]>(() => {
-    if (user.role !== 'client') return [];
-    const fromEmail = getClientServiceHistory(user.email);
+    const fromEmail = user.email ? getClientServiceHistory(user.email) : [];
     const fromId = user.id ? getClientServiceHistory(user.id) : [];
     const fromAnon = getClientServiceHistory('anon');
     const merged = [...fromEmail];
@@ -57,7 +56,7 @@ export function UserProfileModal({ isOpen, onClose, user, onUserUpdate }: UserPr
       }
     }
     return merged.sort((a, b) => new Date(b.completedAt || 0).getTime() - new Date(a.completedAt || 0).getTime());
-  }, [user.id, user.email, user.role, isOpen]);
+  }, [user.id, user.email, user.role, isOpen, fioSaved]);
 
   const handleSaveFio = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -66,8 +65,12 @@ export function UserProfileModal({ isOpen, onClose, user, onUserUpdate }: UserPr
       localStorage.setItem(`user_fio:${user.email}`, trimmed);
       if (user.id) localStorage.setItem(`user_fio:${user.id}`, trimmed);
       localStorage.setItem('user_fio', trimmed);
-      if (user.role === 'employee' || user.role === 'opc_chief') {
+      const isStaff = user.role === 'employee' || user.role === 'opc_chief' || user.role === 'admin';
+      if (isStaff) {
         localStorage.setItem('operator_fio', trimmed);
+        if (user.role === 'opc_chief' || user.role === 'admin') {
+          localStorage.setItem('admin_fio', trimmed);
+        }
         if (user.id) localStorage.setItem(`operator_fio:${user.id}`, trimmed);
         localStorage.setItem(`operator_fio:${user.email}`, trimmed);
         const branch = localStorage.getItem('operator.branch');
@@ -77,6 +80,31 @@ export function UserProfileModal({ isOpen, onClose, user, onUserUpdate }: UserPr
             localStorage.setItem(`window_operator_name:${win}`, trimmed);
           }
         }
+        // Обновляем имена оператора во всех завершённых талонах в истории обслуживаний
+        try {
+          for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key && key.startsWith(STORAGE_SERVICE_HISTORY_KEY)) {
+              const raw = localStorage.getItem(key);
+              if (raw) {
+                const list = JSON.parse(raw);
+                if (Array.isArray(list)) {
+                  let changed = false;
+                  const updated = list.map((rec: ClientServiceRecord) => {
+                    if (rec && (!rec.operatorName || MOCK_OPERATOR_NAMES.has(rec.operatorName.trim()) || rec.operatorName.startsWith('Оператор'))) {
+                      rec.operatorName = trimmed;
+                      changed = true;
+                    }
+                    return rec;
+                  });
+                  if (changed) {
+                    localStorage.setItem(key, JSON.stringify(updated));
+                  }
+                }
+              }
+            }
+          }
+        } catch {}
       }
       window.dispatchEvent(
         new CustomEvent('auth_fio_updated', {
@@ -381,8 +409,8 @@ export function UserProfileModal({ isOpen, onClose, user, onUserUpdate }: UserPr
             </div>
           </div>
 
-          {/* История обслуживаний (только для клиента) */}
-          {user.role === 'client' && (
+          {/* История обслуживаний */}
+          {(user.role === 'client' || history.length > 0) && (
             <div className="space-y-3">
               <div className="flex items-center justify-between text-slate-900 font-bold text-sm">
                 <div className="flex items-center gap-2">

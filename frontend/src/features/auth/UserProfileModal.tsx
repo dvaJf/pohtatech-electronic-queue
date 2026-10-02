@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, Phone, ShieldCheck, X, AlertCircle, Loader2, ArrowRight, User as UserIcon, Clock, Bell, ExternalLink } from 'lucide-react';
+import { CheckCircle2, Phone, ShieldCheck, X, AlertCircle, Loader2, ArrowRight, User as UserIcon, Clock, Bell, ExternalLink, Building2, MapPin } from 'lucide-react';
 import { User, sendPhoneCode, verifyPhoneCode } from '../../api/authApi';
 import { PochtaEmblem } from '../../components/common/PochtaBrand';
 import { ClientServiceRecord, getClientServiceHistory, MOCK_OPERATOR_NAMES, resolveOperatorName, STORAGE_SERVICE_HISTORY_KEY } from '../client/serviceHistory';
+import { MOSCOW_BRANCHES } from '../client/map/branchLocations';
 
 function TelegramIcon({ size = 18 }: { size?: number }) {
   return (
@@ -115,6 +116,59 @@ export function UserProfileModal({ isOpen, onClose, user, onUserUpdate }: UserPr
     onUserUpdate({ ...user, fio: trimmed });
     setFioSaved(true);
     setTimeout(() => setFioSaved(false), 2500);
+  };
+
+  // Почтовое отделение по умолчанию
+  const branchStorageKey = `user_default_branch_id:${user.id || user.email}`;
+  const [defaultBranchId, setDefaultBranchId] = useState<string>(() => {
+    if (typeof localStorage !== 'undefined') {
+      return (
+        localStorage.getItem(branchStorageKey) ||
+        localStorage.getItem('user_default_branch_id') ||
+        localStorage.getItem('client_selected_branch_id') ||
+        MOSCOW_BRANCHES[0]?.id ||
+        '11111111-1111-1111-1111-111111111111'
+      );
+    }
+    return MOSCOW_BRANCHES[0]?.id || '11111111-1111-1111-1111-111111111111';
+  });
+  const [defaultBranchSaved, setDefaultBranchSaved] = useState(false);
+
+  useEffect(() => {
+    if (typeof localStorage !== 'undefined') {
+      const saved =
+        localStorage.getItem(branchStorageKey) ||
+        localStorage.getItem('user_default_branch_id') ||
+        localStorage.getItem('client_selected_branch_id');
+      if (saved) {
+        setDefaultBranchId(saved);
+      }
+    }
+  }, [user.id, user.email, branchStorageKey]);
+
+  const selectedDefaultBranch = useMemo(() => {
+    return MOSCOW_BRANCHES.find(b => b.id === defaultBranchId) || MOSCOW_BRANCHES[0];
+  }, [defaultBranchId]);
+
+  const handleSelectDefaultBranch = (branchIdToSave: string) => {
+    setDefaultBranchId(branchIdToSave);
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(branchStorageKey, branchIdToSave);
+      if (user.id) localStorage.setItem(`user_default_branch_id:${user.id}`, branchIdToSave);
+      if (user.email) localStorage.setItem(`user_default_branch_id:${user.email}`, branchIdToSave);
+      localStorage.setItem('user_default_branch_id', branchIdToSave);
+      localStorage.setItem('client_selected_branch_id', branchIdToSave);
+      try {
+        sessionStorage.setItem('client_selected_branch_id', branchIdToSave);
+      } catch {}
+      window.dispatchEvent(
+        new CustomEvent('client_default_branch_updated', {
+          detail: { branchId: branchIdToSave, userId: user.id, email: user.email }
+        })
+      );
+    }
+    setDefaultBranchSaved(true);
+    setTimeout(() => setDefaultBranchSaved(false), 2500);
   };
 
   const [phone, setPhone] = useState(user.phone || '');
@@ -406,6 +460,78 @@ export function UserProfileModal({ isOpen, onClose, user, onUserUpdate }: UserPr
                   Сохранить
                 </button>
               </div>
+            </div>
+          </div>
+
+          {/* Отделение по умолчанию */}
+          <div className="p-4 bg-slate-50 border border-slate-200/80 rounded-2xl space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Building2 className="w-4 h-4 text-[#054FA6]" />
+                <span className="text-xs font-bold text-slate-800">Почтовое отделение по умолчанию</span>
+              </div>
+              {defaultBranchSaved && (
+                <span className="text-[11px] text-emerald-600 font-semibold animate-fade-in">
+                  Сохранено ✓
+                </span>
+              )}
+            </div>
+
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Выбранное отделение будет автоматически предлагаться при записи, открытии талонов и онлайн-маршрутах.
+            </p>
+
+            <div className="space-y-2">
+              <div className="relative">
+                <select
+                  value={defaultBranchId}
+                  onChange={(e) => handleSelectDefaultBranch(e.target.value)}
+                  className="w-full pl-3 pr-8 py-2.5 text-xs font-semibold rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#054FA6] focus:border-transparent transition-all cursor-pointer appearance-none shadow-sm"
+                >
+                  {MOSCOW_BRANCHES.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name} ({b.address}) {b.metro ? `• м. ${b.metro}` : ''}
+                    </option>
+                  ))}
+                </select>
+                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2.5 text-slate-500">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
+              </div>
+
+              {selectedDefaultBranch && (
+                <div className="p-3 bg-white border border-slate-200/80 rounded-xl flex items-start gap-2.5 text-xs shadow-xs">
+                  <MapPin className="w-4 h-4 text-[#003B73] shrink-0 mt-0.5" />
+                  <div className="min-w-0 flex-1">
+                    <div className="font-bold text-slate-900 flex items-center gap-2">
+                      <span>{selectedDefaultBranch.name}</span>
+                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">
+                        {selectedDefaultBranch.code}
+                      </span>
+                    </div>
+                    <div className="text-slate-500 text-[11px] truncate mt-0.5">
+                      {selectedDefaultBranch.address}
+                    </div>
+                    {selectedDefaultBranch.metro && (
+                      <div className="flex items-center gap-1.5 mt-1 text-[11px] text-slate-600">
+                        <span
+                          className="w-2 h-2 rounded-full inline-block shrink-0"
+                          style={{ backgroundColor: selectedDefaultBranch.metroColor || '#003B73' }}
+                        />
+                        <span>м. {selectedDefaultBranch.metro}</span>
+                        {selectedDefaultBranch.workHours && (
+                          <>
+                            <span className="text-slate-300">•</span>
+                            <span className="text-slate-500">{selectedDefaultBranch.workHours}</span>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 

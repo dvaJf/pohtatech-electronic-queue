@@ -1177,8 +1177,10 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
 
   const [branchId, setBranchId] = useState(() => {
     if (qrBranchId) return qrBranchId;
-    const v = sessionStorage.getItem(STORAGE_BRANCH_KEY);
-    return v && v !== 'undefined' && v !== 'null' ? v : '';
+    const v = sessionStorage.getItem(STORAGE_BRANCH_KEY) || (typeof localStorage !== 'undefined' ? localStorage.getItem(STORAGE_BRANCH_KEY) : null);
+    if (v && v !== 'undefined' && v !== 'null') return v;
+    const defaultBranch = typeof localStorage !== 'undefined' ? localStorage.getItem('user_default_branch_id') : null;
+    return defaultBranch || '';
   });
   const [serviceId, setServiceId] = useState(() => {
     const urlServiceId = new URLSearchParams(window.location.search).get('serviceId');
@@ -1463,7 +1465,16 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
       setError(null);
       const loaded = await api.listBranches();
       setBranches(loaded);
-      setBranchId(current => current || loaded[0]?.id || '');
+      setBranchId(current => {
+        if (current) return current;
+        const userDefault = (typeof localStorage !== 'undefined')
+          ? (localStorage.getItem('user_default_branch_id') || localStorage.getItem(STORAGE_BRANCH_KEY))
+          : null;
+        if (userDefault && loaded.some(b => b.id === userDefault)) {
+          return userDefault;
+        }
+        return loaded[0]?.id || '';
+      });
     } catch (err: any) {
       setError(friendlyError(err, 'Не удалось загрузить данные отделений'));
     } finally {
@@ -2133,6 +2144,26 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
       setBranchId(id);
     }
   };
+
+  useEffect(() => {
+    const handleDefaultBranchUpdated = (e: Event) => {
+      const custom = e as CustomEvent<{ branchId: string }>;
+      if (custom.detail?.branchId) {
+        handleBranchSelect(custom.detail.branchId);
+      }
+    };
+    window.addEventListener('client_default_branch_updated', handleDefaultBranchUpdated);
+    return () => window.removeEventListener('client_default_branch_updated', handleDefaultBranchUpdated);
+  }, [handleBranchSelect]);
+
+  useEffect(() => {
+    if (currentUserId && typeof localStorage !== 'undefined') {
+      const preferred = localStorage.getItem(`user_default_branch_id:${currentUserId}`) || localStorage.getItem('user_default_branch_id');
+      if (preferred && preferred !== branchId && branches.some(b => b.id === preferred)) {
+        handleBranchSelect(preferred);
+      }
+    }
+  }, [currentUserId, branchId, branches, handleBranchSelect]);
 
   const handleRepeatTicket = (targetBranchId: string) => {
     setServiceId('');

@@ -23,9 +23,8 @@
 .cx-notifications-heading { display: flex; gap: 10px; color: var(--client-primary); }
 .cx-notifications-heading h3 { margin: 0; font-size: 14px; font-weight: 700; }
 .cx-notifications-heading p, .cx-notification-main p { margin: 2px 0 0; color: var(--client-text-muted); font-size: 12px; line-height: 1.4; }
-.cx-notification-row { display: flex; gap: 10px; padding: 13px 0; border-top: 1px solid var(--client-border); }
-.cx-notification-row:first-of-type { border-top: 0; padding-top: 0; margin-top: 0; }
-.cx-notification-icon { display: grid; flex: 0 0 32px; width: 32px; height: 32px; place-items: center; color: var(--client-primary); background: #eaf2fb; border-radius: 10px; }
+.cx-notification-row { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px !important; border: 1px solid var(--client-border); border-radius: 16px; background: #fff; overflow: hidden; box-sizing: border-box; }
+.cx-notification-icon { display: flex; flex: 0 0 32px; width: 32px; height: 32px; align-items: center; justify-content: center; color: var(--client-primary); background: #eaf2fb; border-radius: 10px; shrink: 0; }
 .cx-notification-main { min-width: 0; flex: 1; }
 .cx-notification-main strong { display: block; color: var(--client-text); font-size: 13px; }
 .cx-notification-main .cx-btn, .cx-notification-link { min-height: 40px; margin-top: 9px; font-size: 12px; }

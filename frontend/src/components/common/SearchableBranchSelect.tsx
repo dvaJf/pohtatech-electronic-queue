@@ -178,10 +178,8 @@ export const SearchableBranchSelect: React.FC<SearchableBranchSelectProps> = ({
         }`}
       >
         <div className="flex items-center gap-2 min-w-0 flex-1">
-          {disabled ? (
+          {disabled && (
             <Lock className="w-3.5 h-3.5 text-amber-600 shrink-0" aria-hidden="true" />
-          ) : (
-            <Building2 className="w-3.5 h-3.5 text-[#003B73] shrink-0" aria-hidden="true" />
           )}
           <span className="truncate font-sans">
             {selectedBranch ? selectedBranch.name : placeholder}

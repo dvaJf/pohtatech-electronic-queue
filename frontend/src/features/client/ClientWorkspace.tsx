@@ -29,6 +29,21 @@ import { HomeHero } from './home/HomeHero';
 import { SmartRouteHero } from './home/SmartRouteHero';
 import { AppointmentCalendarMenu } from './calendar/AppointmentCalendarMenu';
 import { isAppointmentCalendarEventAvailable } from './calendar/appointmentCalendar';
+import Timeline8 from '@/components/ui/c-timeline-8';
+
+function getTicketTimelineStep(status: TicketStatus, isArrived = false): number {
+  if (isArrived && status === 'SCHEDULED') {
+    return 2;
+  }
+  switch (status) {
+    case 'SCHEDULED': return 1;
+    case 'WAITING': return 2;
+    case 'CALLED': return 3;
+    case 'SERVING': return 4;
+    case 'COMPLETED': return 5;
+    default: return 2;
+  }
+}
 
 // calculateSmartRouting is the product-level routing policy represented by smartRouting below.
 
@@ -360,51 +375,71 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
     }
   };
   const action = (channel: NotificationChannel, label: string, onClick: () => void, providerUnavailable = false) => connected(channel) ? <button type="button" className="cx-notification-link" disabled={busy !== null} onClick={() => disconnect(channel)}>Отключить</button> : <button type="button" className="cx-btn cx-btn-secondary" disabled={busy !== null || providerUnavailable || !canManage} onClick={onClick}>{busy === channel ? <Loader2 className="w-4 h-4 animate-spin" /> : label}</button>;
-  const telegramAction = () => { if (!capabilities || unavailable('telegram')) return null; if (connected('TELEGRAM')) return <button type="button" className="cx-notification-link" disabled={busy !== null} onClick={() => disconnect('TELEGRAM')}>Отключить</button>; if (telegramError) return <button type="button" className="cx-btn cx-btn-secondary" disabled={busy !== null || !canManage} onClick={telegram}>Повторить</button>; return <button type="button" className="cx-btn cx-btn-secondary" disabled={busy !== null || !canManage} onClick={telegram}>{busy === 'TELEGRAM' ? <span className="inline-flex items-center gap-1.5"><Loader2 className="w-4 h-4 animate-spin" /> Открываем Telegram…</span> : 'Подключить Telegram'}</button>; };
+  const telegramAction = () => {
+    if (!capabilities || unavailable('telegram')) return null;
+    const isConn = Boolean(connected('TELEGRAM'));
+    return (
+      <div className="flex items-center gap-2 shrink-0">
+        {busy === 'TELEGRAM' && <span className="inline-flex items-center gap-1 text-[11px] text-[#003B73]"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Открываем Telegram…</span>}
+        <label className="relative inline-flex items-center cursor-pointer select-none" title={isConn ? 'Отключить Telegram' : 'Подключить Telegram'}>
+          <input
+            type="checkbox"
+            checked={isConn}
+            disabled={busy !== null || !canManage}
+            onChange={() => {
+              if (isConn) {
+                void disconnect('TELEGRAM');
+              } else {
+                void telegram();
+              }
+            }}
+            className="sr-only peer"
+            aria-label="Включить или отключить Telegram"
+          />
+          <div className="w-10 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#003B73]" />
+        </label>
+      </div>
+    );
+  };
   const webPushAction = () => {
     if (!capabilities || unavailable('webPush')) return null;
-    // 1. Если в профиле отключено -> в талоне включить нельзя!
     if (!profilePushEnabled) {
       return (
         <span
-          className="text-[11px] font-bold text-amber-700 bg-amber-50 px-2.5 py-1.5 rounded-lg border border-amber-200 select-none cursor-help inline-block"
-          title="Включить браузерные уведомления можно только в настройках вашего профиля (иконка профиля в шапке)"
+          className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200 select-none cursor-help"
+          title="Включить браузерные уведомления можно только в настройках вашего профиля"
           onClick={() => setNotice('Уведомления браузера отключены в вашем профиле. Включить их можно только в профиле пользователя.')}
         >
-          Только в профиле
+          В профиле
         </span>
       );
     }
-    // 2. Если в профиле включено, но отключено для этого талона:
-    if (ticketPushDisabled) {
-      return (
-        <button
-          type="button"
-          className="cx-btn cx-btn-secondary"
-          disabled={busy !== null || !canManage}
-          onClick={async () => {
-            if (typeof localStorage !== 'undefined') {
-              localStorage.removeItem(`ticket_webpush_disabled:${ticket.id}`);
-            }
-            setTicketPushDisabled(false);
-            setNotice('Уведомления браузера включены для этого талона.');
-            await push();
-          }}
-        >
-          {busy === 'WEB_PUSH' ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Включить'}
-        </button>
-      );
-    }
-    // 3. Если активно для этого талона -> кнопка «Отключить»
+    const isConn = Boolean(connected('WEB_PUSH') && !ticketPushDisabled);
     return (
-      <button
-        type="button"
-        className="cx-notification-link text-rose-600 hover:text-rose-700 font-bold"
-        disabled={busy !== null}
-        onClick={() => void disconnect('WEB_PUSH')}
-      >
-        Отключить
-      </button>
+      <div className="flex items-center gap-2 shrink-0">
+        {busy === 'WEB_PUSH' && <Loader2 className="w-3.5 h-3.5 animate-spin text-[#003B73]" />}
+        <label className="relative inline-flex items-center cursor-pointer select-none" title={isConn ? 'Отключить уведомления браузера' : 'Включить уведомления браузера'}>
+          <input
+            type="checkbox"
+            checked={isConn}
+            disabled={busy !== null || !canManage}
+            onChange={async () => {
+              if (isConn) {
+                await disconnect('WEB_PUSH');
+              } else {
+                if (typeof localStorage !== 'undefined') {
+                  localStorage.removeItem(`ticket_webpush_disabled:${ticket.id}`);
+                }
+                setTicketPushDisabled(false);
+                await push();
+              }
+            }}
+            className="sr-only peer"
+            aria-label="Включить или отключить уведомления браузера"
+          />
+          <div className="w-10 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#003B73]" />
+        </label>
+      </div>
     );
   };
   const providerAction = (provider: 'telegram' | 'webPush', channel: NotificationChannel, label: string, onClick: () => void) =>
@@ -429,8 +464,24 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
     if (channel === 'TELEGRAM' && telegramError) return 'Не удалось подключить Telegram';
     return unavailMsg || defaultDesc;
   };
-  const row = (icon: React.ReactNode, title: string, description: string, channel: NotificationChannel, content: React.ReactNode, unavailable?: string) => <div className="cx-notification-row"><div className="cx-notification-icon">{icon}</div><div className="cx-notification-main"><strong>{title}</strong><p>{channelText(channel, description, unavailable)}</p>{content}</div></div>;
-  const emailForm = <div className="cx-notification-form"><label className="sr-only" htmlFor={`email-${ticket.id}`}>Email для подтверждения записи</label><input id={`email-${ticket.id}`} type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="name@example.com" disabled={busy !== null || !canManage || unavailable('email')}/><button type="button" className="cx-btn cx-btn-secondary" disabled={busy !== null || !canManage || unavailable('email')} onClick={() => save('EMAIL', email)}>{busy === 'EMAIL' ? <Loader2 className="w-4 h-4 animate-spin"/> : 'Получить подтверждение'}</button></div>;
+  const row = (icon: React.ReactNode, title: string, description: string, channel: NotificationChannel, content: React.ReactNode, unavailable?: string) => (
+    <div className="cx-notification-row p-3.5 bg-white border border-slate-200/90 rounded-2xl flex flex-col gap-2 shadow-2xs overflow-hidden">
+      <div className="flex items-center justify-between gap-3 w-full min-w-0">
+        <div className="flex items-center gap-3 min-w-0 flex-1">
+          <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${connected(channel) ? 'bg-blue-50 text-[#003B73]' : 'bg-slate-100 text-slate-500'}`}>
+            {icon}
+          </div>
+          <div className="cx-notification-main min-w-0 flex-1">
+            <strong className="text-xs font-bold text-slate-800 block truncate">{title}</strong>
+            <p className="text-[11px] text-slate-500 leading-tight truncate mt-0.5">{channelText(channel, description, unavailable)}</p>
+          </div>
+        </div>
+        <div className="shrink-0">{content}</div>
+      </div>
+      {channel === 'EMAIL' && !connected('EMAIL') && emailForm}
+    </div>
+  );
+  const emailForm = <div className="cx-notification-form mt-1 pt-2 border-t border-slate-100 flex items-center gap-2"><label className="sr-only" htmlFor={`email-${ticket.id}`}>Email для подтверждения записи</label><input id={`email-${ticket.id}`} type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="name@example.com" className="flex-1 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-[#003B73]" disabled={busy !== null || !canManage || unavailable('email')}/><button type="button" className="cx-btn cx-btn-secondary text-xs px-3 py-1.5" disabled={busy !== null || !canManage || unavailable('email')} onClick={() => save('EMAIL', email)}>{busy === 'EMAIL' ? <Loader2 className="w-3.5 h-3.5 animate-spin"/> : 'Получить подтверждение'}</button></div>;
   const unavailableMessage = (provider: 'telegram' | 'webPush' | 'email', label: string) => {
     if (!capabilities) return 'Проверяем доступность канала…';
     if (!unavailable(provider)) return undefined;
@@ -439,75 +490,35 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
     return `${label} временно недоступен.`;
   };
 
-  const handleToggleSwitch = async (val: boolean) => {
-    setNotificationsEnabled(val);
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(`ticket_notif_enabled:${ticket.id}`, String(val));
-    }
-    if (!val) {
-      const active = subscriptions.filter(s => s.enabled);
-      for (const s of active) {
-        try {
-          await api.removeNotificationSubscription(ticket.id, s.channel, s.id, token);
-        } catch {}
-      }
-      if (active.length > 0) {
-        await refresh();
-      }
-      setNotice('Уведомления по талону выключены.');
-    } else {
-      setNotice('Уведомления по талону включены. Выберите удобный канал получения сообщений ниже.');
-    }
-  };
-
-  const toggleHeader = (
-    <div className="flex items-center justify-between pb-3 mb-2 border-b border-slate-200/80">
-      <div className="flex items-center gap-2.5">
-        <div className={`w-8 h-8 rounded-xl flex items-center justify-center transition-colors ${notificationsEnabled ? 'bg-blue-100 text-[#003B73]' : 'bg-slate-200 text-slate-500'}`}>
-          <Bell size={18} />
-        </div>
-        <div>
-          <div className="flex items-center gap-2">
-            <strong className="text-xs font-bold text-slate-800">Уведомления по талону</strong>
-            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${notificationsEnabled ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'}`}>
-              {notificationsEnabled ? 'Включены' : 'Выключены'}
-            </span>
-          </div>
-          <p className="text-[11px] text-slate-500 leading-tight">
-            {notificationsEnabled ? 'Оповещения о статусе очереди и вызове к окну' : 'Оповещения отключены для этого талона'}
-          </p>
-        </div>
-      </div>
-      <label className="relative inline-flex items-center cursor-pointer select-none shrink-0" title={notificationsEnabled ? 'Выключить уведомления' : 'Включить уведомления'}>
-        <input
-          type="checkbox"
-          checked={notificationsEnabled}
-          onChange={e => void handleToggleSwitch(e.target.checked)}
-          className="sr-only peer"
-          aria-label="Включить или выключить уведомления по талону"
-        />
-        <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#054FA6]" />
-      </label>
-    </div>
-  );
-
   return (
     <section className="cx-notifications" aria-label="Уведомления по талону">
-      {toggleHeader}
-      {notificationsEnabled ? (
-        <div className="space-y-1">
-          {row(<TelegramIcon/>, 'Telegram', 'Получать сообщения о движении очереди.', 'TELEGRAM', providerAction('telegram', 'TELEGRAM', 'Подключить Telegram', telegram), unavailableMessage('telegram', 'Telegram'))}
-          {row(<Bell size={18}/>, 'Уведомления браузера', 'Системные уведомления даже при свёрнутой вкладке.', 'WEB_PUSH', providerAction('webPush', 'WEB_PUSH', 'Включить', push), unavailableMessage('webPush', 'Уведомления браузера'))}
-          {ticket.source === 'APPOINTMENT' && row(<Mail size={18}/>, 'Email', capabilities?.email.mode === 'demo' ? 'Email доступен только в демонстрационном режиме.' : 'Подтверждение предварительной записи.', 'EMAIL', connected('EMAIL') ? action('EMAIL', '', () => {}) : subscriptionForm('email', emailForm), unavailableMessage('email', 'Email'))}
-        </div>
-      ) : (
-        <div className="p-2.5 my-1 rounded-xl bg-slate-100 text-[11px] text-slate-600 flex items-center justify-between">
-          <span>Уведомления по талону отключены тумблером.</span>
-          <button type="button" className="text-[#054FA6] font-bold hover:underline ml-2 shrink-0" onClick={() => void handleToggleSwitch(true)}>
-            Включить
-          </button>
-        </div>
-      )}
+      <div className="space-y-2">
+        {row(<TelegramIcon/>, 'Telegram', 'Получать сообщения о движении очереди.', 'TELEGRAM', providerAction('telegram', 'TELEGRAM', 'Подключить Telegram', telegram), unavailableMessage('telegram', 'Telegram'))}
+        {row(<Bell size={18}/>, 'Уведомления браузера', 'Системные уведомления даже при свёрнутой вкладке.', 'WEB_PUSH', providerAction('webPush', 'WEB_PUSH', 'Включить', push), unavailableMessage('webPush', 'Уведомления браузера'))}
+        {ticket.source === 'APPOINTMENT' && row(
+          <Mail size={18}/>,
+          'Email',
+          capabilities?.email.mode === 'demo' ? 'Email доступен только в демонстрационном режиме.' : 'Подтверждение предварительной записи.',
+          'EMAIL',
+          connected('EMAIL') ? (
+            <div className="flex items-center gap-2 shrink-0">
+              {busy === 'EMAIL' && <Loader2 className="w-3.5 h-3.5 animate-spin text-[#003B73]" />}
+              <label className="relative inline-flex items-center cursor-pointer select-none" title="Отключить Email">
+                <input
+                  type="checkbox"
+                  checked={true}
+                  disabled={busy !== null || !canManage}
+                  onChange={() => void disconnect('EMAIL')}
+                  className="sr-only peer"
+                  aria-label="Отключить Email"
+                />
+                <div className="w-10 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#003B73]" />
+              </label>
+            </div>
+          ) : subscriptionForm('email', null),
+          unavailableMessage('email', 'Email')
+        )}
+      </div>
       {!canManage && <p className="cx-notification-status" role="status">{managementUnavailable}</p>}
       {subscriptionsError && <p className="cx-notification-status" role="status" aria-live="polite">Не удалось загрузить настройки уведомлений. <button type="button" className="cx-notification-link" onClick={() => void refresh()}>Повторить</button></p>}
       {capabilitiesError && <p className="cx-notification-status" role="status" aria-live="polite">Не удалось определить доступность каналов. <button type="button" className="cx-notification-link" onClick={() => void refresh()}>Повторить</button></p>}
@@ -1087,6 +1098,8 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
     pendingServicesRef.current.set(targetBranchId, request);
     return request;
   }, []);
+
+  const userSelectedBranchRef = useRef(false);
 
   const [branchId, setBranchId] = useState(() => {
     if (qrBranchId) return qrBranchId;
@@ -2057,6 +2070,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
   };
 
   const handleBranchSelect = (id: string) => {
+    userSelectedBranchRef.current = true;
     setServiceId('');
     sessionStorage.removeItem(STORAGE_SERVICE_KEY);
     sessionStorage.setItem(STORAGE_BRANCH_KEY, id);
@@ -2095,11 +2109,12 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
   }, [branches, handleBranchSelect]);
 
   useEffect(() => {
+    if (userSelectedBranchRef.current) return;
     if (currentUserId && typeof localStorage !== 'undefined' && branches.length > 0) {
       const preferred = localStorage.getItem(`user_default_branch_id:${currentUserId}`) || localStorage.getItem('user_default_branch_id');
       if (preferred) {
         const matched = branches.find(b => matchesUserDefaultBranch(b, preferred));
-        if (matched && matched.id !== branchId) {
+        if (matched && (!branchId || !branches.some(b => b.id === branchId))) {
           handleBranchSelect(matched.id);
         }
       }
@@ -2107,6 +2122,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
   }, [currentUserId, branchId, branches, handleBranchSelect]);
 
   const handleRepeatTicket = (targetBranchId: string) => {
+    userSelectedBranchRef.current = true;
     setServiceId('');
     sessionStorage.removeItem(STORAGE_SERVICE_KEY);
     sessionStorage.setItem(STORAGE_BRANCH_KEY, targetBranchId);
@@ -2915,6 +2931,27 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                     <div className="cx-ticket-header" aria-live="polite" aria-atomic="true">
                       <span className="cx-ticket-num font-mono">{ticket.publicNumber}</span>
                       <StatusBadge status={ticket.status} source={ticket.source} />
+                    </div>
+
+                    {/* Animated Timeline */}
+                    <div className="my-2.5 py-2 px-2 bg-slate-50/90 rounded-2xl border border-slate-200/80 overflow-x-auto shadow-2xs">
+                      {(() => {
+                        const isTicketArrived = Boolean(ticket.arrivedAt || arrivalAcknowledgedTicketIds.has(ticket.id));
+                        const isCalledOrServing = ticket.status === 'CALLED' || ticket.status === 'SERVING' || ticket.status === 'COMPLETED';
+                        return (
+                          <Timeline8
+                            currentStep={getTicketTimelineStep(ticket.status, isTicketArrived)}
+                            items={[
+                              { id: 1, title: 'Получен', description: 'Талон выдан' },
+                              { id: 2, title: 'В очереди', description: position?.position ? `${position.position} в очереди` : (isTicketArrived ? 'В очереди' : 'Ожидание') },
+                              { id: 3, title: 'Вызов к окну', description: isCalledOrServing && ticket.window?.number ? `Окно №${ticket.window.number}` : 'Приглашение' },
+                              { id: 4, title: 'Обслуживание', description: 'У оператора' },
+                              { id: 5, title: 'Завершён', description: 'Готово' },
+                            ]}
+                            className="w-full max-w-full"
+                          />
+                        );
+                      })()}
                     </div>
 
                     {/* Details Body */}

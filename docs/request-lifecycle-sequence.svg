@@ -1,0 +1,345 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1340 1060" width="100%" height="100%" style="background:#f8fafc; font-family:'Segoe UI', system-ui, -apple-system, sans-serif;">
+  <defs>
+    <!-- Soft Shadows -->
+    <filter id="shadow" x="-8%" y="-6%" width="116%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#0f172a" flood-opacity="0.06"/>
+    </filter>
+
+    <!-- Arrow Markers -->
+    <!-- Request: Postal Blue #0055A5 -->
+    <marker id="arrowReq" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+      <path d="M1,1 L8,4.5 L1,8 Z" fill="#0055A5"/>
+    </marker>
+    <!-- Response: Emerald Green #059669 -->
+    <marker id="arrowResp" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+      <path d="M8,1 L1,4.5 L8,8 Z" fill="#059669"/>
+    </marker>
+    <!-- Self loop marker -->
+    <marker id="arrowSelf" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto">
+      <path d="M1,1 L6,3.5 L1,6 Z" fill="#0284c7"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1340" height="1060" fill="#f8fafc"/>
+
+  <!-- ==================== HEADER ==================== -->
+  <g transform="translate(60, 24)">
+    <rect x="0" y="0" width="1220" height="52" rx="10" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" filter="url(#shadow)"/>
+    
+    <!-- Title icon -->
+    <rect x="12" y="10" width="32" height="32" rx="8" fill="#0055A5"/>
+    <path d="M21 21 L27 26 L35 18" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    
+    <text x="56" y="27" fill="#0f172a" font-size="16" font-weight="800">Путь запроса: пользователь нажимает «Взять талон»</text>
+    <text x="56" y="42" fill="#64748b" font-size="11">UML Sequence Diagram • Пошаговый сквозной цикл выполнения запроса от клика до фиксации в СУБД и возврата в UI</text>
+
+    <!-- Legend -->
+    <g transform="translate(930, 16)">
+      <line x1="0" y1="10" x2="35" y2="10" stroke="#0055A5" stroke-width="2.5" marker-end="url(#arrowReq)"/>
+      <text x="44" y="14" fill="#0055A5" font-size="11" font-weight="700">REQUEST (➔)</text>
+      
+      <line x1="160" y1="10" x2="195" y2="10" stroke="#059669" stroke-width="2.5" stroke-dasharray="4 3" marker-end="url(#arrowResp)"/>
+      <text x="204" y="14" fill="#059669" font-size="11" font-weight="700">RESPONSE (←)</text>
+    </g>
+  </g>
+
+  <!-- ==================== PARTICIPANTS (LIFELINE HEADERS) ==================== -->
+  <!-- 
+    Column X coordinates:
+    1. User: 90
+    2. React UI: 230
+    3. Cloudflare: 375
+    4. Nginx/Ingress: 515
+    5. Router/MW: 660
+    6. Handler/Validation: 810
+    7. Service (UseCase): 965
+    8. Repository: 1110
+    9. PostgreSQL: 1240
+  -->
+
+  <!-- Lifeline Dashed Tracks -->
+  <g stroke="#cbd5e1" stroke-width="1.5" stroke-dasharray="5 5">
+    <line x1="90" y1="140" x2="90" y2="990"/>
+    <line x1="230" y1="140" x2="230" y2="990"/>
+    <line x1="375" y1="140" x2="375" y2="990"/>
+    <line x1="515" y1="140" x2="515" y2="990"/>
+    <line x1="660" y1="140" x2="660" y2="990"/>
+    <line x1="810" y1="140" x2="810" y2="990"/>
+    <line x1="965" y1="140" x2="965" y2="990"/>
+    <line x1="1110" y1="140" x2="1110" y2="990"/>
+    <line x1="1240" y1="140" x2="1240" y2="990"/>
+  </g>
+
+  <!-- Participant Boxes -->
+  <!-- 1. Пользователь -->
+  <g transform="translate(35, 88)" filter="url(#shadow)">
+    <rect width="110" height="50" rx="8" fill="#ffffff" stroke="#0055A5" stroke-width="1.5"/>
+    <text x="55" y="22" fill="#0055A5" font-size="11" font-weight="800" text-anchor="middle">👤 Пользователь</text>
+    <text x="55" y="38" fill="#64748b" font-size="9" text-anchor="middle">Клиент отделения</text>
+  </g>
+
+  <!-- 2. Browser / React -->
+  <g transform="translate(175, 88)" filter="url(#shadow)">
+    <rect width="110" height="50" rx="8" fill="#ffffff" stroke="#0284c7" stroke-width="1.5"/>
+    <text x="55" y="22" fill="#0284c7" font-size="11" font-weight="800" text-anchor="middle">💻 Browser / React</text>
+    <text x="55" y="38" fill="#64748b" font-size="9" text-anchor="middle">Web SPA Client</text>
+  </g>
+
+  <!-- 3. Cloudflare -->
+  <g transform="translate(320, 88)" filter="url(#shadow)">
+    <rect width="110" height="50" rx="8" fill="#ffffff" stroke="#ea580c" stroke-width="1.5"/>
+    <text x="55" y="22" fill="#ea580c" font-size="11" font-weight="800" text-anchor="middle">☁️ Cloudflare</text>
+    <text x="55" y="38" fill="#64748b" font-size="9" text-anchor="middle">WAF &amp; Edge Proxy</text>
+  </g>
+
+  <!-- 4. Nginx / Ingress -->
+  <g transform="translate(460, 88)" filter="url(#shadow)">
+    <rect width="110" height="50" rx="8" fill="#ffffff" stroke="#16a34a" stroke-width="1.5"/>
+    <text x="55" y="22" fill="#16a34a" font-size="11" font-weight="800" text-anchor="middle">🚪 Nginx / Ingress</text>
+    <text x="55" y="38" fill="#64748b" font-size="9" text-anchor="middle">L7 Gateway (Traefik)</text>
+  </g>
+
+  <!-- 5. Go Router & MW -->
+  <g transform="translate(605, 88)" filter="url(#shadow)">
+    <rect width="110" height="50" rx="8" fill="#ffffff" stroke="#0369a1" stroke-width="1.5"/>
+    <text x="55" y="22" fill="#0369a1" font-size="11" font-weight="800" text-anchor="middle">⚙️ Router &amp; MW</text>
+    <text x="55" y="38" fill="#64748b" font-size="9" text-anchor="middle">chi.Mux + loadSession</text>
+  </g>
+
+  <!-- 6. Handler & Validation -->
+  <g transform="translate(755, 88)" filter="url(#shadow)">
+    <rect width="110" height="50" rx="8" fill="#ffffff" stroke="#4f46e5" stroke-width="1.5"/>
+    <text x="55" y="22" fill="#4f46e5" font-size="10" font-weight="800" text-anchor="middle">📝 Handler &amp; Val</text>
+    <text x="55" y="38" fill="#64748b" font-size="9" text-anchor="middle">CreateLiveTicket</text>
+  </g>
+
+  <!-- 7. Service / UseCase -->
+  <g transform="translate(910, 88)" filter="url(#shadow)">
+    <rect width="110" height="50" rx="8" fill="#ffffff" stroke="#7c3aed" stroke-width="1.5"/>
+    <text x="55" y="22" fill="#7c3aed" font-size="11" font-weight="800" text-anchor="middle">🧠 Service (Logic)</text>
+    <text x="55" y="38" fill="#64748b" font-size="9" text-anchor="middle">Policy &amp; Schedule</text>
+  </g>
+
+  <!-- 8. Repository -->
+  <g transform="translate(1055, 88)" filter="url(#shadow)">
+    <rect width="110" height="50" rx="8" fill="#ffffff" stroke="#0d9488" stroke-width="1.5"/>
+    <text x="55" y="22" fill="#0d9488" font-size="11" font-weight="800" text-anchor="middle">📦 Repository</text>
+    <text x="55" y="38" fill="#64748b" font-size="9" text-anchor="middle">pgx Pool &amp; Tx</text>
+  </g>
+
+  <!-- 9. PostgreSQL -->
+  <g transform="translate(1190, 88)" filter="url(#shadow)">
+    <rect width="100" height="50" rx="8" fill="#ffffff" stroke="#336791" stroke-width="1.5"/>
+    <text x="50" y="22" fill="#336791" font-size="11" font-weight="800" text-anchor="middle">🐘 PostgreSQL</text>
+    <text x="50" y="38" fill="#64748b" font-size="9" text-anchor="middle">ACID СУБД :5432</text>
+  </g>
+
+  <!-- ==================== ACTIVATION BARS ==================== -->
+  <rect x="86" y="165" width="8" height="800" rx="4" fill="#cbd5e1" opacity="0.6"/>
+  <rect x="226" y="175" width="8" height="775" rx="4" fill="#bae6fd"/>
+  <rect x="371" y="215" width="8" height="695" rx="4" fill="#fed7aa"/>
+  <rect x="511" y="255" width="8" height="620" rx="4" fill="#bbf7d0"/>
+  <rect x="656" y="295" width="8" height="540" rx="4" fill="#bae6fd"/>
+  <rect x="806" y="375" width="8" height="425" rx="4" fill="#c7d2fe"/>
+  <rect x="961" y="445" width="8" height="320" rx="4" fill="#ddd6fe"/>
+  <rect x="1106" y="495" width="8" height="235" rx="4" fill="#99f6e4"/>
+  <rect x="1236" y="535" width="8" height="150" rx="4" fill="#93c5fd"/>
+
+  <!-- ==================== PART 1: REQUEST FLOW (➔) ==================== -->
+  
+  <!-- Step 1: User -> Browser -->
+  <g transform="translate(0, 175)">
+    <line x1="90" y1="0" x2="228" y2="0" stroke="#0055A5" stroke-width="2" marker-end="url(#arrowReq)"/>
+    <circle cx="160" cy="-14" r="8" fill="#0055A5"/>
+    <text x="160" y="-10" fill="#ffffff" font-size="10" font-weight="800" text-anchor="middle">1</text>
+    <text x="160" y="-2" fill="#0f172a" font-size="10" font-weight="700" text-anchor="middle">Клик «Взять талон» (выбор услуги)</text>
+  </g>
+
+  <!-- Step 2: Browser -> Cloudflare -->
+  <g transform="translate(0, 215)">
+    <line x1="230" y1="0" x2="373" y2="0" stroke="#0055A5" stroke-width="2" marker-end="url(#arrowReq)"/>
+    <circle cx="302" cy="-14" r="8" fill="#0055A5"/>
+    <text x="302" y="-10" fill="#ffffff" font-size="10" font-weight="800" text-anchor="middle">2</text>
+    <text x="302" y="-4" fill="#0055A5" font-size="10" font-weight="800" text-anchor="middle">POST /api/v1/branches/{id}/tickets/live</text>
+    <text x="302" y="11" fill="#64748b" font-size="9" text-anchor="middle">Idempotency-Key: uuid | Body: {"serviceId":"..."}</text>
+  </g>
+
+  <!-- Step 3: Cloudflare -> Ingress -->
+  <g transform="translate(0, 255)">
+    <line x1="375" y1="0" x2="513" y2="0" stroke="#0055A5" stroke-width="2" marker-end="url(#arrowReq)"/>
+    <circle cx="445" cy="-14" r="8" fill="#0055A5"/>
+    <text x="445" y="-10" fill="#ffffff" font-size="10" font-weight="800" text-anchor="middle">3</text>
+    <text x="445" y="-4" fill="#0f172a" font-size="10" font-weight="700" text-anchor="middle">HTTPS Проксирование (TLS 1.3)</text>
+    <text x="445" y="11" fill="#64748b" font-size="9" text-anchor="middle">WAF инспекция ➔ Origin 144.31.181.192:443</text>
+  </g>
+
+  <!-- Step 4: Ingress -> Router -->
+  <g transform="translate(0, 295)">
+    <line x1="515" y1="0" x2="658" y2="0" stroke="#0055A5" stroke-width="2" marker-end="url(#arrowReq)"/>
+    <circle cx="587" cy="-14" r="8" fill="#0055A5"/>
+    <text x="587" y="-10" fill="#ffffff" font-size="10" font-weight="800" text-anchor="middle">4</text>
+    <text x="587" y="-4" fill="#0f172a" font-size="10" font-weight="700" text-anchor="middle">L7 Path Match: /api/*</text>
+    <text x="587" y="11" fill="#64748b" font-size="9" text-anchor="middle">Traefik ➔ ClusterIP backend:8080</text>
+  </g>
+
+  <!-- Step 5: Router Self Loop: Middlewares -->
+  <g transform="translate(660, 335)">
+    <path d="M 4 0 C 40 -12, 40 22, 6 12" stroke="#0284c7" stroke-width="1.8" fill="none" marker-end="url(#arrowSelf)"/>
+    <circle cx="48" cy="2" r="7" fill="#0284c7"/>
+    <text x="48" y="5" fill="#ffffff" font-size="9" font-weight="800" text-anchor="middle">5</text>
+    <text x="60" y="-3" fill="#0284c7" font-size="10" font-weight="700">Цепочка Middlewares:</text>
+    <text x="60" y="11" fill="#64748b" font-size="9">1. RequestID gen 2. Logger 3. loadSession()</text>
+  </g>
+
+  <!-- Step 6: Router -> Handler -->
+  <g transform="translate(0, 375)">
+    <line x1="660" y1="0" x2="808" y2="0" stroke="#0055A5" stroke-width="2" marker-end="url(#arrowReq)"/>
+    <circle cx="735" cy="-14" r="8" fill="#0055A5"/>
+    <text x="735" y="-10" fill="#ffffff" font-size="10" font-weight="800" text-anchor="middle">6</text>
+    <text x="735" y="-4" fill="#0055A5" font-size="10" font-weight="800" text-anchor="middle">Вызов a.CreateLiveTicket(w, r)</text>
+    <text x="735" y="11" fill="#64748b" font-size="9" text-anchor="middle">Передача контекста с сессией пользователя</text>
+  </g>
+
+  <!-- Step 7: Handler Self Loop: Validation -->
+  <g transform="translate(810, 410)">
+    <path d="M 4 0 C 40 -12, 40 22, 6 12" stroke="#4f46e5" stroke-width="1.8" fill="none" marker-end="url(#arrowSelf)"/>
+    <circle cx="48" cy="2" r="7" fill="#4f46e5"/>
+    <text x="48" y="5" fill="#ffffff" font-size="9" font-weight="800" text-anchor="middle">7</text>
+    <text x="60" y="-3" fill="#4f46e5" font-size="10" font-weight="700">Валидация запроса:</text>
+    <text x="60" y="11" fill="#64748b" font-size="9">validUUID(branchId, serviceId) + Idempotency</text>
+  </g>
+
+  <!-- Step 8: Handler -> Service -->
+  <g transform="translate(0, 445)">
+    <line x1="810" y1="0" x2="963" y2="0" stroke="#0055A5" stroke-width="2" marker-end="url(#arrowReq)"/>
+    <circle cx="887" cy="-14" r="8" fill="#0055A5"/>
+    <text x="887" y="-10" fill="#ffffff" font-size="10" font-weight="800" text-anchor="middle">8</text>
+    <text x="887" y="-4" fill="#0055A5" font-size="10" font-weight="800" text-anchor="middle">usecases.CreateLiveTicket(cmd)</text>
+    <text x="887" y="11" fill="#64748b" font-size="9" text-anchor="middle">Command: {BranchID, ServiceID, IdempotencyKey}</text>
+  </g>
+
+  <!-- Step 9: Service Self Loop: Business Logic -->
+  <g transform="translate(965, 475)">
+    <path d="M 4 0 C 40 -12, 40 22, 6 12" stroke="#7c3aed" stroke-width="1.8" fill="none" marker-end="url(#arrowSelf)"/>
+    <circle cx="48" cy="2" r="7" fill="#7c3aed"/>
+    <text x="48" y="5" fill="#ffffff" font-size="9" font-weight="800" text-anchor="middle">9</text>
+    <text x="60" y="-3" fill="#7c3aed" font-size="10" font-weight="700">Бизнес-логика очереди:</text>
+    <text x="60" y="11" fill="#64748b" font-size="9">ComputeSchedule(policy) + ManagementToken</text>
+  </g>
+
+  <!-- Step 10: Service -> Repository -->
+  <g transform="translate(0, 505)">
+    <line x1="965" y1="0" x2="1108" y2="0" stroke="#0055A5" stroke-width="2" marker-end="url(#arrowReq)"/>
+    <circle cx="1037" cy="-14" r="8" fill="#0055A5"/>
+    <text x="1037" y="-10" fill="#ffffff" font-size="10" font-weight="800" text-anchor="middle">10</text>
+    <text x="1037" y="-4" fill="#0055A5" font-size="10" font-weight="800" text-anchor="middle">BeginTx + CreateTicket()</text>
+    <text x="1037" y="11" fill="#64748b" font-size="9" text-anchor="middle">Старт SQL транзакции (ReadCommitted)</text>
+  </g>
+
+  <!-- Step 11: Repository -> PostgreSQL -->
+  <g transform="translate(0, 545)">
+    <line x1="1110" y1="0" x2="1238" y2="0" stroke="#0055A5" stroke-width="2" marker-end="url(#arrowReq)"/>
+    <circle cx="1174" cy="-14" r="8" fill="#0055A5"/>
+    <text x="1174" y="-10" fill="#ffffff" font-size="10" font-weight="800" text-anchor="middle">11</text>
+    <text x="1174" y="-4" fill="#0055A5" font-size="9" font-weight="800" text-anchor="middle">SQL INSERT INTO tickets...</text>
+    <text x="1174" y="10" fill="#64748b" font-size="8" text-anchor="middle">next_live_public_number()</text>
+  </g>
+
+  <!-- ==================== PIVOT: DATABASE EXECUTION ==================== -->
+  <g transform="translate(1185, 575)">
+    <rect width="110" height="48" rx="8" fill="#eff6ff" stroke="#336791" stroke-width="1.5" stroke-dasharray="3 2"/>
+    <text x="55" y="16" fill="#1e3a8a" font-size="9" font-weight="800" text-anchor="middle">ВЫПОЛНЕНИЕ В БД</text>
+    <text x="55" y="30" fill="#0055A5" font-size="9" font-weight="700" text-anchor="middle">Талон: «Q-000042»</text>
+    <text x="55" y="42" fill="#16a34a" font-size="8" font-weight="600" text-anchor="middle">COMMIT TX ✓</text>
+  </g>
+
+  <!-- ==================== PART 2: RESPONSE FLOW (←) ==================== -->
+
+  <!-- Step 12: PostgreSQL -> Repository -->
+  <g transform="translate(0, 650)">
+    <line x1="1238" y1="0" x2="1110" y2="0" stroke="#059669" stroke-width="2" stroke-dasharray="5 3" marker-end="url(#arrowResp)"/>
+    <circle cx="1174" cy="-14" r="8" fill="#059669"/>
+    <text x="1174" y="-10" fill="#ffffff" font-size="10" font-weight="800" text-anchor="middle">12</text>
+    <text x="1174" y="-4" fill="#059669" font-size="9" font-weight="800" text-anchor="middle">RETURNING Row Data</text>
+    <text x="1174" y="10" fill="#64748b" font-size="8" text-anchor="middle">{id, public_number, status}</text>
+  </g>
+
+  <!-- Step 13: Repository -> Service -->
+  <g transform="translate(0, 690)">
+    <line x1="1108" y1="0" x2="965" y2="0" stroke="#059669" stroke-width="2" stroke-dasharray="5 3" marker-end="url(#arrowResp)"/>
+    <circle cx="1037" cy="-14" r="8" fill="#059669"/>
+    <text x="1037" y="-10" fill="#ffffff" font-size="10" font-weight="800" text-anchor="middle">13</text>
+    <text x="1037" y="-4" fill="#059669" font-size="10" font-weight="800" text-anchor="middle">domain.Ticket Entity</text>
+    <text x="1037" y="11" fill="#64748b" font-size="9" text-anchor="middle">Маппинг SQL строки в Go-структуру</text>
+  </g>
+
+  <!-- Step 14: Service -> Handler -->
+  <g transform="translate(0, 730)">
+    <line x1="963" y1="0" x2="810" y2="0" stroke="#059669" stroke-width="2" stroke-dasharray="5 3" marker-end="url(#arrowResp)"/>
+    <circle cx="887" cy="-14" r="8" fill="#059669"/>
+    <text x="887" y="-10" fill="#ffffff" font-size="10" font-weight="800" text-anchor="middle">14</text>
+    <text x="887" y="-4" fill="#059669" font-size="10" font-weight="800" text-anchor="middle">CreateLiveTicketResult DTO</text>
+    <text x="887" y="11" fill="#64748b" font-size="9" text-anchor="middle">Ticket: Q-000042, Replayed: false</text>
+  </g>
+
+  <!-- Step 15: Handler -> Router -->
+  <g transform="translate(0, 770)">
+    <line x1="808" y1="0" x2="660" y2="0" stroke="#059669" stroke-width="2" stroke-dasharray="5 3" marker-end="url(#arrowResp)"/>
+    <circle cx="735" cy="-14" r="8" fill="#059669"/>
+    <text x="735" y="-10" fill="#ffffff" font-size="10" font-weight="800" text-anchor="middle">15</text>
+    <text x="735" y="-4" fill="#059669" font-size="10" font-weight="800" text-anchor="middle">HTTP 201 Created + JSON</text>
+    <text x="735" y="11" fill="#64748b" font-size="9" text-anchor="middle">writeJSONResponse(mapTicket(t))</text>
+  </g>
+
+  <!-- Step 16: Router -> Ingress -->
+  <g transform="translate(0, 810)">
+    <line x1="658" y1="0" x2="515" y2="0" stroke="#059669" stroke-width="2" stroke-dasharray="5 3" marker-end="url(#arrowResp)"/>
+    <circle cx="587" cy="-14" r="8" fill="#059669"/>
+    <text x="587" y="-10" fill="#ffffff" font-size="10" font-weight="800" text-anchor="middle">16</text>
+    <text x="587" y="-4" fill="#0f172a" font-size="10" font-weight="700" text-anchor="middle">Поток ответа HTTP/1.1</text>
+    <text x="587" y="11" fill="#64748b" font-size="9" text-anchor="middle">ClusterIP ➔ Ingress Traefik Proxy</text>
+  </g>
+
+  <!-- Step 17: Ingress -> Cloudflare -->
+  <g transform="translate(0, 850)">
+    <line x1="513" y1="0" x2="375" y2="0" stroke="#059669" stroke-width="2" stroke-dasharray="5 3" marker-end="url(#arrowResp)"/>
+    <circle cx="445" cy="-14" r="8" fill="#059669"/>
+    <text x="445" y="-10" fill="#ffffff" font-size="10" font-weight="800" text-anchor="middle">17</text>
+    <text x="445" y="-4" fill="#0f172a" font-size="10" font-weight="700" text-anchor="middle">Ответ из Origin через TLS</text>
+    <text x="445" y="11" fill="#64748b" font-size="9" text-anchor="middle">Статус 201 Created (Duration: ~1.2ms)</text>
+  </g>
+
+  <!-- Step 18: Cloudflare -> Browser -->
+  <g transform="translate(0, 890)">
+    <line x1="373" y1="0" x2="230" y2="0" stroke="#059669" stroke-width="2" stroke-dasharray="5 3" marker-end="url(#arrowResp)"/>
+    <circle cx="302" cy="-14" r="8" fill="#059669"/>
+    <text x="302" y="-10" fill="#ffffff" font-size="10" font-weight="800" text-anchor="middle">18</text>
+    <text x="302" y="-4" fill="#059669" font-size="10" font-weight="800" text-anchor="middle">HTTP/2 201 Created</text>
+    <text x="302" y="11" fill="#64748b" font-size="9" text-anchor="middle">JSON: {"publicNumber":"Q-000042", "status":"WAITING"}</text>
+  </g>
+
+  <!-- Step 19: Browser Self Loop: UI State -->
+  <g transform="translate(230, 925)">
+    <path d="M 4 0 C 40 -12, 40 22, 6 12" stroke="#0284c7" stroke-width="1.8" fill="none" marker-end="url(#arrowSelf)"/>
+    <circle cx="48" cy="2" r="7" fill="#0284c7"/>
+    <text x="48" y="5" fill="#ffffff" font-size="9" font-weight="800" text-anchor="middle">19</text>
+    <text x="60" y="-3" fill="#0284c7" font-size="10" font-weight="700">Обновление React State:</text>
+    <text x="60" y="11" fill="#64748b" font-size="9">setActiveTicket(data) + Звуковое оповещение</text>
+  </g>
+
+  <!-- Step 20: Browser -> User -->
+  <g transform="translate(0, 965)">
+    <line x1="228" y1="0" x2="90" y2="0" stroke="#059669" stroke-width="2" stroke-dasharray="5 3" marker-end="url(#arrowResp)"/>
+    <circle cx="160" cy="-14" r="8" fill="#059669"/>
+    <text x="160" y="-10" fill="#ffffff" font-size="10" font-weight="800" text-anchor="middle">20</text>
+    <text x="160" y="-4" fill="#059669" font-size="10" font-weight="800" text-anchor="middle">Отображение талона в UI</text>
+    <text x="160" y="11" fill="#0f172a" font-size="9" font-weight="700" text-anchor="middle">«Ваш талон: Q-000042 • Ожидайте вызова»</text>
+  </g>
+
+  <!-- ==================== FOOTER ==================== -->
+  <g transform="translate(60, 1010)">
+    <rect width="1220" height="34" rx="8" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1"/>
+    <text x="610" y="22" fill="#0055A5" font-size="12" font-weight="700" text-anchor="middle">Полный lifecycle одного HTTP-запроса от UI до БД и обратно</text>
+  </g>
+</svg>

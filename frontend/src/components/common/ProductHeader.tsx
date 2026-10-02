@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState, useRef } from 'react';
 import { AccessibilityIcon, AltArrowDownIcon, AltArrowRightIcon, ChartIcon, CheckCircleIcon, ClockCircleIcon, CloseCircleIcon, LogoutIcon, MapPointIcon, MenuDotsVerticalIcon, RestartIcon, UserCircleIcon, VolumeCrossIcon, VolumeIcon } from '@solar-icons/react/linear';
 import { PochtaEmblem, PochtaWordmark } from './PochtaBrand';
 import { getMe, logout, User } from '../../api/authApi';
+import { checkHealth } from '../../api/health';
 import { ClientAuthModal } from '../../features/auth/ClientAuthModal';
 import { UserProfileModal } from '../../features/auth/UserProfileModal';
 import { isSoundEnabled, setSoundEnabled } from '../../utils/postalVoice';
@@ -137,7 +138,26 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
   const [timeStr, setTimeStr] = useState('');
   const [clockTime, setClockTime] = useState({ hours: 0, minutes: 0 });
   const [geoStatus, setGeoStatus] = useState<'prompt' | 'locating' | 'granted' | 'denied' | 'unavailable'>('prompt');
+  const [isBackendHealthy, setIsBackendHealthy] = useState<boolean>(true);
   const accessibilityActive = scale !== 100 || contrast;
+
+  useEffect(() => {
+    let mounted = true;
+    const check = () => {
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 4000);
+      checkHealth(controller.signal)
+        .then(() => { if (mounted) setIsBackendHealthy(true); })
+        .catch(() => { if (mounted) setIsBackendHealthy(false); })
+        .finally(() => window.clearTimeout(timeout));
+    };
+    check();
+    const interval = window.setInterval(check, 15000);
+    return () => {
+      mounted = false;
+      window.clearInterval(interval);
+    };
+  }, []);
 
   const a11yRef = useRef<HTMLDivElement>(null);
   const a11yButtonRef = useRef<HTMLButtonElement>(null);
@@ -385,16 +405,16 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
           </a>
 
           <div className="product-header-tools flex shrink-0 items-center gap-2 text-xs">
-            <div className="header-utility-group hidden items-center gap-0.5 md:flex">
+            <div className="header-utility-group hidden items-center gap-2 md:flex">
               <button type="button" onClick={() => toggleSound()} aria-pressed={soundEnabled}
                 aria-label="Звуковое оповещение" title={soundEnabled ? 'Выключить звук' : 'Включить звук'}
-                className="flex h-11 w-11 items-center justify-center rounded-lg border-0 bg-transparent p-0 text-blue-100/80 hover:bg-white/10 hover:text-white">
+                className="flex h-11 w-11 items-center justify-center rounded-xl border border-white/25 bg-white/10 p-0 text-blue-100/80 hover:bg-white/15 hover:text-white transition-colors">
                 {soundEnabled ? <VolumeIcon className="h-5 w-5" /> : <VolumeCrossIcon className="h-5 w-5" />}
               </button>
               <button ref={a11yButtonRef} type="button" onClick={() => setA11yOpen(value => !value)}
                 aria-pressed={accessibilityActive} aria-expanded={a11yOpen} aria-controls="a11y-settings"
                 aria-label="Настройки доступности" title="Настройки доступности"
-                className={`flex h-11 w-11 items-center justify-center rounded-lg border-0 bg-transparent p-0 hover:bg-white/10 ${accessibilityActive ? 'text-emerald-300' : 'text-blue-100/80 hover:text-white'}`}>
+                className={`flex h-11 w-11 items-center justify-center rounded-xl border border-white/25 bg-white/10 p-0 transition-colors hover:bg-white/15 ${accessibilityActive ? 'text-emerald-300 border-emerald-300/45 bg-emerald-300/15' : 'text-blue-100/80 hover:text-white'}`}>
                 <AccessibilityIcon className="h-5 w-5" />
               </button>
             </div>
@@ -411,28 +431,28 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
 
             {/* Часы: точное московское время (Europe/Moscow) */}
             <div
-              className="header-time hidden h-11 items-center gap-2 px-2.5 select-none cursor-default md:flex"
-              title="Московское время (Europe/Moscow)"
+              className="header-time hidden h-11 items-center gap-1.5 px-1.5 select-none cursor-default md:flex"
+              title={`Московское время (Europe/Moscow) — ${isBackendHealthy ? 'сервер онлайн' : 'нет связи'}`}
               aria-label={`Московское время: ${timeStr || 'МСК'}`}
               role="status"
             >
               <LiveClockIcon
                 hours={clockTime.hours}
                 minutes={clockTime.minutes}
-                className="h-5 w-5 text-blue-200 shrink-0"
-                size={20}
+                className="h-4 w-4 text-slate-500 shrink-0"
+                size={16}
               />
-              <div className="h-4 w-px bg-slate-200" aria-hidden="true" />
-              <span className="text-xs font-semibold tracking-wide text-slate-800 tabular-nums">
+              <span className="text-xs font-semibold tracking-tight text-slate-800 tabular-nums">
                 {timeStr || '--:--'}
               </span>
-              <div className="flex items-center gap-1 rounded-md bg-slate-100 px-1.5 py-0.5">
-                <span className="relative flex h-1.5 w-1.5">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-400"></span>
-                </span>
-                <span className="text-[10px] font-semibold text-slate-500">МСК</span>
-              </div>
+              <span className="text-[10px] font-bold text-slate-500 tracking-tight">
+                МСК
+              </span>
+              <span
+                className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${isBackendHealthy ? 'bg-emerald-500' : 'bg-rose-500'}`}
+                title={isBackendHealthy ? 'Связь с сервером активна' : 'Нет связи с сервером'}
+                aria-label={isBackendHealthy ? 'Онлайн' : 'Офлайн'}
+              />
             </div>
 
             {currentUser ? (
@@ -458,6 +478,43 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
                     <span className="mt-2 inline-flex rounded-md bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-600">{roleLabel}</span>
                   </div>
                   <div className="my-1 border-t border-slate-100" />
+                  {currentUser.role === 'opc_chief' && (
+                    <>
+                      <a
+                        role="menuitem"
+                        href="/admin"
+                        onClick={() => setAccountMenuOpen(false)}
+                        className="account-menu-row flex items-center justify-between group"
+                      >
+                        <span className="font-semibold text-slate-800 group-hover:text-[#003B73]">Панель администратора</span>
+                        <span className="text-[10px] font-mono font-bold bg-blue-50 text-[#003B73] px-2 py-0.5 rounded">ОПС</span>
+                      </a>
+                      <a
+                        role="menuitem"
+                        href="/operator"
+                        onClick={() => setAccountMenuOpen(false)}
+                        className="account-menu-row flex items-center justify-between group"
+                      >
+                        <span className="font-semibold text-slate-800 group-hover:text-[#003B73]">Панель оператора</span>
+                        <span className="text-[10px] font-mono font-bold bg-slate-100 text-slate-600 px-2 py-0.5 rounded">Окно</span>
+                      </a>
+                      <div className="my-1 border-t border-slate-100" />
+                    </>
+                  )}
+                  {currentUser.role === 'employee' && (
+                    <>
+                      <a
+                        role="menuitem"
+                        href="/operator"
+                        onClick={() => setAccountMenuOpen(false)}
+                        className="account-menu-row flex items-center justify-between group"
+                      >
+                        <span className="font-semibold text-slate-800 group-hover:text-[#003B73]">Панель оператора</span>
+                        <span className="text-[10px] font-mono font-bold bg-blue-50 text-[#003B73] px-2 py-0.5 rounded">Окно</span>
+                      </a>
+                      <div className="my-1 border-t border-slate-100" />
+                    </>
+                  )}
                   <button role="menuitem" type="button" onClick={() => { setAccountMenuOpen(false); setIsProfileOpen(true); }} className="account-menu-row">Профиль</button>
                   <button role="menuitem" type="button" onClick={() => { setAccountMenuOpen(false); setA11yOpen(true); }} className="account-menu-row">Настройки</button>
                   <div className="my-1 border-t border-slate-100" />
@@ -483,18 +540,18 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
                 id="a11y-settings"
                 role="dialog"
                 aria-labelledby="a11y-settings-title"
-                className="absolute right-2 sm:right-4 top-[3.25rem] sm:top-14 z-50 w-[calc(100vw-1rem)] sm:w-80 max-w-[340px] rounded-2xl border border-white/20 bg-[#002B55] p-3.5 text-left text-xs text-white shadow-2xl backdrop-blur-md"
+                className="absolute right-2 sm:right-4 top-[3.25rem] sm:top-14 z-50 w-[calc(100vw-1rem)] sm:w-80 max-w-[340px] rounded-2xl border border-slate-200 bg-white p-3.5 text-left text-xs text-slate-900 shadow-2xl"
               >
                 {/* Header */}
-                <div className="flex items-center justify-between pb-2.5 border-b border-white/15 mb-3">
+                <div className="flex items-center justify-between pb-2.5 border-b border-slate-100 mb-3">
                   <div className="flex items-center gap-2">
-                    <AccessibilityIcon className="w-4 h-4 text-blue-300" />
-                    <span id="a11y-settings-title" className="font-bold text-sm text-white">Панель доступности</span>
+                    <AccessibilityIcon className="w-4 h-4 text-[#003B73]" />
+                    <span id="a11y-settings-title" className="font-bold text-sm text-slate-900">Панель доступности</span>
                   </div>
                   <button
                     type="button"
                     onClick={closeA11y}
-                    className="flex h-10 w-10 min-h-10 min-w-10 items-center justify-center rounded-xl border border-white/20 bg-transparent p-0 text-white/80 transition-colors hover:bg-white/10 hover:text-white shrink-0"
+                    className="flex h-8 w-8 min-h-8 min-w-8 items-center justify-center rounded-xl border border-slate-200 bg-transparent p-0 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 shrink-0"
                     aria-label="Закрыть настройки доступности"
                   >
                     <CloseCircleIcon size={20} className="shrink-0" />
@@ -503,7 +560,7 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
 
                 {/* Font Scale */}
                 <div className="mb-3" role="group" aria-label="Размер текста">
-                  <div className="text-[11px] font-bold text-blue-200 mb-1.5">Размер текста</div>
+                  <div className="text-[11px] font-bold text-slate-700 mb-1.5">Размер текста</div>
                   <div className="grid grid-cols-3 gap-1.5">
                     {[
                       { val: 100, label: 'А 100%' },
@@ -515,10 +572,10 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
                         type="button"
                         aria-pressed={scale === val}
                         onClick={() => setScale(val)}
-                        className={`py-1.5 px-1 text-center rounded-lg text-xs font-bold border transition-all ${
+                        className={`py-1.5 px-1 text-center rounded-xl text-xs font-bold border transition-all ${
                           scale === val
-                            ? 'bg-[#0B4DA2] text-white border-blue-400 shadow-sm'
-                            : 'bg-white/10 text-white border-white/20 hover:bg-white/20'
+                            ? '!bg-[#003B73] !text-white !border-[#003B73] shadow-xs'
+                            : '!bg-slate-50 hover:!bg-slate-100 !text-slate-800 !border-slate-200'
                         }`}
                       >
                         {label}
@@ -529,16 +586,16 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
 
                 {/* Color Theme / Contrast */}
                 <div className="mb-3" role="group" aria-label="Цветовая схема">
-                  <div className="text-[11px] font-bold text-blue-200 mb-1.5">Цветовая схема</div>
+                  <div className="text-[11px] font-bold text-slate-700 mb-1.5">Цветовая схема</div>
                   <div className="grid grid-cols-2 gap-1.5">
                     <button
                       type="button"
                       aria-pressed={!contrast}
                       onClick={() => setContrast(false)}
-                      className={`py-1.5 px-2 rounded-lg text-xs font-bold border transition-all ${
+                      className={`py-1.5 px-2 rounded-xl text-xs font-bold border transition-all ${
                         !contrast
-                          ? 'bg-[#0B4DA2] text-white border-blue-400 shadow-sm'
-                          : 'bg-white/10 text-white border-white/20 hover:bg-white/20'
+                          ? '!bg-[#003B73] !text-white !border-[#003B73] shadow-xs'
+                          : '!bg-slate-50 hover:!bg-slate-100 !text-slate-800 !border-slate-200'
                       }`}
                     >
                       Стандартная
@@ -547,10 +604,10 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
                       type="button"
                       aria-pressed={contrast}
                       onClick={() => setContrast(true)}
-                      className={`py-1.5 px-2 rounded-lg text-xs font-bold border transition-all ${
+                      className={`py-1.5 px-2 rounded-xl text-xs font-bold border transition-all ${
                         contrast
-                          ? 'bg-black text-white border-white shadow'
-                          : 'bg-white/10 text-white border-white/20 hover:bg-white/20'
+                          ? '!bg-black !text-white !border-black shadow-xs'
+                          : '!bg-slate-50 hover:!bg-slate-100 !text-slate-800 !border-slate-200'
                       }`}
                     >
                       Контрастная (ч/б)
@@ -559,11 +616,11 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
                 </div>
 
                 {/* Footer Controls */}
-                <div className="mt-3.5 pt-2.5 border-t border-white/15 flex items-center justify-between">
+                <div className="mt-3.5 pt-2.5 border-t border-slate-100 flex items-center justify-between">
                   <button
                     type="button"
                     onClick={handleResetA11y}
-                    className="header-reset-button text-[11px] text-blue-200 hover:text-white flex items-center gap-1 transition-colors"
+                    className="header-reset-button text-[11px] text-slate-500 hover:text-[#003B73] flex items-center gap-1 transition-colors font-medium"
                   >
                     <RestartIcon className="w-3 h-3" />
                     <span>Сбросить</span>
@@ -571,7 +628,7 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
                   <button
                     type="button"
                     onClick={closeA11y}
-                    className="px-3 py-1 bg-white/15 hover:bg-white/25 rounded-lg text-xs font-bold text-white transition-colors"
+                    className="px-3.5 py-1.5 !bg-[#003B73] hover:!bg-[#054FA6] rounded-xl text-xs font-bold !text-white transition-colors shadow-xs"
                   >
                     Готово
                   </button>
@@ -658,6 +715,38 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
                     <span>Выйти</span>
                   </button>
                 </div>
+                {currentUser.role === 'opc_chief' && (
+                  <div className="flex flex-col gap-1.5 pt-2 border-t border-white/15">
+                    <a
+                      href="/admin"
+                      onClick={() => setMobileMenuOpen(false)}
+                      className="py-1.5 px-2.5 bg-white/15 hover:bg-white/20 rounded-lg text-xs font-bold text-white flex items-center justify-between"
+                    >
+                      <span>Панель администратора</span>
+                      <span className="text-[10px] bg-white/20 px-1.5 py-0.5 rounded">ОПС</span>
+                    </a>
+                    <a
+                      href="/operator"
+                      onClick={() => setMobileMenuOpen(false)}
+                      className="py-1.5 px-2.5 bg-white/15 hover:bg-white/20 rounded-lg text-xs font-bold text-white flex items-center justify-between"
+                    >
+                      <span>Панель оператора</span>
+                      <span className="text-[10px] bg-white/20 px-1.5 py-0.5 rounded">Окно</span>
+                    </a>
+                  </div>
+                )}
+                {currentUser.role === 'employee' && (
+                  <div className="flex flex-col gap-1.5 pt-2 border-t border-white/15">
+                    <a
+                      href="/operator"
+                      onClick={() => setMobileMenuOpen(false)}
+                      className="py-1.5 px-2.5 bg-white/15 hover:bg-white/20 rounded-lg text-xs font-bold text-white flex items-center justify-between"
+                    >
+                      <span>Панель оператора</span>
+                      <span className="text-[10px] bg-white/20 px-1.5 py-0.5 rounded">Окно</span>
+                    </a>
+                  </div>
+                )}
               </div>
             ) : !isStaffArea ? (
               <button

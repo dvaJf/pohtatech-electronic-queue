@@ -312,11 +312,12 @@ export function TVBoard({ branchId: propBranchId }: TVBoardProps = {}) {
     return getBranchDisplayName(rawBranchParam || selectedBranchId, branches);
   }, [rawBranchParam, selectedBranchId, branches]);
 
+  const hasData = !error && !isLoading && !!tvData;
+
   const timeString = now.toLocaleTimeString('ru-RU', {
     timeZone: 'Europe/Moscow',
     hour: '2-digit',
     minute: '2-digit',
-    second: '2-digit',
   });
 
   const dateString = now.toLocaleDateString('ru-RU', {
@@ -364,11 +365,17 @@ export function TVBoard({ branchId: propBranchId }: TVBoardProps = {}) {
               Звук включён
             </span>
           )}
-          <div className="tv-status-badge" role="status">
-            {error ? 'Нет связи · данные могут устареть' : isLoading ? 'Подключение…' : 'Данные обновляются'}
+          <div
+            className="tv-clock-wrapper"
+            title={hasData ? 'Связь с сервером активна (данные получены)' : error ? 'Нет связи с сервером очереди' : 'Подключение к системе очереди…'}
+          >
+            <span
+              className={`tv-status-dot ${hasData ? 'tv-status-dot--online' : 'tv-status-dot--offline'}`}
+              aria-label={hasData ? 'Онлайн' : 'Офлайн'}
+              role="status"
+            />
+            <div className="tv-clock">{timeString}</div>
           </div>
-          <div className="tv-date">{dateString}</div>
-          <div className="tv-clock">{timeString}</div>
         </div>
       </header>
 
@@ -542,29 +549,30 @@ const tvStyles = `
   color: #166534;
   white-space: nowrap;
 }
-.tv-status-badge {
+.tv-clock-wrapper {
   display: flex;
   align-items: center;
-  gap: 0.5vw;
-  font-size: 1.4vh;
-  font-weight: 800;
-  letter-spacing: 0.12em;
-  color: #16A34A;
-  text-transform: uppercase;
+  gap: 0.8vw;
 }
 .tv-status-dot {
-  width: 1vh;
-  height: 1vh;
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
-  background: #22C55E;
-  box-shadow: 0 0 8px rgba(34,197,94,0.5);
-  animation: tv-pulse 2s ease-in-out infinite;
+  flex-shrink: 0;
+  transition: background-color 0.3s ease, box-shadow 0.3s ease;
 }
-.tv-date {
-  font-size: 1.8vh;
-  color: #64748B;
-  font-weight: 500;
-  text-transform: capitalize;
+.tv-status-dot--online {
+  background: #16A34A;
+  box-shadow: 0 0 6px rgba(22, 163, 74, 0.45);
+  animation: tv-dot-pulse 2s ease-in-out infinite;
+}
+.tv-status-dot--offline {
+  background: #DC2626;
+  box-shadow: 0 0 6px rgba(220, 38, 38, 0.45);
+}
+@keyframes tv-dot-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(0.85); }
 }
 .tv-clock {
   font-size: 4.5vh;

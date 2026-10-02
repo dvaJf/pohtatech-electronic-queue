@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>DevOps Handbook - Цифровая очередь</title>
+<style>
+  @page {
+    size: A4;
+    margin: 20mm 15mm 20mm 15mm;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: #1e293b;
+    line-height: 1.6;
+    font-size: 13px;
+    background: #fff;
+  }
+  h1 {
+    color: #0f172a;
+    font-size: 24px;
+    border-bottom: 2px solid #3b82f6;
+    padding-bottom: 8px;
+    margin-top: 0;
+  }
+  h2 {
+    color: #1e40af;
+    font-size: 18px;
+    border-bottom: 1px solid #e2e8f0;
+    padding-bottom: 5px;
+    margin-top: 24px;
+    page-break-after: avoid;
+  }
+  h3 {
+    color: #2563eb;
+    font-size: 15px;
+    margin-top: 18px;
+    page-break-after: avoid;
+  }
+  pre {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 12px;
+    font-family: "JetBrains Mono", Consolas, Monaco, monospace;
+    font-size: 11px;
+    overflow-x: auto;
+    page-break-inside: avoid;
+  }
+  code {
+    font-family: "JetBrains Mono", Consolas, Monaco, monospace;
+    background: #f1f5f9;
+    padding: 2px 5px;
+    border-radius: 4px;
+    font-size: 11.5px;
+    color: #0f172a;
+  }
+  pre code {
+    background: transparent;
+    padding: 0;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 14px 0;
+    font-size: 12px;
+    page-break-inside: avoid;
+  }
+  th, td {
+    border: 1px solid #cbd5e1;
+    padding: 8px 10px;
+    text-align: left;
+  }
+  th {
+    background-color: #f1f5f9;
+    color: #0f172a;
+    font-weight: 600;
+  }
+  tr:nth-child(even) {
+    background-color: #f8fafc;
+  }
+  hr {
+    border: none;
+    border-top: 1px solid #e2e8f0;
+    margin: 20px 0;
+  }
+  li {
+    margin-bottom: 4px;
+  }
+</style>
+</head>
+<body>
+<h1>📘 Полное руководство по DevOps и серверной инфраструктуре</h1>
+<h2>Проект «Цифровая очередь нового поколения»</h2>
+<p><strong>Дата актуализации:</strong> Октябрь 2026  </p>
+<p><strong>Домен проекта:</strong> [https://pointers-team.tech](https://pointers-team.tech)</p>
+<br/>
+<hr/>
+<br/>
+<h2>📑 Содержание</h2>
+<p>1. [Архитектура инфраструктуры и серверов](#1-архитектура-инфраструктуры-и-серверов)</p>
+<p>2. [Сетевой стек и маршрутизация (Cloudflare + Ingress)](#2-сетевой-стек-и-маршрутизация)</p>
+<p>3. [Безопасность (SSH, Firewall, Fail2ban)](#3-безопасность-серверов)</p>
+<p>4. [Кластер Kubernetes (K3s Multi-Cloud)](#4-кластер-kubernetes-k3s)</p>
+<p>5. [Управление релизами и GitOps (Helm + ArgoCD)](#5-управление-релизами-и-gitops)</p>
+<p>6. [Система наблюдаемости (Observability: Loki, Promtail, Jaeger, Grafana)](#6-система-наблюдаемости-observability)</p>
+<p>7. [Жизненный цикл запроса «Взять талон» (Request Lifecycle)](#7-жизненный-цикл-запроса-взять-талон)</p>
+<p>8. [Шпаргалка инженера (Команды на каждый день)](#8-шпаргалка-инженера-cheat-sheet)</p>
+<p>9. [Сводная таблица доступов и паролей](#9-сводная-таблица-доступов-и-сервисов)</p>
+<br/>
+<hr/>
+<br/>
+<h2>1. Архитектура инфраструктуры и серверов</h2>
+<br/>
+<p>Проект развернут в отказоустойчивой гибридной архитектуре, объединяющей две физические локации разных провайдеров в единый кластер Kubernetes.</p>
+<br/>
+<pre><code class="language-">
+                      ┌────────────────────────────┐
+                      │    Cloudflare Edge DNS     │
+                      │ HTTPS SSL / DDoS Shield   │
+                      └─────────────┬──────────────┘
+                                    │
+                  ┌─────────────────┴─────────────────┐
+                  ▼                                   ▼
+   ┌─────────────────────────────┐     ┌─────────────────────────────┐
+   │         MASTER NODE         │     │         WORKER NODE         │
+   │      IT-Garage (РФ)         │     │     Oracle Cloud (Франкфурт) │
+   │ 144.31.181.192              │     │ 141.147.48.160              │
+   │ 2 vCPU / 4 GB RAM / 80 GB   │     │ 1 vCPU / 1 GB RAM + 2GB Swap│
+   ├─────────────────────────────┤     ├─────────────────────────────┤
+   │ • K3s Control-Plane Server  │     │ • K3s Worker Node           │
+   │ • Traefik Ingress           │     │ • Frontend Replica (SPA)    │
+   │ • Backend API (2 реплики)   │     │ • Promtail Log Collector    │
+   │ • PostgreSQL Database       │     └─────────────────────────────┘
+   │ • Jaeger Tracing            │                    ▲
+   │ • Loki Log Store            │                    │
+   │ • Grafana Dashboard         │                    │ Flannel VXLAN Overlay
+   │ • ArgoCD GitOps Engine      │◄───────────────────┘ (10.42.0.0/16)
+   └─────────────────────────────┘
+</code></pre>
+<br/>
+<h3>1.1. Спецификация узлов</h3>
+<li>**Master Node (`vm289265`):**</li>
+<p>  - <strong>Провайдер:</strong> IT-Garage</p>
+<p>  - <strong>IP:</strong> <code>144.31.181.192</code></p>
+<p>  - <strong>ОС:</strong> Ubuntu 24.04 LTS</p>
+<p>  - <strong>Ресурсы:</strong> 2 ядра vCPU, 4 ГБ RAM, 80 ГБ NVMe SSD</p>
+<p>  - <strong>Роль:</strong> Control-plane кластера K3s, запуск базы данных, бэкенда и компонентов мониторинга.</p>
+<li>**Worker Node (`instance-20260927-1520`):**</li>
+<p>  - <strong>Провайдер:</strong> Oracle Cloud Infrastructure (OCI)</p>
+<p>  - <strong>IP:</strong> <code>141.147.48.160</code></p>
+<p>  - <strong>ОС:</strong> Ubuntu 24.04 LTS</p>
+<p>  - <strong>Ресурсы:</strong> 1 ядро vCPU, 1 ГБ RAM + 2 ГБ SWAP</p>
+<p>  - <strong>Роль:</strong> Расширение вычислительных мощностей, запуск реплик фронтенда.</p>
+<br/>
+<hr/>
+<br/>
+<h2>2. Сетевой стек и маршрутизация</h2>
+<br/>
+<p>1. <strong>Cloudflare:</strong></p>
+<p>   - Принимает весь трафик на <code>https://pointers-team.tech</code> (порт 443).</p>
+<p>   - Выполняет терминацию публичного SSL-сертификата.</p>
+<p>   - Защищает от DDoS-атак, фильтрует ботов и кэширует статику.</p>
+<p>   - Проксирует трафик на публичный IP Master-узла <code>144.31.181.192</code>.</p>
+<p>2. <strong>Traefik Ingress Controller (внутри K3s):</strong></p>
+<p>   - Слушает порты 80 и 443 на нодах.</p>
+<p>   - На основе правил маршрутизирует URL-пути в нужные внутренние сервисы:</p>
+<p>     - <code>/api/*</code> ➔ <code>service/backend:8080</code> (Go Chi API)</p>
+<p>     - <code>/</code> ➔ <code>service/frontend:80</code> (React SPA на Nginx)</p>
+<p>     - <code>/jaeger/*</code> ➔ <code>service/jaeger:16686</code> (Трейсинг UI)</p>
+<p>     - <code>/grafana/*</code> ➔ <code>service/grafana:3000</code> (Дашборды UI)</p>
+<p>     - <code>/argocd/*</code> ➔ <code>service/argocd-server:80</code> (GitOps UI)</p>
+<p>3. <strong>Flannel CNI (Межсерверная сеть):</strong></p>
+<p>   - Создает виртуальную плоскую сеть подов <code>10.42.0.0/16</code>. Поды на сервере в Oracle Cloud общаются с базой данных на Master-сервере напрямую по внутренним IP без открытия портов наружу.</p>
+<br/>
+<hr/>
+<br/>
+<h2>3. Безопасность серверов</h2>
+<br/>
+<h3>3.1. Защита от брутфорса (Fail2ban)</h3>
+<p>На обоих серверах настроен сервис <strong>Fail2ban</strong>:</p>
+<li>**Конфигурация:** `/etc/fail2ban/jail.local`</li>
+<li>**Параметры джейла `sshd`:**</li>
+<p>  - <code>bantime = 1h</code> (блокировка IP атакующего на 1 час).</p>
+<p>  - <code>findtime = 10m</code> (окно анализа — 10 минут).</p>
+<p>  - <code>maxretry = 4</code> (максимум 4 неудачных попытки входа).</p>
+<p>  - <code>mode = aggressive</code> (усиленное детектирование сканеров).</p>
+<p>  - <code>backend = systemd</code> (прямой анализ журнала journald).</p>
+<br/>
+<h3>3.2. SSH-доступ</h3>
+<li>Авторизация по паролю отключена или строго ограничена.</li>
+<li>Вход осуществляется только по закрытым ключам RSA/Ed25519.</li>
+<br/>
+<hr/>
+<br/>
+<h2>4. Кластер Kubernetes (K3s)</h2>
+<br/>
+<h3>4.1. Почему выбран K3s, а не чистый k8s?</h3>
+<p>K3s — сертифицированный CNCF дистрибутив Kubernetes, оптимизированный под production с минимальным потреблением памяти (master требует всего ~500 МБ RAM против 2 ГБ у kubeadm).</p>
+<br/>
+<h3>4.2. Изоляция и распределение нагрузки (NodeSelector)</h3>
+<p>Так как Worker-узел в Oracle Cloud имеет 1 ГБ RAM, а Master — 4 ГБ RAM:</p>
+<li>Stateful-сервисы и тяжелые приложения (`PostgreSQL`, `backend`, `Loki`, `Jaeger`, `Grafana`, `ArgoCD`) зафиксированы на Master-узле через:</li>
+<p>  <code></code>`yaml</p>
+<p>  nodeSelector:</p>
+<p>    node-role.kubernetes.io/control-plane: "true"</p>
+<p>  <code></code>`</p>
+<li>Легковесные stateless-поды (`frontend` на базе Nginx) размазаны по обоим узлам кластера для отказоустойчивости.</li>
+<br/>
+<h3>4.3. Хранилище данных (Persistent Storage)</h3>
+<li>Используется встроенный `local-path` StorageClass.</li>
+<li>Данные PostgreSQL хранятся в постоянном томе PVC `postgres-pvc` (2 GiB) на SSD Master-узла и сохраняются при любых перезапусках подов.</li>
+<br/>
+<hr/>
+<br/>
+<h2>5. Управление релизами и GitOps</h2>
+<br/>
+<h3>5.1. Что такое GitOps и зачем мы используем ArgoCD?</h3>
+<p>В классическом CI/CD (например, GitLab CI) внешний сервер подключается к проду и накатывает контейнеры (Push-модель). Без прав администратора на GitLab такой пайплайн настроить невозможно.</p>
+<br/>
+<p><strong>ArgoCD реализует Pull-модель GitOps:</strong></p>
+<p>1. Агент внутри кластера сам периодически опрашивает Git-репозиторий.</p>
+<p>2. При изменении <code>values.yaml</code> в Helm-чарте ArgoCD видит расхождение (<code>OutOfSync</code>).</p>
+<p>3. Кластер автоматически выкатывает обновление с помощью механизма <strong>RollingUpdate</strong> (без простоя системы).</p>
+<br/>
+<h3>5.2. Скрипт релиза для разработчика (`scripts/release.sh`)</h3>
+<p>Разработчику не нужно заходить по SSH на сервер. Выпуск новой версии выполняется одной командой с локального компьютера:</p>
+<br/>
+<pre><code class="language-bash">
+./scripts/release.sh backend &quot;feat: добавлена скидка по промокодам&quot;
+</code></pre>
+<p><strong>Что делает скрипт:</strong></p>
+<p>1. Прогоняет автотесты <code>go test ./...</code>.</p>
+<p>2. Собирает Docker-образ с уникальным тегом <code>queue-backend:v-<hash></code>.</p>
+<p>3. Доставляет образ в кластер.</p>
+<p>4. Обновляет тег в <code>helm/queue-chart/values.yaml</code> и коммитит изменение.</p>
+<p>5. После <code>git push</code> ArgoCD автоматически применяет обновление в проде!</p>
+<br/>
+<hr/>
+<br/>
+<h2>6. Система наблюдаемости (Observability)</h2>
+<br/>
+<p>Современная трехуровневая система мониторинга (Метрики, Логи, Трейсинг) объединена в единую экосистему.</p>
+<br/>
+<pre><code class="language-">
+       ┌─────────────────┐       ┌─────────────────┐
+       │   Prometheus    │       │    OpenTelemetry│
+       │    (Metrics)    │       │    (Jaeger Traces)
+       └────────┬────────┘       └────────┬────────┘
+                │                         │
+                └───────────┬─────────────┘
+                            ▼
+                  ┌───────────────────┐       ┌─────────────────┐
+                  │      GRAFANA      │◄──────┤      LOKI       │
+                  │ (Единый дашборд)  │       │ (Умные логи)    │
+                  └───────────────────┘       └────────▲────────┘
+                                                       │ Promtail
+                                              ┌────────┴────────┐
+                                              │   Pod Logs CRI  │
+                                              └─────────────────┘
+</code></pre>
+<br/>
+<h3>6.1. Логирование (Loki + Promtail + slog)</h3>
+<li>Бэкенд пишет структурированные логи в формате JSON через стандартный пакет `log/slog`.</li>
+<li>**Автоматическая корреляция:** кастомный обработчик `traceHandler` внедряет поля `trace_id` и `span_id` в каждую запись. По ошибке из лога можно сразу найти трейс в Jaeger!</li>
+<li>**Умная фильтрация Promtail (защита от мусора):**</li>
+<p>  - Отбрасывает тысячи регулярных вызовов <code>/health</code>, <code>/ready</code>, <code>/metrics</code>.</p>
+<p>  - Отбрасывает рутинные запросы чтения интерфейса.</p>
+<p>  - <strong>Индексирует в Loki только:</strong></p>
+<p>    - Ошибки уровня <code>ERROR</code> (5xx).</p>
+<p>    - Предупреждения уровня <code>WARN</code> (4xx, валидация).</p>
+<p>    - Бизнес-транзакции <code>event="business_action"</code> (создание талона, вызов клиента, закрытие смены).</p>
+<br/>
+<h3>6.2. Распределенный трейсинг (OpenTelemetry + Jaeger)</h3>
+<li>В роутер Chi встроен `traceMiddleware`.</li>
+<li>При вызове API создается корневой спан, который затем дробится на дочерние спаны (Child Spans) бизнес-логики и базы данных.</li>
+<li>Поддерживает стандарт W3C TraceContext (`traceparent`).</li>
+<br/>
+<h3>6.3. Визуализация в Grafana</h3>
+<li>Доступна по адресу: `https://pointers-team.tech/grafana/`</li>
+<li>Автоматически подключены источники данных:</li>
+<p>  - <strong>Loki</strong> — поиск и анализ структурированных логов через язык LogQL.</p>
+<p>  - <strong>Jaeger</strong> — поиск и детальный просмотр графов трассировки запросов.</p>
+<br/>
+<hr/>
+<br/>
+<h2>7. Жизненный цикл запроса «Взять талон»</h2>
+<br/>
+<p>Детальная последовательность шагов при нажатии кнопки «Взять талон» в интерфейсе:</p>
+<br/>
+<pre><code class="language-">
+[Пользователь] ── Нажатие кнопки ──► [React UI]
+                                         │
+ ┌───────────────────────────────────────┘
+ ▼ POST /api/v1/branches/{id}/tickets/live (Idempotency-Key: ...)
+[Cloudflare Edge] ── WAF / SSL Termination ──► [Traefik Ingress Controller]
+                                                         │
+ ┌───────────────────────────────────────────────────────┘
+ ▼ Внутренний роутинг :8080
+[Backend: Chi Router]
+ │
+ ├── 1. traceMiddleware ➔ Создание OpenTelemetry Span (Trace ID)
+ ├── 2. requestLog ➔ Запуск таймера и генерация Request-ID
+ ├── 3. cors / recoverPanic ➔ Защита от сбоев
+ ├── 4. handler.CreateLiveTicket ➔ Валидация входного JSON и UUID
+ │
+ └── 5. usecases.CreateLiveTicket (Слой бизнес-логики)
+       │
+       ├── db.BeginTx ➔ Открытие транзакции PostgreSQL
+       ├── db.AcquireAdvisoryLock ➔ Защита от гонок по Idempotency-Key
+       ├── db.CheckIdempotency ➔ Проверка повторного вызова
+       ├── db.ValidateBranchService ➔ Проверка доступности услуги в отделении
+       ├── domain.ComputeSchedule ➔ Расчет расписания и приоритета очереди
+       ├── db.SQL_InsertTicket ➔ INSERT INTO tickets (...) RETURNING id
+       ├── db.ScanCreatedTicket ➔ Чтение созданного талона
+       ├── db.InsertAuditEvent ➔ Запись события в журнал аудита
+       └── db.CommitTx ➔ Фиксация транзакции в БД
+ │
+ ├── 6. Формирование HTTP 201 Created + JSON талона
+ └── 7. Отправка ответа ➔ Traefik ➔ Cloudflare ➔ Браузер
+                                                     │
+[Пользователь] ◄── Обновление экрана (Номер талона L-000002)
+</code></pre>
+<br/>
+<hr/>
+<br/>
+<h2>8. Шпаргалка инженера (Cheat Sheet)</h2>
+<br/>
+<h3>8.1. Работа с подами и сервисами (Kubernetes)</h3>
+<pre><code class="language-bash">
+# Проверить статус всех подов в системе
+k3s kubectl get pods -n queue-system -o wide
+
+# Посмотреть логи бэкенда в реальном времени
+k3s kubectl logs -n queue-system deployment/backend -f --tail=50
+
+# Перезапустить бэкенд без простоя
+k3s kubectl rollout restart deployment/backend -n queue-system
+
+# Посмотреть события кластера (ошибки, перезапуски)
+k3s kubectl get events -n queue-system --sort-by=&#x27;.metadata.creationTimestamp&#x27;
+</code></pre>
+<br/>
+<h3>8.2. Работа с базой данных PostgreSQL</h3>
+<pre><code class="language-bash">
+# Подключиться к интерактивной консоли psql
+k3s kubectl exec -it -n queue-system deployment/postgres -- psql -U postcode -d postcode
+
+# Применить sql-скрипт или сид в базу данных
+cat scripts/seed_demo_branches.sql | k3s kubectl exec -i -n queue-system deployment/postgres -- psql -U postcode -d postcode
+</code></pre>
+<br/>
+<h3>8.3. Безопасность и Fail2ban</h3>
+<pre><code class="language-bash">
+# Проверить статус защиты SSH
+fail2ban-client status sshd
+
+# Посмотреть список заблокированных IP
+fail2ban-client get sshd banip
+
+# Разблокировать ошибочно забаненный IP
+fail2ban-client set sshd unbanip &lt;IP_АДРЕС&gt;
+</code></pre>
+<br/>
+<h3>8.4. Диагностика узлов кластера</h3>
+<pre><code class="language-bash">
+# Посмотреть свободную оперативную память и диск
+free -m
+df -h /
+
+# Список контейнеров containerd
+k3s crictl ps
+</code></pre>
+<br/>
+<hr/>
+<br/>
+<h2>9. Сводная таблица доступов и сервисов</h2>
+<br/>
+<table><thead><tr><th>Сервис</th><th>Назначение</th><th>URL / Доступ</th><th>Учетные данные</th></tr></thead><tbody>
+<tr><td>:---</td><td>:---</td><td>:---</td><td>:---</td></tr>
+<tr><td>**Веб-приложение**</td><td>Клиентский интерфейс очереди</td><td>`https://pointers-team.tech`</td><td>Публичный доступ</td></tr>
+<tr><td>**Grafana**</td><td>Мониторинг, дашборды и поиск логов</td><td>`https://pointers-team.tech/grafana/`</td><td>`admin` / `admin`</td></tr>
+<tr><td>**Jaeger UI**</td><td>Распределенный трейсинг запросов</td><td>`https://pointers-team.tech/jaeger/`</td><td>Свободный доступ</td></tr>
+<tr><td>**ArgoCD**</td><td>GitOps-панель управления деплоем</td><td>`https://pointers-team.tech/argocd/`</td><td>`admin` / `gWwmbfS2Zf6ig6op`</td></tr>
+<tr><td>**Master Node**</td><td>Основной сервер (IT-Garage)</td><td>`ssh root@144.31.181.192`</td><td>SSH-ключ</td></tr>
+<tr><td>**Worker Node**</td><td>Рабочий узел (Oracle Cloud)</td><td>`ssh -i ~/.ssh/oracle_worker_rsa ubuntu@141.147.48.160`</td><td>SSH-ключ</td></tr>
+<tr><td>**PostgreSQL**</td><td>База данных (внутри K8s)</td><td>`host=postgres:5432`, `db=postcode`</td><td>`postcode` / `local-development-only`</td></tr>
+</tbody></table>
+<br/>
+</body>
+</html>

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"github.com/jackc/pgx/v5"
 	"postcode/backend/internal/application"
+	"postcode/backend/internal/domain"
 )
 
 func (p *Postgres) SubmitFeedback(ctx context.Context, ticketID string, rating int, comment string) error {
@@ -47,4 +48,33 @@ func (p *Postgres) SubmitFeedback(ctx context.Context, ticketID string, rating i
 		return dbError(err)
 	}
 	return dbError(tx.Commit(ctx))
+}
+
+func (p *Postgres) ListBranchReviews(ctx context.Context, branchID string) ([]domain.RecentFeedback, error) {
+	bid, err := uuid(branchID)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := p.pool.Query(ctx, `
+		SELECT f.rating, f.comment, f.created_at
+		FROM tickets t
+		JOIN ticket_feedback f ON f.ticket_id = t.id
+		WHERE t.branch_id = $1 AND t.status = 'COMPLETED' AND f.comment <> ''
+		ORDER BY f.created_at DESC
+		LIMIT 20
+	`, bid)
+	if err != nil {
+		return nil, dbError(err)
+	}
+	defer rows.Close()
+
+	out := make([]domain.RecentFeedback, 0)
+	for rows.Next() {
+		var f domain.RecentFeedback
+		if err := rows.Scan(&f.Rating, &f.Comment, &f.CreatedAt); err != nil {
+			return nil, dbError(err)
+		}
+		out = append(out, f)
+	}
+	return out, dbError(rows.Err())
 }

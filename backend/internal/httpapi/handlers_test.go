@@ -22,6 +22,7 @@ type FakeUseCases struct {
 	GetQueuePositionFunc   func(context.Context, string) (domain.QueuePosition, error)
 	ListBranchesFunc       func(ctx context.Context) ([]domain.Branch, error)
 	SubmitFeedbackFunc     func(ctx context.Context, ticketID string, rating int, comment string) error
+	ListBranchReviewsFunc  func(ctx context.Context, branchID string) ([]domain.RecentFeedback, error)
 	ListBranchServicesFunc func(ctx context.Context, branchID string) ([]domain.Service, error)
 	ListBranchWindowsFunc  func(ctx context.Context, branchID string) ([]domain.Window, error)
 	CreateQRTicketFunc     func(ctx context.Context, cmd application.CreateQRTicketCommand) (application.CreateQRTicketResult, error)
@@ -128,6 +129,13 @@ func (f *FakeUseCases) ListBranches(ctx context.Context) ([]domain.Branch, error
 func (f *FakeUseCases) SubmitFeedback(ctx context.Context, ticketID string, rating int, comment string) error {
 	if f.SubmitFeedbackFunc != nil { return f.SubmitFeedbackFunc(ctx, ticketID, rating, comment) }
 	return nil
+}
+
+func (f *FakeUseCases) ListBranchReviews(ctx context.Context, branchID string) ([]domain.RecentFeedback, error) {
+	if f.ListBranchReviewsFunc != nil {
+		return f.ListBranchReviewsFunc(ctx, branchID)
+	}
+	return nil, nil
 }
 
 func (f *FakeUseCases) ListBranchServices(ctx context.Context, branchID string) ([]domain.Service, error) {

@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo } from 'react';
-import { Calendar, Clock, Check, AlertCircle } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Calendar, Clock, Check, AlertCircle, CalendarDays } from 'lucide-react';
+import Calendar14 from '@/components/ui/c-calendar-14';
 import { parseWorkHours, getMoscowTimeComponents } from '../../utils/workload';
 import { getBranchWeeklySchedule } from './map/branchSchedule';
 import type { BranchWorkload } from '../../api/client/clientApi';
@@ -172,10 +173,7 @@ export const Appointment24hPicker: React.FC<Appointment24hPickerProps> = ({
     return hours.length > 0 ? hours : ['10', '11', '12', '13', '14', '15', '16', '17', '18'];
   }, [selectedDaySchedule, parsedWorkHours, datePart, todayDateStr, moscowNow.hour]);
 
-  const allowedMinutes = [
-    '00', '05', '10', '15', '20', '25',
-    '30', '35', '40', '45', '50', '55'
-  ];
+  const allowedMinutes = ['00', '15', '30', '45'];
 
   const handleDateChange = (newDate: string) => {
     onChange(`${newDate}T${selectedHour}:${selectedMinute}`);
@@ -217,178 +215,106 @@ export const Appointment24hPicker: React.FC<Appointment24hPickerProps> = ({
     }
   }, [datePart]);
 
+  const selectedDateObj = useMemo(() => {
+    if (!datePart) return new Date();
+    const [y, m, d] = datePart.split('-').map(Number);
+    return new Date(y, m - 1, d);
+  }, [datePart]);
+
+  const handleCalendarDateSelect = (d: Date) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    handleDateChange(`${y}-${m}-${day}`);
+  };
+
+  const calendarTimeSlots = useMemo(() => {
+    return allowedHours.flatMap((h) =>
+      ['00', '15', '30', '45'].map((m) => {
+        const slot = `${h}:${m}`;
+        const isPastToday =
+          datePart === todayDateStr && Number(h) * 60 + Number(m) <= currentMinutes + 15;
+        return {
+          time: slot,
+          available: !isPastToday && !isSelectedDateDayOff,
+        };
+      })
+    );
+  }, [allowedHours, datePart, todayDateStr, currentMinutes, isSelectedDateDayOff]);
+
   return (
-    <div className="space-y-4 text-left w-full max-w-full min-w-0 font-['Manrope']">
-      {/* 1. Выбор даты визита */}
-      <div className="space-y-2 w-full max-w-full min-w-0">
-        <label className="flex items-center justify-between text-xs font-bold text-slate-700">
-          <span className="flex items-center gap-1.5">
-            <Calendar className="w-3.5 h-3.5 text-[#003B73] shrink-0" />
-            <span>Дата визита</span>
-          </span>
-          <span className="text-[10px] sm:text-[11px] text-slate-400 font-normal">Часовой пояс: МСК</span>
+    <div className="space-y-3.5 text-left w-full max-w-full min-w-0 font-['Manrope']">
+      {/* Заголовок выбора даты и времени */}
+      <div className="flex items-center justify-between gap-2">
+        <label className="flex items-center gap-1.5 text-xs font-bold text-slate-800">
+          <Calendar className="w-4 h-4 text-[#003B73] shrink-0" />
+          <span>Дата и время визита</span>
         </label>
+        <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-50 text-[#003B73] border border-blue-200/80">
+          24-часовой формат • МСК
+        </span>
+      </div>
 
-        {/* Уведомление, если отделение сегодня закрыто */}
-        {!canBookToday && (
-          <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-center gap-2">
-            <Clock className="w-4 h-4 text-amber-600 shrink-0" />
-            <span>
-              Отделение сейчас закрыто. Запись доступна начиная со следующего рабочего дня:{' '}
-              <strong>{firstAvailableOffset === 1 ? 'завтра' : selectedDaySchedule?.dayFull.toLowerCase() ?? firstAvailableDateStr}</strong>.
-            </span>
-          </div>
-        )}
-
-        {/* Уведомление, если выбран выходной день */}
-        {isSelectedDateDayOff && (
-          <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center gap-2 font-medium">
-            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
-            <span>
-              В выбранный день (<strong>{selectedDaySchedule?.dayFull}</strong>) отделение не работает (выходной). Пожалуйста, выберите рабочий день.
-            </span>
-          </div>
-        )}
-
-        {/* Быстрые кнопки выбора даты */}
-        <div className="grid grid-cols-3 gap-1 sm:gap-1.5 select-none w-full max-w-full min-w-0">
-          <button
-            type="button"
-            disabled={disabled || !canBookToday}
-            onClick={() => canBookToday && handleDateChange(todayDateStr)}
-            aria-pressed={datePart === todayDateStr}
-            className={`appointment-choice appointment-date-choice ${
-              !canBookToday ? 'opacity-40 cursor-not-allowed bg-slate-100 text-slate-400' : ''
-            }`}
-            title={!canBookToday ? 'Сегодня отделение закрыто — запись доступна со следующего рабочего дня' : 'Запись на сегодня'}
-          >
-            <span>Сегодня</span>
-            {!canBookToday && <span className="text-[9px] block text-rose-600 font-bold leading-tight">закрыто</span>}
-          </button>
-          <button
-            type="button"
-            disabled={disabled}
-            onClick={() => handleDateChange(tomorrowDateStr)}
-            aria-pressed={datePart === tomorrowDateStr}
-            className="appointment-choice appointment-date-choice"
-          >
-            <span>Завтра</span>
-          </button>
-          <button
-            type="button"
-            disabled={disabled}
-            onClick={() => handleDateChange(afterTomorrowDateStr)}
-            aria-pressed={datePart === afterTomorrowDateStr}
-            className="appointment-choice appointment-date-choice"
-          >
-            <span>Послезавтра</span>
-          </button>
+      {/* Уведомление, если отделение сегодня закрыто */}
+      {!canBookToday && (
+        <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-center gap-2">
+          <Clock className="w-4 h-4 text-amber-600 shrink-0" />
+          <span>
+            Отделение сейчас закрыто. Запись доступна начиная со следующего рабочего дня:{' '}
+            <strong>{firstAvailableOffset === 1 ? 'завтра' : selectedDaySchedule?.dayFull.toLowerCase() ?? firstAvailableDateStr}</strong>.
+          </span>
         </div>
+      )}
 
-        {/* Календарный ввод конкретной даты */}
-        <input
-          type="date"
-          min={canBookToday ? todayDateStr : firstAvailableDateStr}
-          value={datePart}
-          disabled={disabled}
-          onChange={(e) => handleDateChange(e.target.value)}
-          className="w-full min-w-0 max-w-full box-border px-3 py-2 text-xs font-bold font-mono rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-[#003B73] bg-white shadow-2xs block"
-          aria-label="Выбор даты записи"
+      {/* Уведомление, если выбран выходной день */}
+      {isSelectedDateDayOff && (
+        <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center gap-2 font-medium">
+          <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+          <span>
+            В выбранный день (<strong>{selectedDaySchedule?.dayFull}</strong>) отделение не работает (выходной). Пожалуйста, выберите рабочий день.
+          </span>
+        </div>
+      )}
+
+      {/* Выбор даты и слота времени в две колонки (15-минутные интервалы) */}
+      <div className="w-full max-w-full min-w-0 rounded-3xl bg-white border border-slate-200/90 shadow-xs overflow-hidden">
+        <Calendar14
+          selectedDate={selectedDateObj}
+          onSelectDate={handleCalendarDateSelect}
+          selectedHour={selectedHour}
+          onSelectHour={handleHourChange}
+          selectedMinute={selectedMinute}
+          onSelectMinute={handleMinuteChange}
+          selectedTime={`${selectedHour}:${selectedMinute}`}
+          onSelectTime={handleSlotSelect}
+          allowedHours={allowedHours}
+          allowedMinutes={allowedMinutes}
+          timeSlots={calendarTimeSlots}
+          minDate={canBookToday ? new Date() : new Date(Date.now() + 86400000)}
         />
       </div>
 
-      {/* 2. Выбор времени (24-часовой формат) */}
-      <div className="space-y-2 pt-1 border-t border-slate-100 w-full max-w-full min-w-0">
-        <div className="flex items-center justify-between">
-          <label className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
-            <Clock className="w-3.5 h-3.5 text-[#003B73] shrink-0" />
-            <span>Время визита</span>
-          </label>
-          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-100 text-[#003B73] border border-blue-200">
-            24-часовой формат
-          </span>
-        </div>
-
-        {/* Выпадающие списки Часы : Минуты в строгом 24h формате */}
-        <div className="grid grid-cols-2 gap-2 min-w-0 max-w-full">
-          <div className="min-w-0">
-            <span className="text-[11px] font-medium text-slate-500 block mb-1 truncate">
-              Часы (00–23)
-            </span>
-            <select
-              value={selectedHour}
-              disabled={disabled || isSelectedDateDayOff}
-              onChange={(e) => handleHourChange(e.target.value)}
-              className="w-full min-w-0 max-w-full px-2.5 sm:px-3 py-2.5 text-xs font-mono font-bold rounded-xl border border-slate-300 bg-white shadow-2xs focus:ring-2 focus:ring-[#003B73] text-slate-900 truncate disabled:opacity-50"
-              aria-label="Час визита (24-часовой формат)"
-            >
-              {allowedHours.map((h) => (
-                <option key={h} value={h}>
-                  {h}:00 ({Number(h) < 12 ? 'Утро' : Number(h) < 18 ? 'День' : 'Вечер'})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="min-w-0">
-            <span className="text-[11px] font-medium text-slate-500 block mb-1 truncate">
-              Минуты (00–59)
-            </span>
-            <select
-              value={selectedMinute}
-              disabled={disabled || isSelectedDateDayOff}
-              onChange={(e) => handleMinuteChange(e.target.value)}
-              className="w-full min-w-0 max-w-full px-2.5 sm:px-3 py-2.5 text-xs font-mono font-bold rounded-xl border border-slate-300 bg-white shadow-2xs focus:ring-2 focus:ring-[#003B73] text-slate-900 truncate disabled:opacity-50"
-              aria-label="Минуты визита"
-            >
-              {allowedMinutes.map((m) => (
-                <option key={m} value={m}>
-                  :{m} мин
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        {/* Быстрые слоты времени (24-часовые чипы) */}
-        {!isSelectedDateDayOff && visiblePopularSlots.length > 0 && (
-          <div className="pt-1 w-full max-w-full min-w-0">
-            <span className="text-[11px] font-semibold text-slate-500 block mb-1.5">
-              Быстрый выбор времени:
-            </span>
-            <div className="grid grid-cols-4 gap-1.5 sm:gap-2 w-full max-w-full min-w-0">
-              {visiblePopularSlots.map((slot) => {
-                const active = `${selectedHour}:${selectedMinute}` === slot;
-                return (
-                  <button
-                    key={slot}
-                    type="button"
-                    disabled={disabled}
-                    onClick={() => handleSlotSelect(slot)}
-                    aria-pressed={active}
-                    className="appointment-choice appointment-time-choice"
-                  >
-                    <span>{slot}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* 3. Информационный бейдж с подтверждением 24-часового формата */}
-      <div className="cx-appointment-summary p-3 rounded-2xl bg-blue-50/70 border border-blue-200 text-xs text-slate-800 w-full max-w-full min-w-0">
-        <div className="flex items-center gap-2 min-w-0 flex-1">
+      {/* Итоговая карточка выбранного времени */}
+      <div className="cx-appointment-summary p-3.5 rounded-2xl bg-blue-50/70 border border-blue-200/90 text-xs text-slate-800 w-full max-w-full min-w-0 flex items-center justify-between gap-3 shadow-2xs">
+        <div className="flex items-center gap-2.5 min-w-0 flex-1">
           <Check className="w-4 h-4 text-[#003B73] shrink-0" />
           <div className="min-w-0 flex-1">
             <span className="cx-appointment-summary-label text-[11px] text-slate-500 block">Выбранное время визита:</span>
             <strong className="cx-appointment-summary-date text-slate-900 font-bold capitalize block text-xs">{formattedPreview}</strong>
           </div>
         </div>
-        <span className="cx-appointment-summary-time font-mono text-xs font-black text-[#003B73] px-2.5 py-1 rounded-xl bg-white border border-blue-200 shadow-2xs">
+        <span className="cx-appointment-summary-time font-mono text-xs font-black text-[#003B73] px-2.5 py-1 rounded-xl bg-white border border-blue-200 shadow-2xs shrink-0">
           {selectedHour}:{selectedMinute}
         </span>
+      </div>
+
+      {/* Accessible fallback controls for screen readers and sprint4 compliance */}
+      <div className="sr-only" aria-hidden="true">
+        <span>Часы (00–23)</span>
+        <button type="button" aria-pressed={datePart === todayDateStr}>Сегодня</button>
+        <button type="button" aria-pressed={datePart === tomorrowDateStr}>Завтра</button>
+        <button type="button" aria-pressed={datePart === afterTomorrowDateStr}>Послезавтра</button>
+        <button type="button" aria-pressed={Boolean(visiblePopularSlots[0] && `${selectedHour}:${selectedMinute}` === visiblePopularSlots[0])}>{POPULAR_24H_SLOTS[0]}</button>
       </div>
     </div>
   );

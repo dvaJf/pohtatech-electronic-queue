@@ -409,7 +409,7 @@ export function UserProfileModal({ isOpen, onClose, user, onUserUpdate }: UserPr
           </button>
         </div>
 
-        <div className="p-4 sm:p-6 space-y-5 sm:space-y-6 max-h-[80vh] overflow-y-auto">
+        <div className="p-4 sm:p-6 space-y-5 sm:space-y-6 max-h-[82vh] overflow-y-auto scrollbar-none" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
           {/* User Info Card */}
           <div className="p-4 bg-slate-50 border border-slate-200/80 rounded-2xl space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -545,7 +545,7 @@ export function UserProfileModal({ isOpen, onClose, user, onUserUpdate }: UserPr
                   У вас пока нет завершённых визитов. Обслуженные талоны будут автоматически сохраняться здесь.
                 </div>
               ) : (
-                <div className="space-y-2.5 max-h-56 overflow-y-auto pr-1">
+                <div className="space-y-2.5 max-h-56 overflow-y-auto pr-1 scrollbar-none" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
                   {history.map((item) => (
                     <div
                       key={item.id}
@@ -726,72 +726,56 @@ export function UserProfileModal({ isOpen, onClose, user, onUserUpdate }: UserPr
             </div>
 
             {/* Browser Push Channel Card */}
-            <div className="p-4 bg-slate-50 border border-slate-200/90 rounded-2xl space-y-3">
-              <div className="flex items-start gap-3">
-                <div className="w-8 h-8 rounded-xl bg-blue-100 flex items-center justify-center text-[#003B73] shrink-0 mt-0.5">
-                  <Bell className="w-4 h-4" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex flex-wrap items-center justify-between gap-1.5">
-                    <span className="text-xs font-bold text-slate-900">Уведомления в браузере</span>
-                    {browserPermission === 'granted' && browserPushEnabled ? (
-                      <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold whitespace-nowrap shrink-0">
-                        ✓ Включено
-                      </span>
-                    ) : browserPermission === 'denied' ? (
-                      <span className="px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 text-[10px] font-bold whitespace-nowrap shrink-0">
-                        Заблокировано
-                      </span>
-                    ) : browserPermission === 'unsupported' ? (
-                      <span className="px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 text-[10px] font-bold whitespace-nowrap shrink-0">
-                        Не поддерживается
-                      </span>
-                    ) : (
-                      <span className="px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 text-[10px] font-bold whitespace-nowrap shrink-0">
-                        Не включено
-                      </span>
-                    )}
+            <div className="p-4 bg-slate-50 border border-slate-200/90 rounded-2xl space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0 flex-1">
+                  <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${browserPermission === 'granted' && browserPushEnabled ? 'bg-blue-100 text-[#003B73]' : 'bg-slate-200 text-slate-500'}`}>
+                    <Bell className="w-4 h-4" />
                   </div>
-                  <p className="text-[11px] text-slate-500 mt-1 leading-snug">
-                    Всплывающие уведомления на компьютере или телефоне даже при свёрнутой вкладке.
-                  </p>
+                  <div className="min-w-0 flex-1">
+                    <span className="text-xs font-bold text-slate-900 block truncate">Уведомления в браузере</span>
+                    <p className="text-[11px] text-slate-500 leading-snug">
+                      Всплывающие уведомления на компьютере или телефоне даже при свёрнутой вкладке.
+                    </p>
+                  </div>
                 </div>
-              </div>
 
-              <div className="pt-2 border-t border-slate-200/70">
-                {browserPermission === 'granted' && browserPushEnabled ? (
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-xs text-emerald-700 font-semibold leading-tight">
-                      ✓ Системные уведомления активны
-                    </span>
-                    <button
-                      type="button"
-                      onClick={handleDisableBrowserPush}
-                      className="px-3 py-1.5 text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-lg font-bold transition-colors border border-rose-200/80 shrink-0"
-                    >
-                      Отключить
-                    </button>
-                  </div>
-                ) : browserPermission === 'denied' ? (
-                  <div className="text-[11px] text-amber-800 bg-amber-50 p-2.5 rounded-xl border border-amber-200 leading-relaxed">
-                    Уведомления запрещены в настройках браузера. Чтобы включить, нажмите на значок настроек сайта в левой части адресной строки браузера и выберите «Разрешить уведомления».
-                  </div>
-                ) : browserPermission === 'unsupported' ? (
-                  <div className="text-[11px] text-rose-800 bg-rose-50 p-2.5 rounded-xl border border-rose-200 leading-relaxed flex items-center gap-2">
-                    <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
-                    <span>Ваш браузер не поддерживает системные уведомления.</span>
-                  </div>
+                {browserPermission === 'unsupported' ? (
+                  <span className="px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 text-[10px] font-bold shrink-0">
+                    Недоступно
+                  </span>
                 ) : (
-                  <button
-                    type="button"
-                    onClick={handleEnableBrowserPush}
-                    className="w-full py-2 px-3.5 bg-[#003B73] hover:bg-[#054FA6] text-white text-xs font-bold rounded-xl transition-all shadow-sm flex items-center justify-center gap-1.5"
-                  >
-                    <Bell className="w-3.5 h-3.5" />
-                    <span>Включить уведомления в браузере</span>
-                  </button>
+                  <label className="relative inline-flex items-center cursor-pointer select-none shrink-0" title={browserPermission === 'granted' && browserPushEnabled ? 'Отключить уведомления' : 'Включить уведомления'}>
+                    <input
+                      type="checkbox"
+                      checked={browserPermission === 'granted' && browserPushEnabled}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          handleEnableBrowserPush();
+                        } else {
+                          handleDisableBrowserPush();
+                        }
+                      }}
+                      disabled={browserPermission === 'denied'}
+                      className="sr-only peer"
+                      aria-label="Включить или отключить уведомления в браузере"
+                    />
+                    <div className="w-10 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#003B73]" />
+                  </label>
                 )}
               </div>
+
+              {browserPermission === 'denied' && (
+                <div className="text-[11px] text-amber-800 bg-amber-50 p-2.5 rounded-xl border border-amber-200 leading-relaxed mt-2">
+                  Уведомления запрещены в настройках браузера. Чтобы включить, нажмите на значок настроек сайта в левой части адресной строки браузера и выберите «Разрешить уведомления».
+                </div>
+              )}
+              {browserPermission === 'unsupported' && (
+                <div className="text-[11px] text-rose-800 bg-rose-50 p-2.5 rounded-xl border border-rose-200 leading-relaxed flex items-center gap-2 mt-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                  <span>Ваш браузер не поддерживает системные уведомления.</span>
+                </div>
+              )}
             </div>
 
             {/* SMS Channel Card */}

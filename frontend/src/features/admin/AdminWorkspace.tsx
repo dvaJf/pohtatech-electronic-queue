@@ -450,77 +450,6 @@ export const AdminWorkspace: React.FC = () => {
                   </table>
                 </div>
               </div>
-
-              {/* Quick Live Queue Preview Card */}
-              <div className="admin-live-preview bg-white rounded-3xl border border-[#D2D8E2] p-5 sm:p-7 space-y-6 shadow-sm">
-                <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 pb-5">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-12 h-12 rounded-2xl bg-[#EFF6FF] text-[#003B73] flex items-center justify-center shrink-0">
-                      <Tv className="w-6 h-6" />
-                    </div>
-                    <div>
-                      <h3 className="font-black text-lg text-slate-900 tracking-tight">
-                        Оперативная очередь отделения
-                      </h3>
-                      <p className="text-sm text-slate-500">
-                        Клиенты, ожидающие обслуживания прямо сейчас ({overview?.queue?.length ?? 0} чел.)
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('queue')}
-                    className="px-5 py-3 rounded-2xl bg-[#003B73] hover:bg-[#054FA6] text-white text-sm font-bold transition-all shadow-sm flex items-center gap-2"
-                  >
-                    <span>Открыть табло очереди</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-
-                {overview?.queue && overview.queue.length > 0 ? (
-                  <div className="admin-live-preview__grid grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                    {overview.queue.slice(0, 6).map((item, idx) => {
-                      const isApt = item.source === 'APPOINTMENT';
-                      const isQr = item.source === 'QR';
-                      return (
-                        <div
-                          key={item.id}
-                          className="admin-live-preview__ticket p-4 rounded-2xl border border-[#DCE4EE] bg-[#F8FAFC] text-center flex flex-col justify-between"
-                          style={{ minHeight: 198 }}
-                        >
-                          <div className="flex items-center justify-between text-sm font-mono text-slate-500">
-                            <span>#{idx + 1}</span>
-                            <span>{item.waitTimeMinutes}м</span>
-                          </div>
-                          <div className="text-2xl font-black font-mono text-[#003B73] tracking-tight my-2">
-                            {item.publicNumber}
-                          </div>
-                          <div className="text-sm text-slate-700 truncate font-bold">
-                            {item.serviceName}
-                          </div>
-                          <div className="mt-3">
-                            <span
-                              className={`text-[11px] px-2.5 py-1 rounded-lg font-mono font-bold uppercase ${
-                                isApt
-                                  ? 'bg-indigo-100 text-indigo-800'
-                                  : isQr
-                                  ? 'bg-sky-100 text-[#054FA6]'
-                                  : 'bg-amber-100 text-amber-900'
-                              }`}
-                            >
-                              {isApt ? 'Запись' : isQr ? 'QR' : 'Живая'}
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="text-center py-6 text-xs text-slate-400 font-mono">
-                    Ожидающих клиентов в очереди нет
-                  </div>
-                )}
-              </div>
             </div>
           )}
 
@@ -671,7 +600,29 @@ function QualitySection({ quality }: { quality: AdminBranchOverview['quality'] }
     </div>
     {total > 0 && <div className="mt-5 grid gap-5 lg:grid-cols-2">
       <div><h3 className="mb-3 text-sm font-bold text-slate-800">Распределение оценок</h3>{[5,4,3,2,1].map(star => { const count = quality.distribution[String(star) as '1']; const percent = Math.round(count / total * 100); return <div key={star} className="mb-2 flex items-center gap-2 text-xs"><span className="w-8 font-bold">{star} ★</span><div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-amber-400" style={{ width: `${percent}%` }} /></div><span className="w-9 text-right text-slate-600">{percent}%</span></div>; })}</div>
-      <div className="space-y-3"><div className="rounded-2xl bg-rose-50 p-3 text-sm text-rose-900"><strong>{quality.lowRatingCount}</strong> · Низкие оценки (1–2 ★)</div>{quality.recentFeedback.length > 0 && <div><h3 className="mb-2 text-sm font-bold text-slate-800">Последние отзывы</h3>{quality.recentFeedback.map((item, i) => <div className="mb-2 rounded-xl bg-slate-50 p-2 text-xs" key={`${item.createdAt}-${i}`}><strong className="text-amber-600">{'★'.repeat(item.rating)}</strong><span className="ml-2 text-slate-700">{item.comment}</span></div>)}</div>}</div>
+      <div className="space-y-3">
+        <div className="rounded-2xl bg-rose-50 p-3 text-sm text-rose-900">
+          <strong>{quality.lowRatingCount}</strong> · Низкие оценки (1–2 ★)
+        </div>
+        {quality.recentFeedback.length > 0 && (
+          <div>
+            <h3 className="mb-2 text-sm font-bold text-slate-800">Последние отзывы клиентов</h3>
+            <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+              {quality.recentFeedback.map((item, i) => (
+                <div className="rounded-xl bg-slate-50 border border-slate-200/80 p-2.5 text-xs" key={`${item.createdAt}-${i}`}>
+                  <div className="flex items-center justify-between mb-1">
+                    <strong className="text-amber-500 font-bold">{'★'.repeat(item.rating)}</strong>
+                    <span className="text-[10px] text-slate-400 font-mono">
+                      {new Date(item.createdAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}
+                    </span>
+                  </div>
+                  <p className="text-slate-700 leading-relaxed text-[11px]">{item.comment}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
     </div>}
   </section>;
 }

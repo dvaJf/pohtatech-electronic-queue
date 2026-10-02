@@ -219,6 +219,21 @@ export async function listMyActiveTickets(signal?: AbortSignal): Promise<Ticket[
   }
 }
 
+export interface BranchReview {
+  rating: number;
+  comment: string;
+  createdAt: string;
+}
+
+export async function getBranchReviews(branchId: string): Promise<BranchReview[]> {
+  try {
+    const data = await request<{ items: BranchReview[] }>(`/branches/${encodeURIComponent(branchId)}/reviews`);
+    return Array.isArray(data.items) ? data.items : [];
+  } catch {
+    return [];
+  }
+}
+
 export async function submitFeedback(ticketId: string, rating: number, comment: string, token?: string): Promise<void> {
   await request(`/tickets/${encodeURIComponent(ticketId)}/feedback`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...managementHeaders(token) }, body: JSON.stringify({ rating, comment }) }, () => undefined);
 }

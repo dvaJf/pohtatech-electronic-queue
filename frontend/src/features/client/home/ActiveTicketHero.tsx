@@ -1,6 +1,18 @@
 import { CheckCircle2, Clock, MapPin, Navigation, Ticket as TicketIcon, Users } from 'lucide-react';
+import Timeline8 from '@/components/ui/c-timeline-8';
 import type { Branch, QueuePosition, Ticket, TicketETA } from '../../../api/client/types';
 import { getActiveTicketPresentation } from './activeTicketPresentation';
+
+function getTicketTimelineStep(status: string): number {
+  switch (status) {
+    case 'SCHEDULED': return 1;
+    case 'WAITING': return 2;
+    case 'CALLED': return 3;
+    case 'SERVING': return 4;
+    case 'COMPLETED': return 5;
+    default: return 2;
+  }
+}
 
 export function ActiveTicketHero({
   ticket,
@@ -18,13 +30,14 @@ export function ActiveTicketHero({
   onOpenRoute: () => void;
 }) {
   const peopleAhead = position?.position ?? eta?.position ?? null;
+  const isCalledOrServing = ticket.status === 'CALLED' || ticket.status === 'SERVING' || ticket.status === 'COMPLETED';
+  const windowNumber = isCalledOrServing ? (ticket.window?.number ?? null) : null;
   const view = getActiveTicketPresentation({
     status: ticket.status,
     peopleAhead: peopleAhead === null ? null : Math.max(0, peopleAhead - 1),
     estimatedWaitSeconds: eta?.estimatedWaitSeconds,
-    windowNumber: ticket.window?.number ?? eta?.referenceWindow?.number ?? null,
+    windowNumber,
   });
-  const windowNumber = ticket.window?.number ?? eta?.referenceWindow?.number ?? null;
 
   return (
     <section aria-label="Активный талон" className={`rounded-2xl border p-4 shadow-xs sm:p-5 ${ticket.status === 'CALLED' ? 'border-[#054FA6] bg-blue-50/80' : 'border-emerald-200/80 bg-gradient-to-br from-emerald-50/80 via-teal-50/40 to-white'}`}>
@@ -45,6 +58,21 @@ export function ActiveTicketHero({
           <div className="text-2xl font-black leading-none tabular-nums text-[#031E56] sm:text-3xl">{view.eta}</div>
           {view.etaCaption && <div className="mt-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">{view.etaCaption}</div>}
         </div>}
+      </div>
+
+      {/* Анимированный таймлайн со статусами талона */}
+      <div className="mt-3 pt-3 border-t border-slate-200/60 w-full overflow-x-auto">
+        <Timeline8
+          currentStep={getTicketTimelineStep(ticket.status)}
+          items={[
+            { id: 1, title: 'Получен', description: 'Талон выдан' },
+            { id: 2, title: 'В очереди', description: peopleAhead !== null && peopleAhead > 0 ? `${peopleAhead} перед вами` : 'Ожидание' },
+            { id: 3, title: 'Вызов к окну', description: isCalledOrServing && windowNumber ? `Окно №${windowNumber}` : 'Приглашение' },
+            { id: 4, title: 'Обслуживание', description: 'У оператора' },
+            { id: 5, title: 'Завершён', description: 'Готово' },
+          ]}
+          className="w-full max-w-full"
+        />
       </div>
 
       {view.peopleAhead && <div className="mt-3 flex min-h-[52px] items-center gap-2 rounded-xl border border-emerald-100/80 bg-white/70 px-3 text-sm font-bold text-slate-800"><Users size={17} className="text-emerald-700" aria-hidden />{view.peopleAhead}</div>}

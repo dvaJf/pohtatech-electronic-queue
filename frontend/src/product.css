@@ -117,16 +117,18 @@ html[data-text-scale="150"] { --client-text-scale: 1.5; }
 .main-product-header .product-header-tools [class*="border-white"] { border-color: var(--border-subtle) !important; }
 .main-product-header .product-header-tools [class*="bg-emerald"] { background: var(--success-soft) !important; color: var(--success) !important; }
 .main-product-header .product-header-tools [class*="bg-white/10"] { background: var(--surface-muted) !important; }
-.main-product-header .header-utility-group { gap: 0; padding: 2px; border: 1px solid var(--border-subtle) !important; border-radius: 12px; background: var(--surface-muted) !important; }
-.main-product-header .header-utility-group button { border: 0 !important; border-radius: 8px !important; background: transparent !important; color: var(--text-secondary) !important; }
-.main-product-header .header-utility-group button + button { border-left: 1px solid var(--border-subtle) !important; border-radius: 0 8px 8px 0 !important; }
-.main-product-header .header-utility-group button:hover { background: var(--surface-card) !important; color: var(--color-primary) !important; }
+.main-product-header .header-utility-group { display: flex; align-items: center; gap: 8px !important; padding: 0 !important; border: 0 !important; background: transparent !important; }
+.main-product-header .header-utility-group button { border: 1px solid var(--border-subtle) !important; border-radius: 12px !important; background: var(--surface-muted) !important; color: var(--text-secondary) !important; transition: all 0.15s ease-in-out; }
+.main-product-header .header-utility-group button + button { border-left: 1px solid var(--border-subtle) !important; border-radius: 12px !important; }
+.main-product-header .header-utility-group button:hover { background: var(--surface-card) !important; border-color: var(--border-strong) !important; color: var(--color-primary) !important; }
 .main-product-header .header-time { border: 0 !important; background: transparent !important; color: var(--text-secondary) !important; }
 .main-product-header .header-account-trigger { border: 1px solid var(--border-subtle) !important; background: var(--surface-muted) !important; color: var(--text-primary) !important; }
 .main-product-header .header-account-trigger:hover { border-color: var(--border-strong) !important; background: var(--surface-card) !important; }
 .main-product-header .account-popover { color: var(--text-primary) !important; }
-.main-product-header .account-popover button.account-menu-row { display: flex; min-height: 40px; width: 100%; align-items: center; border: 0 !important; border-radius: 8px; background: transparent !important; padding: 0 10px; color: var(--text-primary) !important; font-size: 14px; font-weight: 500; text-align: left; }
-.main-product-header .account-popover button.account-menu-row:hover { background: var(--surface-muted) !important; }
+.main-product-header .account-popover button.account-menu-row,
+.main-product-header .account-popover a.account-menu-row { display: flex; min-height: 40px; width: 100%; align-items: center; border: 0 !important; border-radius: 8px; background: transparent !important; padding: 0 10px; color: var(--text-primary) !important; font-size: 14px; font-weight: 500; text-align: left; text-decoration: none; cursor: pointer; transition: background-color 0.15s ease, color 0.15s ease; }
+.main-product-header .account-popover button.account-menu-row:hover,
+.main-product-header .account-popover a.account-menu-row:hover { background: var(--surface-muted) !important; }
 .main-product-header .account-popover button.account-menu-row-danger { color: var(--color-danger) !important; }
 html.map-dialog-open .ai-widget-container { display: none; }
 #a11y-settings, #mobile-service-menu {
@@ -134,6 +136,10 @@ html.map-dialog-open .ai-widget-container { display: none; }
   max-height: calc(100dvh - 88px);
   overflow-y: auto;
   overflow-wrap: anywhere;
+}
+#a11y-settings [role="group"] > div:first-child {
+  color: #334155 !important;
+  font-weight: 700 !important;
 }
 #a11y-settings button, #mobile-service-menu button {
   height: auto;
@@ -811,4 +817,170 @@ html[data-reduced-motion] *, html[data-reduced-motion] *::before, html[data-redu
 
 .scrollbar-thin::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
+}
+
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+/* === DAYPICKER CALENDAR HIGH CONTRAST & CLEAN BUTTON STYLES === */
+.rdp-root [data-selected="true"] button,
+.rdp-root [aria-selected="true"] button,
+.rdp-root td.selected button,
+.rdp-root button[aria-selected="true"] {
+  background-color: #003B73 !important;
+  color: #ffffff !important;
+  font-weight: 700 !important;
+  border-color: transparent !important;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05) !important;
+}
+
+.rdp-root [data-selected="true"] button:hover,
+.rdp-root [aria-selected="true"] button:hover,
+.rdp-root td.selected button:hover {
+  background-color: #054FA6 !important;
+  color: #ffffff !important;
+}
+
+/* Day buttons in calendar without harsh borders from product-shell */
+.rdp-root td .rdp-button,
+.rdp-root td button {
+  border: 1px solid transparent !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  color: #1e293b !important;
+  font-weight: 500 !important;
+  border-radius: 12px !important;
+  transition: all 0.15s ease-in-out !important;
+}
+
+.rdp-root td button:hover:not(:disabled) {
+  background-color: #f1f5f9 !important;
+  color: #0f172a !important;
+}
+
+.rdp-root [data-today="true"]:not([data-selected="true"]) button {
+  background-color: rgba(239, 246, 255, 0.85) !important;
+  color: #003B73 !important;
+  border-color: #bfdbfe !important;
+  font-weight: 700 !important;
+}
+
+.rdp-root [data-outside="true"] button,
+.rdp-root [data-disabled="true"] button,
+.rdp-root button:disabled {
+  color: #cbd5e1 !important;
+  opacity: 0.4 !important;
+  cursor: not-allowed !important;
+  background-color: transparent !important;
+}
+
+.rdp-root .rdp-weekday {
+  color: #475569 !important;
+  font-weight: 700 !important;
+  font-size: 0.72rem !important;
+  text-transform: uppercase !important;
+}
+
+/* === CALENDAR SLOTS PERMANENT VISIBLE SCROLLBAR === */
+.calendar-slots-scroll {
+  overflow-y: auto !important;
+  scrollbar-width: thin !important;
+  scrollbar-color: #94a3b8 #f1f5f9 !important;
+}
+
+.calendar-slots-scroll::-webkit-scrollbar {
+  width: 6px !important;
+  height: 6px !important;
+  display: block !important;
+}
+
+.calendar-slots-scroll::-webkit-scrollbar-track {
+  background: #f1f5f9 !important;
+  border-radius: 9999px !important;
+}
+
+.calendar-slots-scroll::-webkit-scrollbar-thumb {
+  background: #94a3b8 !important;
+  border-radius: 9999px !important;
+}
+
+.calendar-slots-scroll::-webkit-scrollbar-thumb:hover {
+  background: #003B73 !important;
+}
+
+.calendar-slots-scroll::-webkit-scrollbar-button {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+/* === A11Y MODAL HIGH CONTRAST BUTTON OVERRIDES === */
+#a11y-settings {
+  background: #ffffff !important;
+  color: #0f172a !important;
+  border: 1px solid #e2e8f0 !important;
+}
+
+#a11y-settings #a11y-settings-title {
+  color: #0f172a !important;
+  font-weight: 700 !important;
+}
+
+#a11y-settings [role="group"] > div:first-child {
+  color: #334155 !important;
+  font-weight: 700 !important;
+}
+
+#a11y-settings button {
+  min-width: unset !important;
+  min-height: unset !important;
+}
+
+#a11y-settings button[aria-pressed="true"] {
+  background-color: #003B73 !important;
+  color: #ffffff !important;
+  border-color: #003B73 !important;
+  font-weight: 700 !important;
+}
+
+#a11y-settings button[aria-pressed="true"] * {
+  color: #ffffff !important;
+}
+
+#a11y-settings button[aria-pressed="false"],
+#a11y-settings button:not([aria-pressed]) {
+  background-color: #f8fafc !important;
+  color: #1e293b !important;
+  border-color: #cbd5e1 !important;
+  font-weight: 600 !important;
+}
+
+#a11y-settings button[aria-pressed="false"]:hover {
+  background-color: #f1f5f9 !important;
+  color: #0f172a !important;
+  border-color: #94a3b8 !important;
+}
+
+#a11y-settings button[aria-label="Закрыть настройки доступности"] {
+  background-color: transparent !important;
+  border-color: #e2e8f0 !important;
+  color: #64748b !important;
+}
+
+#a11y-settings .header-reset-button {
+  background: transparent !important;
+  border: 0 !important;
+  color: #475569 !important;
+}
+
+#a11y-settings .header-reset-button:hover {
+  color: #003B73 !important;
 }

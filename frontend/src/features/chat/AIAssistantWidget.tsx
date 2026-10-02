@@ -642,7 +642,7 @@ export const AIAssistantWidget: React.FC = () => {
               ref={inputRef}
               className="ai-input"
               rows={1}
-              placeholder="Спросите о посылках, тарифах или талоне..."
+              placeholder="Задайте вопрос..."
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}

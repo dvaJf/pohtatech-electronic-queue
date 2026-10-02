@@ -1,3 +1,6 @@
+imagePullSecrets:
+  - name: dockerhub-secret
+
 postgres:
   image:
     repository: postgres

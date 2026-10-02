@@ -303,3 +303,13 @@ SMS supports the configured Android Gateway, SMS Aero or SMS.ru adapters; withou
 ## Подготовка к финалу
 
 [Исправления, демонстрационная сеть из 25 отделений, проверки и решение по Redis](docs/final-readiness.md).
+
+## Автоматический деплой (GitOps)
+
+В репозитории настроен автоматический GitOps-пайплайн:
+- **GitLab CI** (`.gitlab-ci.yml`): сборка, тестирование, публикация Docker-образов с immutable SHA-тегами и атомарное обновление Helm-значений.
+- **ArgoCD** (Application `queue-system`): отслеживает `main` ветку, директорию `helm/queue-chart` и выполняет автоматический `Sync`.
+- **Kubernetes**: плавный `RollingUpdate` с проверками `livenessProbe` / `readinessProbe` без простоя.
+
+Подробное руководство: [docs/GITOPS_DEPLOYMENT.md](docs/GITOPS_DEPLOYMENT.md).
+

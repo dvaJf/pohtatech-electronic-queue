@@ -486,16 +486,16 @@ export function UserProfileModal({ isOpen, onClose, user, onUserUpdate }: UserPr
                 <select
                   value={defaultBranchId}
                   onChange={(e) => handleSelectDefaultBranch(e.target.value)}
-                  className="w-full pl-3 pr-8 py-2.5 text-xs font-semibold rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#054FA6] focus:border-transparent transition-all cursor-pointer appearance-none shadow-sm"
+                  className="w-full pl-3.5 pr-10 py-2.5 text-xs font-semibold rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#054FA6] focus:border-transparent transition-all cursor-pointer appearance-none shadow-sm truncate"
                 >
                   {MOSCOW_BRANCHES.map((b) => (
                     <option key={b.id} value={b.id}>
-                      {b.name} ({b.address}) {b.metro ? `• м. ${b.metro}` : ''}
+                      {b.name} {b.metro ? `(м. ${b.metro})` : `(${b.code})`}
                     </option>
                   ))}
                 </select>
-                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2.5 text-slate-500">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-slate-500">
+                  <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                   </svg>
                 </div>

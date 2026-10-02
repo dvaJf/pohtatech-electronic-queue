@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { format } from "date-fns";
+import { ru } from "date-fns/locale";
 
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/c-calendar-14-utils/calendar";
@@ -87,6 +88,7 @@ export function Pattern({
       <CardContent className="p-0">
         <div className="flex max-sm:flex-col">
           <Calendar
+            locale={ru}
             disabled={[{ before: effectiveMinDate }]}
             mode="single"
             onSelect={handleDateChange}
@@ -97,8 +99,8 @@ export function Pattern({
               <ScrollArea className="h-full sm:border-s">
                 <div className="space-y-3">
                   <div className="flex h-5 shrink-0 items-center px-4">
-                    <p className="text-xs font-semibold text-slate-800">
-                      {format(date, "EEEE, d MMM")}
+                    <p className="text-xs font-semibold text-slate-800 capitalize">
+                      {format(date, "EEEE, d MMM", { locale: ru })}
                     </p>
                   </div>
                   <div className="grid gap-1.5 px-3 max-sm:grid-cols-2">

@@ -31,7 +31,10 @@ import { AppointmentCalendarMenu } from './calendar/AppointmentCalendarMenu';
 import { isAppointmentCalendarEventAvailable } from './calendar/appointmentCalendar';
 import Timeline8 from '@/components/ui/c-timeline-8';
 
-function getTicketTimelineStep(status: TicketStatus): number {
+function getTicketTimelineStep(status: TicketStatus, isArrived = false): number {
+  if (isArrived && status === 'SCHEDULED') {
+    return 2;
+  }
   switch (status) {
     case 'SCHEDULED': return 1;
     case 'WAITING': return 2;
@@ -462,10 +465,10 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
     return unavailMsg || defaultDesc;
   };
   const row = (icon: React.ReactNode, title: string, description: string, channel: NotificationChannel, content: React.ReactNode, unavailable?: string) => (
-    <div className="cx-notification-row p-3 bg-white border border-slate-200/80 rounded-2xl flex flex-col gap-2 shadow-xs">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5 min-w-0 flex-1">
-          <div className={`cx-notification-icon w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${connected(channel) ? 'bg-blue-50 text-[#003B73]' : 'bg-slate-100 text-slate-500'}`}>
+    <div className="cx-notification-row p-3.5 bg-white border border-slate-200/90 rounded-2xl flex flex-col gap-2 shadow-2xs overflow-hidden">
+      <div className="flex items-center justify-between gap-3 w-full min-w-0">
+        <div className="flex items-center gap-3 min-w-0 flex-1">
+          <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${connected(channel) ? 'bg-blue-50 text-[#003B73]' : 'bg-slate-100 text-slate-500'}`}>
             {icon}
           </div>
           <div className="cx-notification-main min-w-0 flex-1">
@@ -2932,17 +2935,22 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
 
                     {/* Animated Timeline */}
                     <div className="my-2.5 py-2 px-2 bg-slate-50/90 rounded-2xl border border-slate-200/80 overflow-x-auto shadow-2xs">
-                      <Timeline8
-                        currentStep={getTicketTimelineStep(ticket.status)}
-                        items={[
-                          { id: 1, title: 'Получен', description: 'Талон выдан' },
-                          { id: 2, title: 'В очереди', description: position?.position ? `${position.position} в очереди` : 'Ожидание' },
-                          { id: 3, title: 'Вызов к окну', description: ticket.window?.number ? `Окно №${ticket.window.number}` : 'Приглашение' },
-                          { id: 4, title: 'Обслуживание', description: 'У оператора' },
-                          { id: 5, title: 'Завершён', description: 'Готово' },
-                        ]}
-                        className="w-full max-w-full"
-                      />
+                      {(() => {
+                        const isTicketArrived = Boolean(ticket.arrivedAt || arrivalAcknowledgedTicketIds.has(ticket.id));
+                        return (
+                          <Timeline8
+                            currentStep={getTicketTimelineStep(ticket.status, isTicketArrived)}
+                            items={[
+                              { id: 1, title: 'Получен', description: 'Талон выдан' },
+                              { id: 2, title: 'В очереди', description: position?.position ? `${position.position} в очереди` : (isTicketArrived ? 'В очереди' : 'Ожидание') },
+                              { id: 3, title: 'Вызов к окну', description: ticket.window?.number ? `Окно №${ticket.window.number}` : 'Приглашение' },
+                              { id: 4, title: 'Обслуживание', description: 'У оператора' },
+                              { id: 5, title: 'Завершён', description: 'Готово' },
+                            ]}
+                            className="w-full max-w-full"
+                          />
+                        );
+                      })()}
                     </div>
 
                     {/* Details Body */}

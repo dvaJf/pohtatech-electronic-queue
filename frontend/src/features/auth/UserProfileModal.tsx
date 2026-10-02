@@ -409,7 +409,7 @@ export function UserProfileModal({ isOpen, onClose, user, onUserUpdate }: UserPr
           </button>
         </div>
 
-        <div className="p-4 sm:p-6 space-y-5 sm:space-y-6 max-h-[80vh] overflow-y-auto">
+        <div className="p-4 sm:p-6 space-y-5 sm:space-y-6 max-h-[82vh] overflow-y-auto scrollbar-none" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
           {/* User Info Card */}
           <div className="p-4 bg-slate-50 border border-slate-200/80 rounded-2xl space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -545,7 +545,7 @@ export function UserProfileModal({ isOpen, onClose, user, onUserUpdate }: UserPr
                   У вас пока нет завершённых визитов. Обслуженные талоны будут автоматически сохраняться здесь.
                 </div>
               ) : (
-                <div className="space-y-2.5 max-h-56 overflow-y-auto pr-1">
+                <div className="space-y-2.5 max-h-56 overflow-y-auto pr-1 scrollbar-none" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
                   {history.map((item) => (
                     <div
                       key={item.id}

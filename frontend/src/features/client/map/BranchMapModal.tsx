@@ -896,7 +896,7 @@ export function BranchMapModal({
             {/* Поиск и быстрые фильтры */}
             <div className="p-4 bg-white border-b border-[#E2E8F0] space-y-3">
               {/* Поле поиска */}
-              <div className="relative">
+              <div className="relative flex items-center">
                 <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={17} />
                 <input
                   type="text"
@@ -904,15 +904,15 @@ export function BranchMapModal({
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Поиск по адресу, метро, индексу..."
-                  style={{ paddingLeft: '2.75rem' }}
-                  className="w-full pl-11 pr-4 py-2.5 rounded-2xl bg-[#F8FAFC] border border-[#E2E8F0] text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#052F85] focus:bg-white transition-all placeholder:text-slate-400"
+                  style={{ paddingLeft: '2.75rem', paddingRight: '2.75rem' }}
+                  className="w-full pl-11 pr-11 py-2.5 rounded-2xl bg-[#F8FAFC] border border-[#E2E8F0] text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#052F85] focus:bg-white transition-all placeholder:text-slate-400"
                 />
                 {searchQuery && (
                   <button
                     type="button"
                     onClick={() => setSearchQuery('')}
                     aria-label="Очистить поиск"
-                    className="absolute right-0 top-1/2 -translate-y-1/2 w-11 h-11 flex items-center justify-center text-slate-400 hover:text-slate-600"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-200/60 transition-colors border-0 bg-transparent p-0 cursor-pointer"
                   >
                     <X size={14} />
                   </button>
@@ -1263,7 +1263,7 @@ export function BranchMapModal({
 
               {/* Мобильное поле поиска */}
               {bottomSheetState !== 'collapsed' && <div className="px-3 pt-2 pb-1 bg-white">
-                <div className="relative">
+                <div className="relative flex items-center">
                   <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={15} />
                   <input
                     type="text"
@@ -1271,15 +1271,15 @@ export function BranchMapModal({
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder="Поиск по адресу, метро, индексу..."
-                    style={{ paddingLeft: '2.75rem' }}
-                    className="w-full pl-11 pr-8 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#052F85] focus:bg-white transition-all placeholder:text-slate-400"
+                    style={{ paddingLeft: '2.75rem', paddingRight: '2.5rem' }}
+                    className="w-full pl-11 pr-10 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#052F85] focus:bg-white transition-all placeholder:text-slate-400"
                   />
                   {searchQuery && (
                     <button
                       type="button"
                       onClick={() => setSearchQuery('')}
                       aria-label="Очистить поиск"
-                      className="absolute right-0 top-1/2 -translate-y-1/2 w-11 h-11 flex items-center justify-center text-slate-400 hover:text-slate-600"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-200/60 transition-colors border-0 bg-transparent p-0 cursor-pointer"
                     >
                       <X size={13} />
                     </button>

@@ -46,7 +46,7 @@
   flex-direction: column;
   align-items: center;
   padding: 1.5rem 1rem;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--font);
   color: var(--client-text);
 }
 
@@ -483,44 +483,41 @@
   background: #FFEBEE;
 }
 
-/* Decorative, home-only postal scene. The SVG is intentionally not a card and
-   stays below the operational hero content at every state. */
-.cx-home-hero { position: relative; isolation: isolate; overflow: hidden; }
-.cx-home-hero-content { position: relative; z-index: 1; }
-.cx-postal-hero-background {
-  position: absolute;
-  z-index: 0;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  opacity: .9;
-}
+.cx-home-hero { position: relative; }
+.cx-home-hero-content { position: relative; }
+.cx-route-symbol { animation: cx-route-symbol-in 140ms cubic-bezier(.2, .7, .2, 1) both; }
+.cx-route-line { display: block; width: 100%; height: 32px; margin-top: 8px; overflow: visible; }
+.cx-route-line-track { fill: none; stroke: #dce8f2; stroke-width: 2; }
+.cx-route-line-draw { fill: none; stroke: #2f70a8; stroke-linecap: round; stroke-width: 2; stroke-dasharray: 1; stroke-dashoffset: 1; animation: cx-route-draw 440ms cubic-bezier(.22, .7, .2, 1) 120ms both; }
+.cx-route-node { opacity: 0; animation: cx-route-node-in 120ms ease-out 520ms both; }
+.cx-route-node-start { fill: #2f70a8; }
+.cx-route-node-middle { fill: #8eafca; animation-delay: 620ms; }
+.cx-route-node-end { fill: #eaf2fb; stroke: #003b73; stroke-width: 2; animation-delay: 740ms; }
+.cx-route-node-end-core { fill: #d6a514; opacity: 0; animation: cx-route-node-in 120ms ease-out 760ms both; }
+.cx-route-pulse { fill: #d6a514; opacity: 0; }
+.cx-route-metric { opacity: 0; transform: translateY(4px); animation: cx-route-metric-in 150ms cubic-bezier(.2, .7, .2, 1) both; }
+.cx-route-metric-travel { animation-delay: 480ms; }
+.cx-route-metric-queue { animation-delay: 610ms; }
+.cx-route-metric-total { animation-delay: 760ms; }
+@keyframes cx-route-symbol-in { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes cx-route-draw { to { stroke-dashoffset: 0; } }
+@keyframes cx-route-node-in { to { opacity: 1; } }
+@keyframes cx-route-metric-in { to { opacity: 1; transform: translateY(0); } }
+.cx-route-actions { min-width: 0; }
+.cx-route-actions button { min-width: 0; line-height: 1.25; -webkit-appearance: none; appearance: none; }
+.cx-route-actions > button { flex: 0 1 auto; }
+.cx-route-actions > div { flex: 0 1 auto; }
+.cx-route-actions > div > button { white-space: nowrap; }
 
-.cx-postal-hero-route { fill: none; stroke: #7aaed7; stroke-linecap: round; stroke-width: 3; stroke-dasharray: 2 14; opacity: .54; }
-.cx-postal-hero-envelope { transform-box: fill-box; transform-origin: center; animation: cx-postal-hero-envelope 6.5s ease-in-out infinite; }
-.cx-postal-hero-parcel { transform-box: fill-box; transform-origin: center bottom; animation: cx-postal-hero-parcel 8s ease-in-out 1.2s infinite; }
-.cx-postal-hero-pin { transform-box: fill-box; transform-origin: center bottom; animation: cx-postal-hero-pin 7.2s ease-in-out .6s infinite; }
-.cx-postal-hero-building-glint { animation: cx-postal-hero-glint 9s ease-in-out infinite; }
-.cx-postal-hero-orb { opacity: .64; }
-
-@keyframes cx-postal-hero-envelope { 50% { transform: translateY(-7px) rotate(2deg); } }
-@keyframes cx-postal-hero-parcel { 50% { transform: translateY(-4px) rotate(-1.5deg); } }
-@keyframes cx-postal-hero-pin { 50% { transform: translateY(-6px); } }
-@keyframes cx-postal-hero-glint { 50% { opacity: .16; } }
-
-@media (max-width: 640px) {
-  .cx-postal-hero-background { opacity: .46; transform: translateX(76px); }
-  .cx-postal-hero-parcel,
-  .cx-postal-hero-pin,
-  .cx-postal-hero-route { display: none; }
+@media (max-width: 639px) {
+  .cx-route-actions > button { flex-basis: 100%; }
+  .cx-route-actions > div { flex-basis: 100%; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .cx-postal-hero-envelope,
-  .cx-postal-hero-parcel,
-  .cx-postal-hero-pin,
-  .cx-postal-hero-building-glint { animation: none; }
+  .cx-route-symbol, .cx-route-line-draw, .cx-route-node, .cx-route-node-end-core, .cx-route-metric { animation: none; opacity: 1; transform: none; }
+  .cx-route-line-draw { stroke-dashoffset: 0; }
+  .cx-route-pulse { display: none; }
 }
 
 /* === ТАЛОН === */

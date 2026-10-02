@@ -374,22 +374,28 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
   return (
     <>
       <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:bg-[#FFE600] focus:text-black focus:px-4 focus:py-2">К содержимому</a>
-      <header className="main-product-header relative sticky top-0 z-40 bg-[#082E5A] text-white shadow-[0_2px_12px_rgba(4,29,59,0.16)]">
-        <div className="product-header-row mx-auto flex max-w-7xl items-center justify-between gap-2 px-3 py-2 md:gap-4 md:px-5 md:py-2.5">
+      <header className="main-product-header relative sticky top-0 z-40">
+        <div className="product-header-row mx-auto flex max-w-7xl items-center justify-between gap-2 px-4 py-2 md:px-6 md:py-2.5">
           <a href="/" className="group flex min-w-0 shrink-0 items-center gap-2.5 select-none md:gap-3" aria-label="Почта России — на главную">
             <PochtaEmblem className="h-8 w-8 shrink-0 md:h-9 md:w-9" bg="#082E5A" fg="#FFFFFF" />
             <span className="hidden min-w-0 flex-col sm:flex">
-              <PochtaWordmark className="h-4 w-auto md:h-5" color="#FFFFFF" />
-              <span className="mt-0.5 text-[10px] leading-none tracking-[0.08em] text-blue-100/70">Электронная очередь</span>
+              <PochtaWordmark className="h-4 w-auto md:h-5" color="#003B73" />
+              <span className="mt-0.5 text-[10px] leading-none tracking-[0.08em] text-slate-500">Электронная очередь</span>
             </span>
           </a>
 
-          <div className="product-header-tools flex shrink-0 items-center gap-1 text-xs md:gap-2">
-            <div className="hidden items-center gap-1 rounded-xl border border-white/15 bg-white/[0.035] p-0.5 md:flex">
+          <div className="product-header-tools flex shrink-0 items-center gap-2 text-xs">
+            <div className="header-utility-group hidden items-center gap-0.5 md:flex">
               <button type="button" onClick={() => toggleSound()} aria-pressed={soundEnabled}
                 aria-label="Звуковое оповещение" title={soundEnabled ? 'Выключить звук' : 'Включить звук'}
                 className="flex h-11 w-11 items-center justify-center rounded-lg border-0 bg-transparent p-0 text-blue-100/80 hover:bg-white/10 hover:text-white">
                 {soundEnabled ? <VolumeIcon className="h-5 w-5" /> : <VolumeCrossIcon className="h-5 w-5" />}
+              </button>
+              <button ref={a11yButtonRef} type="button" onClick={() => setA11yOpen(value => !value)}
+                aria-pressed={accessibilityActive} aria-expanded={a11yOpen} aria-controls="a11y-settings"
+                aria-label="Настройки доступности" title="Настройки доступности"
+                className={`flex h-11 w-11 items-center justify-center rounded-lg border-0 bg-transparent p-0 hover:bg-white/10 ${accessibilityActive ? 'text-emerald-300' : 'text-blue-100/80 hover:text-white'}`}>
+                <AccessibilityIcon className="h-5 w-5" />
               </button>
             </div>
 
@@ -403,18 +409,9 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
               <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${geoStatus === 'granted' ? 'bg-emerald-300' : 'bg-white/45'}`} />
             </button>
 
-            <div className="hidden items-center gap-1 rounded-xl border border-white/15 bg-white/[0.035] p-0.5 md:flex">
-              <button ref={a11yButtonRef} type="button" onClick={() => setA11yOpen(value => !value)}
-                aria-pressed={accessibilityActive} aria-expanded={a11yOpen} aria-controls="a11y-settings"
-                aria-label="Настройки доступности" title="Настройки доступности"
-                className={`flex h-11 w-11 items-center justify-center rounded-lg border-0 bg-transparent p-0 hover:bg-white/10 ${accessibilityActive ? 'text-emerald-300' : 'text-blue-100/80 hover:text-white'}`}>
-                <AccessibilityIcon className="h-5 w-5" />
-              </button>
-            </div>
-
             {/* Часы: точное московское время (Europe/Moscow) */}
             <div
-              className="hidden h-11 items-center gap-2.5 rounded-xl border border-white/15 bg-white/[0.045] px-3 select-none cursor-default md:flex"
+              className="header-time hidden h-11 items-center gap-2 px-2.5 select-none cursor-default md:flex"
               title="Московское время (Europe/Moscow)"
               aria-label={`Московское время: ${timeStr || 'МСК'}`}
               role="status"
@@ -425,16 +422,16 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
                 className="h-5 w-5 text-blue-200 shrink-0"
                 size={20}
               />
-              <div className="h-4 w-px bg-white/20" aria-hidden="true" />
-              <span className="font-mono text-xs font-bold tracking-wider text-white tabular-nums">
+              <div className="h-4 w-px bg-slate-200" aria-hidden="true" />
+              <span className="text-xs font-semibold tracking-wide text-slate-800 tabular-nums">
                 {timeStr || '--:--'}
               </span>
-              <div className="flex items-center gap-1.5 rounded-md bg-white/10 px-1.5 py-0.5 border border-white/10">
+              <div className="flex items-center gap-1 rounded-md bg-slate-100 px-1.5 py-0.5">
                 <span className="relative flex h-1.5 w-1.5">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-400"></span>
                 </span>
-                <span className="text-[10px] font-mono font-semibold text-blue-200/90">МСК</span>
+                <span className="text-[10px] font-semibold text-slate-500">МСК</span>
               </div>
             </div>
 
@@ -443,23 +440,28 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
                 <button ref={accountButtonRef} type="button" onClick={() => setAccountMenuOpen(value => !value)}
                   aria-expanded={accountMenuOpen} aria-controls="account-menu" aria-haspopup="menu"
                   aria-label={`Учётная запись: ${currentUser.email.split('@')[0]}`}
-                  className="flex h-11 max-w-[200px] items-center gap-2 rounded-xl border border-white/15 bg-white/[0.045] px-2.5 text-left text-white hover:bg-white/10 xl:max-w-[240px]">
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/10"><UserCircleIcon className="h-5 w-5" /></span>
+                  className="header-account-trigger flex h-11 max-w-[200px] items-center gap-2 rounded-xl px-2.5 text-left xl:max-w-[240px]">
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-50 text-[#003B73]"><UserCircleIcon className="h-5 w-5" /></span>
                   <span className="min-w-0 truncate text-xs font-semibold">{currentUser.fio || currentUser.email.split('@')[0]}</span>
-                  <AltArrowDownIcon className="h-4 w-4 shrink-0 text-blue-100/70" />
+                  <AltArrowDownIcon className="h-4 w-4 shrink-0 text-slate-500" />
                 </button>
                 {accountMenuOpen && <div ref={accountMenuRef} id="account-menu" role="menu" aria-label="Учётная запись"
-                  className="absolute right-0 top-[calc(100%+6px)] z-50 w-56 rounded-xl border border-white/15 bg-[#082E5A] p-1.5 text-white shadow-xl">
-                  <div className="truncate px-3 py-2 text-xs text-blue-100/65" title={currentUser.email}>
-                    {currentUser.fio && <span className="block font-bold text-white truncate">{currentUser.fio}</span>}
-                    <div className="flex items-center justify-between gap-1.5 mt-0.5">
-                      <span className="truncate">{currentUser.email}</span>
-                      <span className="px-2 py-0.5 rounded-full bg-white text-[#003B73] text-[9px] font-extrabold uppercase shadow-sm tracking-wider whitespace-nowrap shrink-0">{roleLabel}</span>
+                  className="account-popover absolute right-0 top-[calc(100%+8px)] z-50 w-64 rounded-xl border border-slate-200 bg-white p-2 text-slate-900 shadow-[0_12px_28px_rgb(13_37_61_/_14%)]">
+                  <div className="min-w-0 px-2.5 py-2.5" title={currentUser.email}>
+                    <div className="flex items-start gap-2.5">
+                      <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-50 text-[#003B73]"><UserCircleIcon className="h-5 w-5" /></span>
+                      <div className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-semibold text-slate-900">{currentUser.fio || currentUser.email.split('@')[0]}</span>
+                        <span className="mt-0.5 block truncate text-xs text-slate-500">{currentUser.email}</span>
+                      </div>
                     </div>
+                    <span className="mt-2 inline-flex rounded-md bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-600">{roleLabel}</span>
                   </div>
-                  <button role="menuitem" type="button" onClick={() => { setAccountMenuOpen(false); setIsProfileOpen(true); }} className="flex min-h-11 w-full items-center rounded-lg border-0 bg-transparent px-3 text-left text-xs text-white hover:bg-white/10">Профиль</button>
-                  <button role="menuitem" type="button" onClick={() => { setAccountMenuOpen(false); setA11yOpen(true); }} className="flex min-h-11 w-full items-center rounded-lg border-0 bg-transparent px-3 text-left text-xs text-white hover:bg-white/10">Настройки</button>
-                  <button role="menuitem" type="button" onClick={handleLogout} className="flex min-h-11 w-full items-center rounded-lg border-0 bg-transparent px-3 text-left text-xs text-white hover:bg-white/10">Выйти</button>
+                  <div className="my-1 border-t border-slate-100" />
+                  <button role="menuitem" type="button" onClick={() => { setAccountMenuOpen(false); setIsProfileOpen(true); }} className="account-menu-row">Профиль</button>
+                  <button role="menuitem" type="button" onClick={() => { setAccountMenuOpen(false); setA11yOpen(true); }} className="account-menu-row">Настройки</button>
+                  <div className="my-1 border-t border-slate-100" />
+                  <button role="menuitem" type="button" onClick={handleLogout} className="account-menu-row account-menu-row-danger">Выйти</button>
                 </div>}
               </div>
             ) : !isStaffArea ? (
@@ -744,7 +746,7 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
         )}
 
         {/* Thin Postal Red Line */}
-        <div className="h-[2px] w-full bg-[#D92534]"></div>
+        <div className="h-px w-full bg-[#D92534]/45"></div>
       </header>
 
       <ClientAuthModal

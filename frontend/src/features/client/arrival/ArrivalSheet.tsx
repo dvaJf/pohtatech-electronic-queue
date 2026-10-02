@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Package,
   Mail,
@@ -19,6 +19,7 @@ import {
 import { GeofenceSimulationMode } from './useGeofencing';
 import { BranchLocation } from '../map/branchLocations';
 import { Service } from '../../../api/client/types';
+import { useModalFocus } from '../../../hooks/useModalFocus';
 
 export interface ServiceChipConfig {
   id: string;
@@ -99,6 +100,7 @@ export function ArrivalSheet({
   const [selectedServiceId, setSelectedServiceId] = useState<string>('');
   const [showDebugMenu, setShowDebugMenu] = useState<boolean>(false);
   const [imgError, setImgError] = useState<boolean>(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   // Fallback branch if not provided or in simulation
   const branchCode = activeBranch?.code || '101000';
@@ -111,6 +113,7 @@ export function ArrivalSheet({
   const yandexSearchUrl = `https://yandex.ru/maps/?text=${encodeURIComponent(`${branchName}, ${activeBranch?.address || branchAddress}`)}`;
 
   useEffect(() => { setImgError(false); }, [activeBranch?.id, branchPhoto]);
+  useModalFocus(isOpen, dialogRef, onClose);
 
   const isInside = distanceToNearestMeters !== null && distanceToNearestMeters <= 75;
   const isVeryClose = distanceToNearestMeters !== null && distanceToNearestMeters <= 15;
@@ -125,12 +128,7 @@ export function ArrivalSheet({
   if (!isOpen) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex flex-col justify-end sm:items-center sm:justify-center p-0 sm:p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="arrival-sheet-title"
-    >
+    <div className="fixed inset-0 z-50 flex flex-col justify-end p-0 sm:items-center sm:justify-center sm:p-4">
       {/* Backdrop */}
       <div
         className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs transition-opacity animate-in fade-in duration-200"
@@ -139,7 +137,7 @@ export function ArrivalSheet({
       />
 
       {/* Bottom Sheet Card */}
-      <div className="relative w-full max-w-lg bg-white rounded-t-[32px] sm:rounded-3xl border border-slate-200 shadow-2xl overflow-hidden z-10 animate-in slide-in-from-bottom duration-300 ease-out font-['Manrope',sans-serif]">
+      <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="arrival-sheet-title" className="relative z-10 flex max-h-[calc(100dvh-env(safe-area-inset-top)-8px)] w-full max-w-lg flex-col overflow-hidden rounded-t-[24px] border border-slate-200 bg-white shadow-2xl animate-in slide-in-from-bottom duration-300 ease-out sm:max-h-[calc(100dvh-2rem)] sm:rounded-2xl">
         <div className="absolute top-14 right-4 z-20">
           <button type="button" onClick={() => setShowDebugMenu(value => !value)} aria-expanded={showDebugMenu}
             className="rounded-full border border-white/30 bg-slate-900/65 px-3 py-1.5 text-[11px] font-bold text-white backdrop-blur-md">
@@ -158,7 +156,7 @@ export function ArrivalSheet({
           </div>}
         </div>
         {/* Top Photo Header Banner (Яндекс.Заправки стиль) */}
-        <div className="relative h-44 sm:h-52 w-full bg-slate-900 overflow-hidden">
+        <div className="relative h-36 w-full shrink-0 overflow-hidden bg-slate-900 sm:h-52">
           {!imgError ? (
             <img
               src={branchPhoto}
@@ -184,15 +182,15 @@ export function ArrivalSheet({
           </div>
 
           {/* Floating Header: Title + Close Button */}
-          <div className="absolute top-4 inset-x-4 flex items-center justify-between z-20">
-            <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-900/65 backdrop-blur-md border border-white/20 text-white text-xs font-extrabold shadow-lg">
-              <span>Почта России · {branchName}</span>
+          <div className="absolute top-4 inset-x-4 flex items-start justify-between gap-2 z-20">
+            <div className="min-w-0 rounded-lg border border-white/20 bg-slate-900/65 px-3 py-1.5 text-xs font-bold text-white shadow-lg backdrop-blur-md">
+              <span className="line-clamp-2">Почта России · {branchName}</span>
             </div>
 
             <button
               type="button"
               onClick={onClose}
-              className="w-8 h-8 rounded-full bg-slate-900/65 hover:bg-slate-900/85 text-white flex items-center justify-center backdrop-blur-md border border-white/20 transition-all active:scale-95 shadow-lg cursor-pointer"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/20 bg-slate-900/65 text-white shadow-lg backdrop-blur-md transition-colors hover:bg-slate-900/85"
               aria-label="Закрыть"
             >
               <X size={16} aria-hidden />
@@ -200,16 +198,16 @@ export function ArrivalSheet({
           </div>
 
           {/* Bottom address chip overlay */}
-          <div className="absolute bottom-3 left-4 z-20">
-            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-900/70 backdrop-blur-md text-white/95 text-[11px] font-semibold border border-white/10">
+          <div className="absolute bottom-3 left-4 right-4 z-20">
+            <div className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-white/10 bg-slate-900/70 px-2.5 py-1 text-xs font-semibold text-white/95 backdrop-blur-md">
               <MapPin size={11} className="text-blue-300" />
-              <span>{branchAddress}</span>
+              <span className="truncate">{branchAddress}</span>
             </div>
           </div>
         </div>
 
         {/* Content body */}
-        <div className="p-5 sm:p-6 space-y-4 text-left">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] text-left sm:p-6">
           {/* Status Badges: «Похоже вы на месте» и «08:00–22:00» */}
           <div className="flex items-center justify-between gap-3">
             {isInside ? (

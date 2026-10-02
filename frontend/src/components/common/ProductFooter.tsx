@@ -47,18 +47,18 @@ export function ProductFooter({ currentPath = '/', onNavigate }: ProductFooterPr
           </nav>
 
           {/* Phone & Team */}
-          <div className="flex items-center gap-3.5 text-xs text-slate-300 shrink-0">
+          <div className="flex flex-wrap items-center justify-center gap-x-3.5 gap-y-1 text-xs text-slate-300 sm:flex-nowrap sm:justify-end">
             <div className="flex items-center gap-1.5">
               <Phone className="w-3.5 h-3.5 text-blue-400 shrink-0" />
               <a
                 href="tel:8000000000"
-                className="font-bold text-white hover:text-blue-300 transition-colors"
+                className="whitespace-nowrap font-bold text-white hover:text-blue-300 transition-colors"
               >
                 8 000 000 000
               </a>
             </div>
-            <span className="text-slate-500">•</span>
-            <span className="text-slate-300 font-medium">
+            <span aria-hidden="true" className="hidden text-slate-500 sm:inline">•</span>
+            <span className="whitespace-nowrap text-slate-300 font-medium">
               Команда 5 указателей
             </span>
           </div>

@@ -1308,6 +1308,11 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
     setIsMapModalOpen(true);
   };
 
+  useEffect(() => {
+    document.documentElement.classList.toggle('map-dialog-open', isMapModalOpen);
+    return () => document.documentElement.classList.remove('map-dialog-open');
+  }, [isMapModalOpen]);
+
   const handleSelectBranchFromMap = (b: Branch, action?: 'walkin' | 'booking') => {
     handleBranchSelect(b.id);
     setIsMapModalOpen(false);
@@ -2197,7 +2202,10 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
             requestGpsPermission={requestGpsPermission}
             confirmedServicesByBranch={confirmedServicesByBranch}
             onNeedServices={branch => { void loadConfirmedServices(branch).catch(() => {}); }}
-            onTakeTicket={handleRepeatTicket}
+            onChooseBranch={branchId => {
+              const branch = branches.find(item => item.id === branchId);
+              if (branch) handleSelectBranchFromMap(branch, 'walkin');
+            }}
             onOpenRoute={(branch, saved) => { setRouteOfferBranch(branch as RankedBranch); setRouteOfferTimeSaved(saved); }}
             onOpenMap={() => handleOpenMap()}
             onBook={branch => { handleBranchSelect(branch); setScreen('booking'); setBookingStep(1); }}
@@ -2357,51 +2365,48 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
         )}
         </>}
 
-        {/* 4 Action Cards - Mobile-First Layout & Prominent Hierarchy */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        {/* Supporting entry points stay quiet when a route recommendation is available. */}
+        <section aria-label="Другие действия" className="grid grid-cols-2 gap-3 border-t border-slate-200 pt-4 sm:grid-cols-4 sm:gap-4">
           {/* 1. Взять талон (Главный сценарий) */}
           <button
             type="button"
             onClick={() => { resetWalkin(); setScreen('walkin'); }}
-            className="col-span-2 sm:col-span-1 p-4 sm:p-5 min-h-[76px] sm:min-h-[175px] rounded-2xl bg-gradient-to-br from-[#003B73] via-[#00478F] to-[#054FA6] text-white shadow-sm hover:shadow-md active:scale-[0.98] transition-all text-left group flex flex-row sm:flex-col items-center sm:items-start justify-between cursor-pointer"
+            className="col-span-2 flex min-h-[72px] items-center justify-between rounded-xl border border-slate-200 bg-white p-4 text-left transition-colors hover:border-slate-300 hover:bg-slate-50 sm:col-span-1 sm:min-h-[132px] sm:p-4"
           >
             <div className="flex items-center sm:block min-w-0 flex-1">
               <div className="relative w-10 h-10 sm:w-11 sm:h-11 flex items-center justify-center mr-3 sm:mr-0 sm:mb-3 group-hover:scale-105 transition-transform shrink-0">
-                <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-white/20 absolute" />
-                <TicketIcon size={20} className="relative z-10 text-white" />
+                <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-lg bg-blue-100 absolute" />
+                <TicketIcon size={20} className="relative z-10 text-[#003B73]" />
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 mb-0.5 sm:mb-1 flex-wrap">
-                  <h3 className="text-base sm:text-lg font-black text-white group-hover:text-blue-100 transition-colors">
-                    Взять талон
+                  <h3 className="text-base font-bold text-slate-950">
+                    Получить талон
                   </h3>
-                  <span className="text-[9px] sm:text-[10px] font-mono font-bold bg-[#FFE600] text-black px-1.5 py-0.5 rounded-full uppercase tracking-wider shadow-2xs">
-                    Сейчас
-                  </span>
                 </div>
-                <p className="text-xs text-blue-100 leading-relaxed">
-                  Получите электронный номерок прямо сейчас
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Выберите отделение и услугу
                 </p>
               </div>
             </div>
-            <ChevronRight className="w-5 h-5 text-white/70 group-hover:text-white shrink-0 sm:hidden transition-transform group-hover:translate-x-0.5 ml-2" />
+            <ChevronRight className="w-5 h-5 text-slate-400 shrink-0 sm:hidden transition-transform group-hover:translate-x-0.5 ml-2" />
           </button>
 
           {/* 2. Записаться онлайн (Secondary 1) */}
           <button
             type="button"
             onClick={() => { resetBooking(); setScreen('booking'); }}
-            className="col-span-1 p-3.5 sm:p-5 min-h-[105px] sm:min-h-[175px] rounded-2xl bg-slate-50/80 hover:bg-white hover:shadow-sm active:scale-[0.98] transition-all text-left group flex flex-col justify-between cursor-pointer"
+            className="col-span-1 min-h-[112px] rounded-xl border border-slate-200 bg-white p-3.5 text-left transition-colors hover:border-slate-300 hover:bg-slate-50 sm:min-h-[132px] sm:p-4"
           >
             <div className="relative w-9 h-9 sm:w-10 sm:h-10 flex items-center justify-center sm:mb-3 group-hover:scale-105 transition-transform shrink-0">
               <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-blue-100/70 absolute" />
               <CalendarClock size={19} className="relative z-10 text-[#003B73]" />
             </div>
             <div className="min-w-0">
-              <h3 className="text-xs sm:text-base font-black text-slate-900 group-hover:text-[#003B73] transition-colors mb-0.5 leading-snug">
+              <h3 className="text-xs sm:text-base font-semibold text-slate-900 group-hover:text-[#003B73] transition-colors mb-0.5 leading-snug">
                 Записаться онлайн
               </h3>
-              <p className="text-[11px] sm:text-xs text-slate-500 leading-snug">
+              <p className="text-xs text-slate-500 leading-snug">
                 К точному времени визита
               </p>
             </div>
@@ -2411,17 +2416,17 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
           <button
             type="button"
             onClick={() => handleOpenMap()}
-            className="col-span-1 p-3.5 sm:p-5 min-h-[105px] sm:min-h-[175px] rounded-2xl bg-slate-50/80 hover:bg-white hover:shadow-sm active:scale-[0.98] transition-all text-left group flex flex-col justify-between cursor-pointer"
+            className="col-span-1 min-h-[112px] rounded-xl border border-slate-200 bg-white p-3.5 text-left transition-colors hover:border-slate-300 hover:bg-slate-50 sm:min-h-[132px] sm:p-4"
           >
             <div className="relative w-9 h-9 sm:w-10 sm:h-10 flex items-center justify-center sm:mb-3 group-hover:scale-105 transition-transform shrink-0">
               <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-blue-100/70 absolute" />
               <MapPin size={19} className="relative z-10 text-[#003B73]" />
             </div>
             <div className="min-w-0">
-              <h3 className="text-xs sm:text-base font-black text-slate-900 group-hover:text-[#003B73] transition-colors mb-0.5 leading-snug">
+              <h3 className="text-xs sm:text-base font-semibold text-slate-900 group-hover:text-[#003B73] transition-colors mb-0.5 leading-snug">
                 Карта отделений
               </h3>
-              <p className="text-[11px] sm:text-xs text-slate-500 leading-snug">
+              <p className="text-xs text-slate-500 leading-snug">
                 26 отделений и маршруты
               </p>
             </div>
@@ -2431,7 +2436,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
           <button
             type="button"
             onClick={() => setScreen('my')}
-            className="col-span-2 sm:col-span-1 p-3.5 sm:p-5 min-h-[56px] sm:min-h-[175px] rounded-2xl bg-slate-50/80 hover:bg-white hover:shadow-sm active:scale-[0.98] transition-all text-left group flex flex-row sm:flex-col items-center sm:items-start justify-between relative cursor-pointer"
+            className="col-span-2 flex min-h-[64px] items-center justify-between rounded-xl border border-slate-200 bg-white p-3.5 text-left transition-colors hover:border-slate-300 hover:bg-slate-50 sm:col-span-1 sm:min-h-[132px] sm:p-4"
           >
             <div className="flex items-center sm:block min-w-0 flex-1">
               <div className="relative w-9 h-9 sm:w-10 sm:h-10 flex items-center justify-center mr-2.5 sm:mr-0 sm:mb-3 group-hover:scale-105 transition-transform shrink-0">
@@ -2440,7 +2445,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
-                  <h3 className="text-xs sm:text-base font-black text-slate-900 group-hover:text-emerald-700 transition-colors">
+                  <h3 className="text-xs sm:text-base font-semibold text-slate-900 group-hover:text-emerald-700 transition-colors">
                     Мои талоны
                   </h3>
                 </div>
@@ -2456,7 +2461,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
             )}
             <ChevronRight className="w-5 h-5 text-slate-400 group-hover:text-slate-600 shrink-0 sm:hidden transition-transform group-hover:translate-x-0.5 ml-2" />
           </button>
-        </div>
+        </section>
       </div>
     );
   };
@@ -3106,7 +3111,8 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
         />
       )}
 
-      {!kiosk && nearbyBranch && canShowNearbyBranchCard(ticketsLoading, hasActiveTicketForBranch) && (
+      {/* Smart Route already carries the nearby recommendation on Home; do not compete with a duplicate floating CTA. */}
+      {!kiosk && screen !== 'home' && !isMapModalOpen && nearbyBranch && canShowNearbyBranchCard(ticketsLoading, hasActiveTicketForBranch) && (
         <NearbyBranchCard
           branch={nearbyBranch}
           distanceMeters={nearbyDistanceMeters}

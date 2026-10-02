@@ -1,0 +1,2265 @@
+apiVersion: v1
+data:
+  openapi.yaml: |
+    openapi: 3.0.3
+    info:
+      title: E-SUO Queue Engine API
+      version: 1.0.0
+      description: Backward-compatible Queue System API (Sprints 1–4). Business dates use Europe/Moscow. Physical QR entry is the SPA route /q/{branchId}; it never creates a ticket automatically.
+    servers:
+      - url: /api/v1
+    paths:
+      /auth/confirm-code:
+        post: { summary: Confirm email by code, responses: { '200': { description: Confirmed } } }
+      /auth/resend-code:
+        post: { summary: Resend email confirmation code, responses: { '200': { description: Code resent } } }
+      /auth/profile/phone/send-code:
+        post: { summary: Send phone verification code, responses: { '200': { description: Code sent } } }
+      /auth/profile/phone/verify-code:
+        post: { summary: Verify phone code, responses: { '200': { description: Phone verified } } }
+      /auth/oauth/{provider}/login:
+        get:
+          summary: Start OAuth login
+          parameters: [{ name: provider, in: path, required: true, schema: { type: string } }]
+          responses: { '302': { description: Redirect } }
+      /auth/oauth/{provider}/callback:
+        get:
+          summary: OAuth callback
+          parameters: [{ name: provider, in: path, required: true, schema: { type: string } }]
+          responses: { '302': { description: Redirect } }
+      /notification-capabilities:
+        get:
+          summary: Available notification provider modes
+          responses: { '200': { description: Provider capabilities } }
+      /tickets/{ticketId}/notifications:
+        get:
+          summary: List masked notification subscriptions for a ticket
+          parameters:
+            - { name: ticketId, in: path, required: true, schema: { type: string, format: uuid } }
+            - { name: X-Ticket-Manage-Token, in: header, required: true, schema: { type: string } }
+          responses: { '200': { description: Subscriptions }, '403': { $ref: '#/components/responses/Forbidden' } }
+      /tickets/{ticketId}/notifications/telegram/link:
+        post:
+          summary: Create one-time Telegram deep link
+          parameters:
+            - { name: ticketId, in: path, required: true, schema: { type: string, format: uuid } }
+            - { name: X-Ticket-Manage-Token, in: header, required: true, schema: { type: string } }
+          responses: { '201': { description: Deep link created }, '403': { $ref: '#/components/responses/Forbidden' } }
+      /tickets/{ticketId}/notifications/{channel}:
+        put:
+          summary: Enable SMS, email, or Web Push delivery for a ticket
+          parameters:
+            - { name: ticketId, in: path, required: true, schema: { type: string, format: uuid } }
+            - { name: channel, in: path, required: true, schema: { type: string, enum: [SMS, EMAIL, WEB_PUSH] } }
+            - { name: X-Ticket-Manage-Token, in: header, required: true, schema: { type: string } }
+          responses: { '200': { description: Subscription saved }, '403': { $ref: '#/components/responses/Forbidden' } }
+      /tickets/{ticketId}/notifications/{channel}/{subscriptionId}:
+        delete:
+          summary: Disable a ticket notification subscription
+          parameters:
+            - { name: ticketId, in: path, required: true, schema: { type: string, format: uuid } }
+            - { name: channel, in: path, required: true, schema: { type: string, enum: [TELEGRAM, SMS, EMAIL, WEB_PUSH] } }
+            - { name: subscriptionId, in: path, required: true, schema: { type: string, format: uuid } }
+            - { name: X-Ticket-Manage-Token, in: header, required: true, schema: { type: string } }
+          responses: { '204': { description: Subscription disabled }, '403': { $ref: '#/components/responses/Forbidden' } }
+      /integrations/telegram/webhook:
+        post:
+          summary: Telegram integration webhook; validates X-Telegram-Bot-Api-Secret-Token
+          responses: { '200': { description: Update accepted }, '401': { description: Invalid webhook secret } }
+      /branches/{branchId}/windows:
+        $ref: '#/paths/~1admin~1branches~1{branchId}~1windows'
+      /windows/{windowId}:
+        $ref: '#/paths/~1admin~1windows~1{windowId}'
+      /admin/branches/{branchId}/windows:
+        post:
+          summary: Создать закрытое окно отделения
+          security: [{ sessionCookie: [] }]
+          parameters:
+            - { name: branchId, in: path, required: true, schema: { type: string, format: uuid } }
+          responses:
+            '201':
+              description: Окно создано
+              content:
+                application/json:
+                  schema: { $ref: '#/components/schemas/Window' }
+            '401': { $ref: '#/components/responses/Unauthorized' }
+            '403': { $ref: '#/components/responses/Forbidden' }
+            '404': { $ref: '#/components/responses/NotFound' }
+            '500': { $ref: '#/components/responses/InternalError' }
+      /admin/windows/{windowId}:
+        delete:
+          summary: Удалить окно без активного талона
+          security: [{ sessionCookie: [] }]
+          parameters:
+            - { name: windowId, in: path, required: true, schema: { type: string, format: uuid } }
+          responses:
+            '204': { description: Окно удалено }
+            '401': { $ref: '#/components/responses/Unauthorized' }
+            '403': { $ref: '#/components/responses/Forbidden' }
+            '404': { $ref: '#/components/responses/NotFound' }
+            '409':
+              description: WINDOW_BUSY — в окне есть активный талон
+              content:
+                application/json:
+                  schema: { $ref: '#/components/schemas/ErrorResponse' }
+            '500': { $ref: '#/components/responses/InternalError' }
+      /admin/branches/{branchId}/queue:
+        get:
+          summary: Получить первые 25 ожидающих талонов и общее количество
+          description: Только WAITING, порядок queue_entered_at, id; это список интерфейса, не порядок CallNext.
+          security: [{ sessionCookie: [] }]
+          parameters:
+            - { name: branchId, in: path, required: true, schema: { type: string, format: uuid } }
+          responses:
+            '200':
+              description: Очередь отделения
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    required: [items, total]
+                    properties:
+                      total: { type: integer }
+                      items:
+                        type: array
+                        maxItems: 25
+                        items:
+                          type: object
+                          required: [id, publicNumber, source, serviceId, serviceName, queueEnteredAt, waitTimeMinutes, status]
+                          properties:
+                            id: { type: string, format: uuid }
+                            publicNumber: { type: string }
+                            source: { type: string, enum: [QR, LIVE, APPOINTMENT] }
+                            serviceId: { type: string, format: uuid }
+                            serviceName: { type: string }
+                            queueEnteredAt: { type: string, format: date-time }
+                            waitTimeMinutes: { type: integer }
+                            status: { type: string, enum: [WAITING] }
+            '401': { $ref: '#/components/responses/Unauthorized' }
+            '403': { $ref: '#/components/responses/Forbidden' }
+            '404': { $ref: '#/components/responses/NotFound' }
+            '500': { $ref: '#/components/responses/InternalError' }
+      /branches/{branchId}/tv:
+        get:
+          summary: Public hall view from backend overview
+          parameters:
+            - name: branchId
+              in: path
+              required: true
+              schema: { type: string, format: uuid }
+          responses:
+            '200':
+              description: Незакрытые окна и до 15 ожидающих талонов
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    required: [windows, queue]
+                    properties:
+                      windows:
+                        type: array
+                        items:
+                          type: object
+                          required: [number, currentTicketNumber, status]
+                          properties:
+                            number: { type: integer }
+                            currentTicketNumber: { type: string, nullable: true }
+                            status: { type: string, enum: [OPEN, CLOSING] }
+                      queue:
+                        type: array
+                        items:
+                          type: object
+                          required: [publicNumber]
+                          properties:
+                            publicNumber: { type: string }
+            '404': { $ref: '#/components/responses/NotFound' }
+            '500': { $ref: '#/components/responses/InternalError' }
+      /terminal/branches/{branchId}/services:
+        get:
+          summary: Services for authenticated terminal-capable user
+          security: [{ sessionCookie: [] }]
+          parameters:
+            - name: branchId
+              in: path
+              required: true
+              schema: { type: string, format: uuid }
+          responses:
+            '200':
+              description: Services
+              content:
+                application/json:
+                  schema: { $ref: '#/components/schemas/ServiceListResponse' }
+            '401': { $ref: '#/components/responses/Unauthorized' }
+            '403': { $ref: '#/components/responses/Forbidden' }
+            '404': { $ref: '#/components/responses/NotFound' }
+            '500': { $ref: '#/components/responses/InternalError' }
+      /terminal/branches/{branchId}/tickets/live:
+        post:
+          summary: Issue LIVE ticket for authenticated terminal-capable user
+          security: [{ sessionCookie: [] }]
+          parameters:
+            - name: branchId
+              in: path
+              required: true
+              schema: { type: string, format: uuid }
+            - name: Idempotency-Key
+              in: header
+              required: true
+              schema: { type: string }
+          requestBody:
+            required: true
+            content:
+              application/json:
+                schema: { $ref: '#/components/schemas/CreateLiveTicketRequest' }
+          responses:
+            '201':
+              description: Created
+              content:
+                application/json:
+                  schema: { $ref: '#/components/schemas/Ticket' }
+            '200':
+              description: Idempotent replay
+              content:
+                application/json:
+                  schema: { $ref: '#/components/schemas/Ticket' }
+            '400': { $ref: '#/components/responses/BadRequest' }
+            '401': { $ref: '#/components/responses/Unauthorized' }
+            '403': { $ref: '#/components/responses/Forbidden' }
+            '404': { $ref: '#/components/responses/NotFound' }
+            '409': { $ref: '#/components/responses/IdempotencyConflict' }
+            '500': { $ref: '#/components/responses/InternalError' }
+      /tickets/{ticketId}/eta:
+        get:
+          summary: Approximate backend waiting estimate using canonical QueuePosition
+          description: >-
+            Используются до 20 последних положительных длительностей COMPLETED той же услуги
+            в отделении. Взвешенное среднее имеет веса N..1 от нового к старому; при менее
+            трёх измерениях используется 300 секунд. Моделируются position−1 обслуживаний
+            длительностью max(30,floor(duration)) на открытых совместимых окнах с ближайшим
+            освобождением. Для занятого окна остаток max(30,duration−elapsed), для свободного 0.
+            Итоговая оценка ограничена 60–1800 секундами. При reason != AVAILABLE оценки null,
+            sampleSize=0, usedFallback=false. Это оценка, не гарантия времени вызова.
+          parameters:
+            - name: ticketId
+              in: path
+              required: true
+              schema: { type: string, format: uuid }
+          responses:
+            '200':
+              description: Observational estimate
+              content:
+                application/json:
+                  schema: { $ref: '#/components/schemas/TicketETA' }
+            '400': { $ref: '#/components/responses/BadRequest' }
+            '404': { $ref: '#/components/responses/NotFound' }
+            '500': { $ref: '#/components/responses/InternalError' }
+      /auth/login:
+        post:
+          summary: Authenticate with existing users and create persistent session
+          requestBody:
+            required: true
+            content:
+              application/json:
+                schema: { $ref: '#/components/schemas/LoginRequest' }
+          responses:
+            '200':
+              description: Sets session cookie (HttpOnly, SameSite=Lax, Path=/)
+              headers:
+                Set-Cookie:
+                  schema: { type: string }
+              content:
+                application/json:
+                  schema: { $ref: '#/components/schemas/StatusOK' }
+            '400': { $ref: '#/components/responses/BadRequest' }
+            '401': { $ref: '#/components/responses/Unauthorized' }
+            '409': { $ref: '#/components/responses/InvalidState' }
+            '500': { $ref: '#/components/responses/InternalError' }
+      /auth/me:
+        get:
+          summary: Restore current user from backend session
+          security: [{ sessionCookie: [] }]
+          responses:
+            '200':
+              description: Current user
+              content:
+                application/json:
+                  schema: { $ref: '#/components/schemas/User' }
+            '401': { $ref: '#/components/responses/Unauthorized' }
+      /auth/logout:
+        post:
+          summary: Revoke current session and clear cookie (also succeeds without cookie)
+          responses:
+            '200':
+              description: Session cleared
+              content:
+                application/json:
+                  schema: { $ref: '#/components/schemas/StatusOK' }
+            '500': { $ref: '#/components/responses/InternalError' }
+      /auth/register:
+        post:
+          summary: Register a client with existing MVP automatic confirmation
+          requestBody:
+            required: true
+            content:
+              application/json:
+                schema: { $ref: '#/components/schemas/LoginRequest' }
+          responses:
+            '201':
+              description: Client created
+              content:
+                application/json:
+                  schema: { $ref: '#/components/schemas/User' }
+            '400': { $ref: '#/components/responses/BadRequest' }
+            '500': { $ref: '#/components/responses/InternalError' }
+      /auth/confirm:
+        get:
+          summary: Existing confirmation-token endpoint
+          parameters:
+            - name: token
+              in: query
+              required: true
+              schema: { type: string }
+          responses:
+            '200':
+              description: Confirmed
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    required: [status]
+                    properties:
+                      status: { type: string, enum: [confirmed] }
+            '400': { $ref: '#/components/responses/BadRequest' }
+            '404': { $ref: '#/components/responses/NotFound' }
+            '500': { $ref: '#/components/responses/InternalError' }
+      /admin/users:
+        get:
+          security: [{ sessionCookie: [] }]
+          summary: List users (opc_chief only)
+          parameters:
+            - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 50, default: 50 } }
+            - { name: offset, in: query, schema: { type: integer, minimum: 0, default: 0 } }
+            - { name: search, in: query, schema: { type: string } }
+            - { name: role, in: query, schema: { type: string } }
+          responses:
+            '401': { $ref: '#/components/responses/Unauthorized' }
+            '403': { $ref: '#/components/responses/Forbidden' }
+            '200':
+              description: Users
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    required: [items, total, limit, offset]
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/User' }
+                      total: { type: integer, minimum: 0 }
+                      limit: { type: integer }
+                      offset: { type: integer }
+            '500': { $ref: '#/components/responses/InternalError' }
+      /admin/users/{userID}/role:
+        put:
+          security: [{ sessionCookie: [] }]
+          summary: Change existing user role (opc_chief only)
+          parameters:
+            - name: userID
+              in: path
+              required: true
+              schema: { type: string, format: uuid }
+          requestBody:
+            required: true
+            content:
+              application/json:
+                schema:
+                  type: object
+                  required: [role]
+                  properties:
+                    role: { $ref: '#/components/schemas/UserRole' }
+          responses:
+            '401': { $ref: '#/components/responses/Unauthorized' }
+            '403': { $ref: '#/components/responses/Forbidden' }
+            '200':
+              description: Updated user
+              content:
+                application/json:
+                  schema: { $ref: '#/components/schemas/User' }
+            '400': { $ref: '#/components/responses/BadRequest' }
+            '404': { $ref: '#/components/responses/NotFound' }
+            '500': { $ref: '#/components/responses/InternalError' }
+      /branches:
+        get:
+          summary: List branches
+          responses:
+            '200':
+              description: OK
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/BranchListResponse'
+            '500':
+              $ref: '#/components/responses/InternalError'
+      /branches/{branchId}/services:
+        get:
+          summary: List services available in a branch
+          parameters:
+            - name: branchId
+              in: path
+              required: true
+              schema:
+                type: string
+          responses:
+            '200':
+              description: OK
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/ServiceListResponse'
+            '404':
+              $ref: '#/components/responses/NotFound'
+            '500':
+              $ref: '#/components/responses/InternalError'
+      /tickets/{ticketId}/feedback:
+        post:
+          summary: Submit one rating for a completed ticket
+          description: The branch is derived from the ticket. A management token is required; cancelled and unserved tickets are rejected.
+          parameters:
+            - { name: ticketId, in: path, required: true, schema: { type: string, format: uuid } }
+            - { name: X-Ticket-Manage-Token, in: header, required: true, schema: { type: string } }
+          requestBody:
+            required: true
+            content:
+              application/json:
+                schema:
+                  type: object
+                  required: [rating]
+                  properties:
+                    rating: { type: integer, minimum: 1, maximum: 5 }
+                    comment: { type: string, maxLength: 500 }
+          responses:
+            '204': { description: Feedback stored }
+            '400': { $ref: '#/components/responses/BadRequest' }
+            '403': { $ref: '#/components/responses/Forbidden' }
+            '404': { $ref: '#/components/responses/NotFound' }
+            '409': { $ref: '#/components/responses/InvalidState' }
+      /branches/{branchId}/workload:
+        get:
+          summary: Get branch workload distribution and waiting count
+          tags:
+            - Client
+          parameters:
+            - name: branchId
+              in: path
+              required: true
+              schema:
+                type: string
+                format: uuid
+          responses:
+            '200':
+              description: Branch workload statistics
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    properties:
+                      branchId: { type: string }
+                      currentHour: { type: integer }
+                      currentWaiting: { type: integer }
+                      activeWindows: { type: integer, minimum: 0 }
+                      estimatedWaitSeconds:
+                        type: integer
+                        nullable: true
+                        description: Approximate branch-wide wait; null when no windows are open. Not a service-specific ticket ETA.
+                      calculatedAt: { type: string, format: date-time }
+                      usedFallback: { type: boolean }
+                      sampleCount: { type: integer }
+                      isHistorical: { type: boolean }
+                      hourly:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            hour: { type: integer }
+                            loadPercent: { type: integer }
+                            waitMinutes: { type: integer }
+                            isPeak: { type: boolean }
+            '404':
+              $ref: '#/components/responses/NotFound'
+            '500':
+              $ref: '#/components/responses/InternalError'
+      /branches/{branchId}/tickets/qr:
+        post:
+          summary: Create a QR ticket
+          parameters:
+            - name: branchId
+              in: path
+              required: true
+              schema:
+                type: string
+            - name: Idempotency-Key
+              in: header
+              required: true
+              schema:
+                type: string
+          requestBody:
+            required: true
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/CreateQRTicketRequest'
+          responses:
+            '201':
+              description: Created
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/Ticket'
+            '200':
+              description: OK (Replayed)
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/Ticket'
+            '400':
+              description: Missing header or invalid input
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/ErrorResponse'
+            '409':
+              description: Conflict
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/ErrorResponse'
+            '404':
+              $ref: '#/components/responses/NotFound'
+            '500':
+              $ref: '#/components/responses/InternalError'
+      /tickets/{ticketId}:
+        get:
+          summary: Get ticket details
+          parameters:
+            - name: ticketId
+              in: path
+              required: true
+              schema:
+                type: string
+          responses:
+            '200':
+              description: OK
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/Ticket'
+            '404':
+              description: Not Found
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/ErrorResponse'
+            '500':
+              $ref: '#/components/responses/InternalError'
+      /operator/branches/{branchId}/windows:
+        get:
+          security: [{ sessionCookie: [] }]
+          summary: List operator windows in a branch
+          parameters:
+            - name: branchId
+              in: path
+              required: true
+              schema:
+                type: string
+          responses:
+            '401': { $ref: '#/components/responses/Unauthorized' }
+            '403': { $ref: '#/components/responses/Forbidden' }
+            '200':
+              description: OK
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    required: [items]
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Window'
+            '404':
+              $ref: '#/components/responses/NotFound'
+            '500':
+              $ref: '#/components/responses/InternalError'
+      /operator/windows/{windowId}/current-ticket:
+        get:
+          security: [{ sessionCookie: [] }]
+          summary: Get the current active ticket for a window
+          parameters:
+            - name: windowId
+              in: path
+              required: true
+              schema:
+                type: string
+          responses:
+            '401': { $ref: '#/components/responses/Unauthorized' }
+            '403': { $ref: '#/components/responses/Forbidden' }
+            '200':
+              description: OK
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/Ticket'
+            '204':
+              description: No Content
+            '404':
+              description: Window Not Found
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/ErrorResponse'
+            '500':
+              $ref: '#/components/responses/InternalError'
+      /operator/windows/{windowId}/call-next:
+        post:
+          security: [{ sessionCookie: [] }]
+          summary: Автоматический или ручной вызов талона
+          description: >-
+            Без цели вызывает CallNext с порядком due_at ASC, source_rank ASC, checkin_at ASC,
+            id ASC, фильтром ready_at и блокировками FOR UPDATE SKIP LOCKED.
+            Непустая цель переключает на CallSpecificTicket без ranking и проверки ready_at.
+            Приоритет цели после TrimSpace — ticketId в JSON, publicNumber в JSON,
+            затем query ticketId, publicNumber, ticket. Оба режима проверяют OPEN,
+            отсутствие активного талона и совместимость услуги.
+          parameters:
+            - name: windowId
+              in: path
+              required: true
+              schema:
+                type: string
+            - { name: ticketId, in: query, schema: { type: string } }
+            - { name: publicNumber, in: query, schema: { type: string } }
+            - { name: ticket, in: query, schema: { type: string } }
+          requestBody:
+            required: false
+            content:
+              application/json:
+                schema:
+                  type: object
+                  properties:
+                    ticketId: { type: string }
+                    publicNumber: { type: string }
+          responses:
+            '401': { $ref: '#/components/responses/Unauthorized' }
+            '403': { $ref: '#/components/responses/Forbidden' }
+            '200':
+              description: OK
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/Ticket'
+            '409':
+              description: Window Busy or No Eligible Tickets
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/ErrorResponse'
+            '404':
+              $ref: '#/components/responses/NotFound'
+            '500':
+              $ref: '#/components/responses/InternalError'
+      /operator/tickets/{ticketId}/start:
+        post:
+          security: [{ sessionCookie: [] }]
+          summary: Start service for a ticket
+          parameters:
+            - name: ticketId
+              in: path
+              required: true
+              schema:
+                type: string
+          responses:
+            '401': { $ref: '#/components/responses/Unauthorized' }
+            '403': { $ref: '#/components/responses/Forbidden' }
+            '200':
+              description: OK
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/Ticket'
+            '409':
+              description: Invalid State
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/ErrorResponse'
+            '404':
+              $ref: '#/components/responses/NotFound'
+            '500':
+              $ref: '#/components/responses/InternalError'
+      /operator/tickets/{ticketId}/complete:
+        post:
+          security: [{ sessionCookie: [] }]
+          summary: Complete service for a ticket
+          parameters:
+            - name: ticketId
+              in: path
+              required: true
+              schema:
+                type: string
+          responses:
+            '401': { $ref: '#/components/responses/Unauthorized' }
+            '403': { $ref: '#/components/responses/Forbidden' }
+            '200':
+              description: OK
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/Ticket'
+            '409':
+              description: Invalid State
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/ErrorResponse'
+            '404':
+              $ref: '#/components/responses/NotFound'
+            '500':
+              $ref: '#/components/responses/InternalError'
+      /branches/{branchId}/tickets/live:
+        post:
+          summary: Create a LIVE ticket (retained legacy alias)
+          parameters:
+            - name: Idempotency-Key
+              in: header
+              required: true
+              schema:
+                type: string
+                minLength: 1
+            - name: branchId
+              in: path
+              required: true
+              schema:
+                type: string
+          requestBody:
+            required: true
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/CreateLiveTicketRequest'
+          responses:
+            '200':
+              description: Exact idempotent replay
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/Ticket'
+            '404':
+              $ref: '#/components/responses/NotFound'
+            '409':
+              $ref: '#/components/responses/IdempotencyConflict'
+            '500':
+              $ref: '#/components/responses/InternalError'
+            '201':
+              description: Created
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/Ticket'
+            '400':
+              description: Validation Error
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/ErrorResponse'
+      /branches/{branchId}/tickets/appointment:
+        post:
+          summary: Create an appointment ticket
+          parameters:
+            - name: Idempotency-Key
+              in: header
+              required: true
+              schema:
+                type: string
+            - name: branchId
+              in: path
+              required: true
+              schema:
+                type: string
+          requestBody:
+            required: true
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/CreateAppointmentRequest'
+          responses:
+            '200':
+              description: Exact idempotent replay
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/AppointmentResponse'
+            '201':
+              description: Created
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/AppointmentResponse'
+            '400':
+              description: Validation Error
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/ErrorResponse'
+            '404':
+              $ref: '#/components/responses/NotFound'
+            '409':
+              $ref: '#/components/responses/InvalidState'
+            '500':
+              $ref: '#/components/responses/InternalError'
+      /admin/branches/{branchId}/overview:
+        get:
+          security: [{ sessionCookie: [] }]
+          summary: Get admin branch overview
+          parameters:
+            - name: branchId
+              in: path
+              required: true
+              schema:
+                type: string
+                format: uuid
+          responses:
+            '401': { $ref: '#/components/responses/Unauthorized' }
+            '403': { $ref: '#/components/responses/Forbidden' }
+            '200':
+              description: Admin overview
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/AdminBranchOverview'
+            '404':
+              $ref: '#/components/responses/NotFound'
+            '500':
+              $ref: '#/components/responses/InternalError'
+      /admin/branches/{branchId}/anomalies:
+        get:
+          security: [{ sessionCookie: [] }]
+          summary: List branch anomalies with bounded pagination
+          parameters:
+            - { name: branchId, in: path, required: true, schema: { type: string, format: uuid } }
+            - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 50, default: 50 } }
+            - { name: offset, in: query, schema: { type: integer, minimum: 0, default: 0 } }
+          responses:
+            '200':
+              description: Anomaly page
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    required: [items, total, limit, offset]
+                    properties:
+                      items: { type: array, items: { $ref: '#/components/schemas/AnomalyTicket' } }
+                      total: { type: integer, minimum: 0 }
+                      limit: { type: integer }
+                      offset: { type: integer }
+            '400': { $ref: '#/components/responses/BadRequest' }
+            '401': { $ref: '#/components/responses/Unauthorized' }
+            '403': { $ref: '#/components/responses/Forbidden' }
+            '404': { $ref: '#/components/responses/NotFound' }
+            '500': { $ref: '#/components/responses/InternalError' }
+      /admin/branches/{branchId}/priorities:
+        put:
+          security: [{ sessionCookie: [] }]
+          summary: Save legacy priority rules
+          parameters:
+            - name: branchId
+              in: path
+              required: true
+              schema:
+                type: string
+                format: uuid
+          requestBody:
+            required: true
+            content:
+              application/json:
+                schema:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/PriorityRule'
+          responses:
+            '401': { $ref: '#/components/responses/Unauthorized' }
+            '403': { $ref: '#/components/responses/Forbidden' }
+            '200':
+              description: Saved priority rules
+              content:
+                application/json:
+                  schema:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PriorityRule'
+            '400':
+              $ref: '#/components/responses/BadRequest'
+            '404':
+              $ref: '#/components/responses/NotFound'
+            '500':
+              $ref: '#/components/responses/InternalError'
+      /admin/branches/{branchId}/queue-policy:
+        get:
+          security: [{ sessionCookie: [] }]
+          summary: Get queue policy
+          operationId: getQueuePolicy
+          tags:
+            - Admin
+          parameters:
+            - name: branchId
+              in: path
+              required: true
+              schema:
+                type: string
+                format: uuid
+          responses:
+            '401': { $ref: '#/components/responses/Unauthorized' }
+            '403': { $ref: '#/components/responses/Forbidden' }
+            '200':
+              description: Queue Policy
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/QueuePolicy'
+            '404':
+              $ref: '#/components/responses/NotFound'
+            '500':
+              $ref: '#/components/responses/InternalError'
+        put:
+          security: [{ sessionCookie: [] }]
+          summary: Update queue policy
+          operationId: updateQueuePolicy
+          tags:
+            - Admin
+          parameters:
+            - name: branchId
+              in: path
+              required: true
+              schema:
+                type: string
+                format: uuid
+          requestBody:
+            required: true
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/UpdateQueuePolicyRequest'
+          responses:
+            '401': { $ref: '#/components/responses/Unauthorized' }
+            '403': { $ref: '#/components/responses/Forbidden' }
+            '200':
+              description: Queue Policy Updated
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/QueuePolicy'
+            '400':
+              $ref: '#/components/responses/BadRequest'
+            '404':
+              $ref: '#/components/responses/NotFound'
+            '409':
+              $ref: '#/components/responses/PolicyVersionConflict'
+            '500':
+              $ref: '#/components/responses/InternalError'
+      /admin/branches/{branchId}/close-shift:
+        post:
+          security: [{ sessionCookie: [] }]
+          summary: Close shift and cancel uncalled tickets
+          tags:
+            - Admin
+          parameters:
+            - name: branchId
+              in: path
+              required: true
+              schema:
+                type: string
+                format: uuid
+          responses:
+            '200':
+              description: Shift closed successfully
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    properties:
+                      branchId: { type: string }
+                      cancelledTicketsCount: { type: integer }
+                      windowsClosingCount: { type: integer }
+                      windowsClosedCount: { type: integer }
+            '401': { $ref: '#/components/responses/Unauthorized' }
+            '403': { $ref: '#/components/responses/Forbidden' }
+            '404': { $ref: '#/components/responses/NotFound' }
+            '500': { $ref: '#/components/responses/InternalError' }
+      /admin/branches/{branchId}/schedule:
+        put:
+          security: [{ sessionCookie: [] }]
+          summary: Update branch working hours
+          tags:
+            - Admin
+          parameters:
+            - name: branchId
+              in: path
+              required: true
+              schema:
+                type: string
+                format: uuid
+          requestBody:
+            required: true
+            content:
+              application/json:
+                schema:
+                  type: object
+                  required: [workHours]
+                  properties:
+                    workHours: { type: string }
+          responses:
+            '200':
+              description: Branch schedule updated
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/Branch'
+            '401': { $ref: '#/components/responses/Unauthorized' }
+            '403': { $ref: '#/components/responses/Forbidden' }
+            '404': { $ref: '#/components/responses/NotFound' }
+            '500': { $ref: '#/components/responses/InternalError' }
+      /admin/tickets/{ticketId}/events:
+        get:
+          security: [{ sessionCookie: [] }]
+          summary: List ticket events
+          operationId: listTicketEvents
+          tags:
+            - Admin
+          parameters:
+            - name: ticketId
+              in: path
+              required: true
+              schema:
+                type: string
+                format: uuid
+          responses:
+            '401': { $ref: '#/components/responses/Unauthorized' }
+            '403': { $ref: '#/components/responses/Forbidden' }
+            '200':
+              description: List of events
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    required:
+                      - items
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/TicketEvent'
+            '404':
+              $ref: '#/components/responses/NotFound'
+            '500':
+              $ref: '#/components/responses/InternalError'
+      /admin/notifications/outbox:
+        get:
+          security: [{ sessionCookie: [] }]
+          summary: List notification outbox items
+          operationId: listNotificationOutbox
+          tags:
+            - Admin
+          parameters:
+            - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
+            - { name: offset, in: query, schema: { type: integer, minimum: 0, default: 0 } }
+            - { name: status, in: query, schema: { type: string, enum: [PENDING, SENT, FAILED] } }
+          responses:
+            '200':
+              description: List of notification outbox items
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    required: [items, total, limit, offset]
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/NotificationOutboxItem'
+                      total: { type: integer, minimum: 0 }
+                      limit: { type: integer }
+                      offset: { type: integer }
+            '401': { $ref: '#/components/responses/Unauthorized' }
+            '403': { $ref: '#/components/responses/Forbidden' }
+            '500': { $ref: '#/components/responses/InternalError' }
+      /appointments:
+        post:
+          summary: Create an appointment
+          operationId: createAppointment
+          tags:
+            - Client
+          parameters:
+            - name: Idempotency-Key
+              in: header
+              required: true
+              schema:
+                type: string
+          requestBody:
+            required: true
+            content:
+              application/json:
+                schema:
+                  type: object
+                  required:
+                    - branchId
+                    - serviceId
+                    - scheduledAt
+                  properties:
+                    branchId:
+                      type: string
+                      format: uuid
+                    serviceId:
+                      type: string
+                      format: uuid
+                    scheduledAt:
+                      type: string
+                      format: date-time
+          responses:
+            '201':
+              description: Appointment Created
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/AppointmentResponse'
+            '200':
+              description: Appointment Replayed
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/AppointmentResponse'
+            '400':
+              $ref: '#/components/responses/BadRequest'
+            '409':
+              $ref: '#/components/responses/IdempotencyConflict'
+            '404':
+              $ref: '#/components/responses/NotFound'
+            '500':
+              $ref: '#/components/responses/InternalError'
+      /appointments/{ticketId}/cancel:
+        post:
+          summary: Cancel an appointment
+          operationId: cancelAppointment
+          tags:
+            - Client
+          parameters:
+            - name: ticketId
+              in: path
+              required: true
+              schema:
+                type: string
+                format: uuid
+            - name: X-Ticket-Manage-Token
+              in: header
+              required: false
+              schema:
+                type: string
+              description: Client management secret token required for public cancellation
+          responses:
+            '200':
+              description: Appointment Cancelled
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/AppointmentResponse'
+            '403':
+              $ref: '#/components/responses/Forbidden'
+            '404':
+              $ref: '#/components/responses/NotFound'
+            '409':
+              $ref: '#/components/responses/InvalidState'
+            '500':
+              $ref: '#/components/responses/InternalError'
+      /tickets/{ticketId}/cancel:
+        post:
+          summary: Cancel a ticket
+          operationId: cancelTicket
+          tags:
+            - Client
+          parameters:
+            - name: ticketId
+              in: path
+              required: true
+              schema:
+                type: string
+                format: uuid
+            - name: X-Ticket-Manage-Token
+              in: header
+              required: false
+              schema:
+                type: string
+              description: Client management secret token required for public cancellation
+          responses:
+            '200':
+              description: Ticket Cancelled
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/Ticket'
+            '403':
+              $ref: '#/components/responses/Forbidden'
+            '404':
+              $ref: '#/components/responses/NotFound'
+            '409':
+              $ref: '#/components/responses/InvalidState'
+            '500':
+              $ref: '#/components/responses/InternalError'
+      /admin/windows/{windowId}/status:
+        put:
+          security: [{ sessionCookie: [] }]
+          summary: Change window status
+          parameters:
+            - name: windowId
+              in: path
+              required: true
+              schema:
+                type: string
+          requestBody:
+            required: true
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/ChangeWindowStatusRequest'
+          responses:
+            '401': { $ref: '#/components/responses/Unauthorized' }
+            '403': { $ref: '#/components/responses/Forbidden' }
+            '200':
+              description: OK
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/Window'
+            '400':
+              description: Validation Error
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/ErrorResponse'
+            '404':
+              $ref: '#/components/responses/NotFound'
+            '500':
+              $ref: '#/components/responses/InternalError'
+      /admin/windows/{windowId}/services:
+        put:
+          security: [{ sessionCookie: [] }]
+          summary: Replace the services a window is allowed to serve
+          parameters:
+            - name: windowId
+              in: path
+              required: true
+              schema:
+                type: string
+          requestBody:
+            required: true
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/UpdateWindowServicesRequest'
+          responses:
+            '401': { $ref: '#/components/responses/Unauthorized' }
+            '403': { $ref: '#/components/responses/Forbidden' }
+            '200':
+              description: OK
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/Window'
+            '400':
+              description: Validation Error
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/ErrorResponse'
+            '404':
+              $ref: '#/components/responses/NotFound'
+            '500':
+              $ref: '#/components/responses/InternalError'
+      /operator/tickets/{ticketId}/return:
+        post:
+          security: [{ sessionCookie: [] }]
+          summary: Return ticket to queue
+          parameters:
+            - name: ticketId
+              in: path
+              required: true
+              schema:
+                type: string
+          responses:
+            '401': { $ref: '#/components/responses/Unauthorized' }
+            '403': { $ref: '#/components/responses/Forbidden' }
+            '200':
+              description: OK
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/Ticket'
+            '409':
+              description: Invalid State
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/ErrorResponse'
+            '404':
+              $ref: '#/components/responses/NotFound'
+            '500':
+              $ref: '#/components/responses/InternalError'
+      /operator/tickets/{ticketId}/redirect:
+        post:
+          security: [{ sessionCookie: [] }]
+          summary: Redirect ticket
+          parameters:
+            - name: ticketId
+              in: path
+              required: true
+              schema:
+                type: string
+          requestBody:
+            required: true
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/RedirectTicketRequest'
+          responses:
+            '401': { $ref: '#/components/responses/Unauthorized' }
+            '403': { $ref: '#/components/responses/Forbidden' }
+            '200':
+              description: OK
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/Ticket'
+            '409':
+              description: Invalid State
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/ErrorResponse'
+            '400':
+              $ref: '#/components/responses/BadRequest'
+            '404':
+              $ref: '#/components/responses/NotFound'
+            '500':
+              $ref: '#/components/responses/InternalError'
+      /operator/branches/{branchId}/tickets/live:
+        post:
+          security: [{ sessionCookie: [] }]
+          summary: Create LIVE ticket for a physically present client
+          operationId: createLiveTicket
+          parameters:
+          - name: branchId
+            in: path
+            required: true
+            schema:
+              type: string
+              format: uuid
+          - name: Idempotency-Key
+            in: header
+            required: true
+            schema:
+              type: string
+              minLength: 1
+          requestBody:
+            required: true
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/CreateLiveTicketRequest'
+          responses:
+            '401': { $ref: '#/components/responses/Unauthorized' }
+            '403': { $ref: '#/components/responses/Forbidden' }
+            '200':
+              description: Exact idempotent replay
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/Ticket'
+            '201':
+              description: Created; ticket enters WAITING without a window
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/Ticket'
+            '400':
+              $ref: '#/components/responses/BadRequest'
+            '404':
+              $ref: '#/components/responses/NotFound'
+            '409':
+              $ref: '#/components/responses/IdempotencyConflict'
+            '500':
+              $ref: '#/components/responses/InternalError'
+      /appointments/{ticketId}/arrive:
+        post:
+          summary: Record appointment arrival without changing SCHEDULED status
+          description: Сохраняет первое прибытие и пересчитывает сроки по YAML; повтор в SCHEDULED не меняет первое время. Для воспроизводимого запроса используйте UUID талона.
+          operationId: arriveAppointment
+          parameters:
+          - name: ticketId
+            in: path
+            required: true
+            schema:
+              type: string
+              format: uuid
+          responses:
+            '200':
+              description: Arrival recorded or repeated while SCHEDULED; arrivedAt is not exposed
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/AppointmentResponse'
+            '400':
+              $ref: '#/components/responses/BadRequest'
+            '404':
+              $ref: '#/components/responses/NotFound'
+            '409':
+              $ref: '#/components/responses/InvalidState'
+            '500':
+              $ref: '#/components/responses/InternalError'
+      /operator/tickets/{ticketId}/no-show:
+        post:
+          security: [{ sessionCookie: [] }]
+          summary: Mark a CALLED ticket NO_SHOW; repeated NO_SHOW is idempotent
+          operationId: markNoShow
+          parameters:
+          - name: ticketId
+            in: path
+            required: true
+            schema:
+              type: string
+              format: uuid
+          responses:
+            '401': { $ref: '#/components/responses/Unauthorized' }
+            '403': { $ref: '#/components/responses/Forbidden' }
+            '200':
+              description: NO_SHOW; historical window retained, active capacity released
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/Ticket'
+            '400':
+              $ref: '#/components/responses/BadRequest'
+            '404':
+              $ref: '#/components/responses/NotFound'
+            '409':
+              $ref: '#/components/responses/InvalidState'
+            '500':
+              $ref: '#/components/responses/InternalError'
+      /operator/branches/{branchId}/incidents:
+        post:
+          security: [{ sessionCookie: [] }]
+          summary: Report operational or technical problem from operator window
+          operationId: reportOperatorIncident
+          parameters:
+          - name: branchId
+            in: path
+            required: true
+            schema:
+              type: string
+              format: uuid
+          requestBody:
+            required: true
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/ReportIncidentRequest'
+          responses:
+            '401': { $ref: '#/components/responses/Unauthorized' }
+            '403': { $ref: '#/components/responses/Forbidden' }
+            '201':
+              description: Incident successfully recorded and persisted
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/OperatorIncident'
+            '400':
+              $ref: '#/components/responses/BadRequest'
+            '404':
+              $ref: '#/components/responses/NotFound'
+            '500':
+              $ref: '#/components/responses/InternalError'
+      /tickets/{ticketId}/position:
+        get:
+          summary: Get the Core queue rank snapshot for a deterministic OPEN compatible window
+          description: Includes busy OPEN windows as reference. This is a snapshot for the next selection, not
+            an ETA or guaranteed number of completed clients.
+          operationId: getQueuePosition
+          parameters:
+          - name: ticketId
+            in: path
+            required: true
+            schema:
+              type: string
+              format: uuid
+          responses:
+            '200':
+              description: Snapshot; nullable fields when unavailable
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/QueuePosition'
+            '400':
+              $ref: '#/components/responses/BadRequest'
+            '404':
+              $ref: '#/components/responses/NotFound'
+            '500':
+              $ref: '#/components/responses/InternalError'
+    components:
+      securitySchemes:
+        sessionCookie:
+          type: apiKey
+          in: cookie
+          name: session
+      responses:
+        Unauthorized:
+          description: Missing, invalid or expired session; invalid login credentials
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        Forbidden:
+          description: Authenticated user lacks required role/capability
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        InternalError:
+          description: INTERNAL_ERROR (sanitized)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        NotFound:
+          description: NOT_FOUND
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        BadRequest:
+          description: VALIDATION_ERROR
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        IdempotencyConflict:
+          description: IDEMPOTENCY_CONFLICT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        InvalidState:
+          description: INVALID_TICKET_STATE
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        PolicyVersionConflict:
+          description: Policy version conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: POLICY_VERSION_CONFLICT
+                  message: "Version mismatch"
+                  requestId: "req-123"
+      schemas:
+        NotificationOutboxItem:
+          type: object
+          description: Элемент transactional outbox уведомлений.
+          required: [id, ticketId, branchId, eventType, payload, status, attempts, maxAttempts, nextAttemptAt, createdAt]
+          properties:
+            id: { type: string, format: uuid }
+            ticketId: { type: string, format: uuid }
+            branchId: { type: string, format: uuid }
+            eventType: { type: string }
+            payload: { type: string }
+            status: { type: string, enum: [PENDING, SENT, FAILED] }
+            attempts: { type: integer }
+            maxAttempts: { type: integer }
+            nextAttemptAt: { type: string, format: date-time }
+            createdAt: { type: string, format: date-time }
+            sentAt: { type: string, format: date-time, nullable: true }
+            lastError: { type: string, nullable: true }
+        AnomalyTicket:
+          type: object
+          description: Аномалия талона из domain.AnomalyTicket.
+          required: [id, publicNumber, type, description, time, durationMinutes]
+          properties:
+            id: { type: string, format: uuid }
+            publicNumber: { type: string }
+            type: { type: string, enum: [EXCEEDED_WAIT, UNFINISHED, NO_SHOW, TECH_ISSUE] }
+            description: { type: string }
+            time: { type: string, format: date-time }
+            durationMinutes: { type: integer }
+        TicketETA:
+          type: object
+          additionalProperties: false
+          required: [ticketId, ticketStatus, reason, estimatedWaitSeconds, estimatedCallAt, position, referenceWindow, sampleSize, usedFallback, calculatedAt]
+          properties:
+            ticketId: { type: string, format: uuid }
+            ticketStatus: { $ref: '#/components/schemas/TicketStatus' }
+            reason:
+              type: string
+              enum: [AVAILABLE, NOT_ELIGIBLE_YET, NO_OPEN_COMPATIBLE_WINDOW, NOT_QUEUED]
+            estimatedWaitSeconds: { type: integer, minimum: 60, maximum: 1800, nullable: true }
+            estimatedCallAt: { type: string, format: date-time, nullable: true }
+            position: { type: integer, minimum: 1, nullable: true }
+            referenceWindow:
+              type: object
+              nullable: true
+              required: [id, number]
+              properties:
+                id: { type: string, format: uuid }
+                number: { type: integer }
+            sampleSize: { type: integer, minimum: 0, maximum: 20 }
+            usedFallback: { type: boolean }
+            weightedWaitSeconds:
+              type: integer
+              minimum: 0
+              description: Взвешенная длительность обслуживания (300 при недостатке истории), не итоговая ETA; поле отсутствует при reason != AVAILABLE.
+            medianSeconds: { type: integer, minimum: 0, description: Медиана длительностей; поле отсутствует при reason != AVAILABLE. }
+            p90WaitSeconds: { type: integer, minimum: 0, description: P90 длительностей; поле отсутствует при reason != AVAILABLE. }
+            distribution:
+              type: object
+              description: Распределение длительностей обслуживания; отсутствует при reason != AVAILABLE.
+              properties:
+                avg: { type: integer, minimum: 0 }
+                weightedAvg: { type: integer, minimum: 0 }
+                median: { type: integer, minimum: 0 }
+                p90: { type: integer, minimum: 0 }
+                samples:
+                  type: array
+                  maxItems: 20
+                  items: { type: integer, minimum: 0 }
+            calculatedAt: { type: string, format: date-time }
+            source: { type: string, enum: [ml, baseline], nullable: true }
+        UserRole:
+          type: string
+          enum: [client, employee, opc_chief, terminal]
+        User:
+          type: object
+          required: [id, email, role, isTerminal, confirmed]
+          properties:
+            id: { type: string, format: uuid }
+            email: { type: string }
+            role: { $ref: '#/components/schemas/UserRole' }
+            isTerminal: { type: boolean }
+            confirmed: { type: boolean }
+        LoginRequest:
+          type: object
+          required: [email, password]
+          properties:
+            email: { type: string }
+            password: { type: string, format: password }
+        StatusOK:
+          type: object
+          required: [status]
+          properties:
+            status: { type: string, enum: [ok] }
+        QueuePolicy:
+          type: object
+          description: Legacy-баллы и параметры аудита; автоматический CallNext сортирует по сохранённым due_at, source_rank, checkin_at, id из YAML-планирования.
+          additionalProperties: false
+          required:
+          - branchId
+          - appointmentDuePriority
+          - qrPriority
+          - livePriority
+          - antiStarvationThresholdMinutes
+          - antiStarvationPointsPerMinute
+          - appointmentGraceMinutes
+          - appointmentLatePenaltyPerMinute
+          - appointmentLatePenaltyMaxPoints
+          - version
+          - updatedAt
+          properties:
+            branchId:
+              type: string
+              format: uuid
+            appointmentDuePriority:
+              type: integer
+              minimum: 0
+              maximum: 1000
+            qrPriority:
+              type: integer
+              minimum: 0
+              maximum: 1000
+            livePriority:
+              type: integer
+              minimum: 0
+              maximum: 1000
+            antiStarvationThresholdMinutes:
+              type: integer
+              minimum: 0
+              maximum: 240
+            antiStarvationPointsPerMinute:
+              type: integer
+              minimum: 1
+              maximum: 600
+            appointmentGraceMinutes:
+              type: integer
+              minimum: 0
+              maximum: 120
+            appointmentLatePenaltyPerMinute:
+              type: integer
+              minimum: 0
+              maximum: 600
+            appointmentLatePenaltyMaxPoints:
+              type: integer
+              minimum: 0
+              maximum: 1000
+            version:
+              type: integer
+              format: int64
+            updatedAt:
+              type: string
+              format: date-time
+        UpdateQueuePolicyRequest:
+          type: object
+          additionalProperties: false
+          description: Core validates appointmentDuePriority > qrPriority and livePriority; appointmentLatePenaltyMaxPoints
+            <= appointmentDuePriority. Omitted new fields preserve the current policy only when expectedVersion
+            matches; concurrent changes return POLICY_VERSION_CONFLICT. Explicit null is invalid. Every successful
+            PUT increments version once, including unchanged values.
+          required:
+          - appointmentDuePriority
+          - qrPriority
+          - expectedVersion
+          properties:
+            appointmentDuePriority:
+              type: integer
+              minimum: 0
+              maximum: 1000
+            qrPriority:
+              type: integer
+              minimum: 0
+              maximum: 1000
+            livePriority:
+              type: integer
+              minimum: 0
+              maximum: 1000
+            antiStarvationThresholdMinutes:
+              type: integer
+              minimum: 0
+              maximum: 240
+            antiStarvationPointsPerMinute:
+              type: integer
+              minimum: 1
+              maximum: 600
+            appointmentGraceMinutes:
+              type: integer
+              minimum: 0
+              maximum: 120
+            appointmentLatePenaltyPerMinute:
+              type: integer
+              minimum: 0
+              maximum: 600
+            appointmentLatePenaltyMaxPoints:
+              type: integer
+              minimum: 0
+              maximum: 1000
+            expectedVersion:
+              type: integer
+              format: int64
+        AppointmentResponse:
+          type: object
+          required:
+          - ticket
+          - scheduledAt
+          properties:
+            ticket:
+              $ref: '#/components/schemas/Ticket'
+            scheduledAt:
+              type: string
+              format: date-time
+            managementToken:
+              type: string
+              nullable: true
+              description: Client secret token for managing/cancelling the appointment
+        QueuePosition:
+          type: object
+          additionalProperties: false
+          required:
+          - ticketId
+          - ticketStatus
+          - reason
+          - position
+          - referenceWindow
+          - calculatedAt
+          - effectivePriority
+          - effectiveQueueTime
+          properties:
+            ticketId:
+              type: string
+              format: uuid
+            ticketStatus:
+              type: string
+              enum:
+              - SCHEDULED
+              - WAITING
+              - CALLED
+              - SERVING
+              - COMPLETED
+              - CANCELLED
+              - NO_SHOW
+            reason:
+              type: string
+              enum:
+              - AVAILABLE
+              - NOT_ELIGIBLE_YET
+              - NO_OPEN_COMPATIBLE_WINDOW
+              - NOT_QUEUED
+            position:
+              type: integer
+              minimum: 1
+              nullable: true
+            referenceWindow:
+              type: object
+              nullable: true
+              required:
+              - id
+              - number
+              properties:
+                id:
+                  type: string
+                  format: uuid
+                number:
+                  type: integer
+            calculatedAt:
+              type: string
+              format: date-time
+            effectivePriority:
+              type: integer
+              format: int64
+              nullable: true
+              description: Базовый legacy-приоритет источника; при ошибке чтения политики source_rank. Не ключ сортировки CallNext.
+            effectiveQueueTime:
+              type: string
+              format: date-time
+              nullable: true
+        TicketEvent:
+          type: object
+          required:
+          - id
+          - type
+          - fromStatus
+          - toStatus
+          - windowId
+          - policyVersion
+          - decisionPriority
+          - occurredAt
+          properties:
+            id:
+              type: integer
+              format: int64
+            type:
+              type: string
+              enum:
+              - CREATED
+              - ARRIVED
+              - CALLED
+              - SERVICE_STARTED
+              - COMPLETED
+              - CANCELLED
+              - NO_SHOW
+              - RETURNED
+              - REDIRECTED
+              - QUEUE_RECALCULATED
+            fromStatus:
+              type: string
+              nullable: true
+              enum: [SCHEDULED, WAITING, CALLED, SERVING, COMPLETED, CANCELLED, NO_SHOW, null]
+            toStatus:
+              $ref: '#/components/schemas/TicketStatus'
+            windowId:
+              type: string
+              format: uuid
+              nullable: true
+            policyVersion:
+              type: integer
+              format: int64
+              nullable: true
+            decisionPriority:
+              type: integer
+              format: int64
+              nullable: true
+              description: Legacy-баллы автоматического/ручного вызова; при повторном вызове recovery worker — source_rank. Не ключ сортировки CallNext; для остальных типов событий null.
+            occurredAt:
+              type: string
+              format: date-time
+        BranchListResponse:
+          type: object
+          required:
+            - items
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/Branch'
+        Branch:
+          type: object
+          required:
+            - id
+            - name
+          properties:
+            latitude: { type: number, minimum: -90, maximum: 90 }
+            longitude: { type: number, minimum: -180, maximum: 180 }
+            isDemo: { type: boolean }
+            id:
+              type: string
+            name:
+              type: string
+            ratingAverage:
+              type: number
+              nullable: true
+              description: Average of real 1–5 feedback for completed service visits; null when no feedback exists.
+            ratingCount:
+              type: integer
+              minimum: 0
+        ServiceListResponse:
+          type: object
+          required:
+            - items
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/Service'
+        Service:
+          type: object
+          required:
+            - id
+            - code
+            - name
+          properties:
+            id:
+              type: string
+            code:
+              type: string
+            name:
+              type: string
+        Window:
+          type: object
+          required:
+            - id
+            - number
+            - status
+            - services
+          properties:
+            id:
+              type: string
+            number:
+              type: integer
+            status:
+              type: string
+            services:
+              type: array
+              items:
+                $ref: '#/components/schemas/Service'
+        Ticket:
+          type: object
+          required:
+            - id
+            - publicNumber
+            - branchId
+            - serviceId
+            - source
+            - status
+            - window
+            - createdAt
+            - queueEnteredAt
+            - calledAt
+            - serviceStartedAt
+            - completedAt
+          properties:
+            id:
+              type: string
+            publicNumber:
+              type: string
+            branchId:
+              type: string
+            serviceId:
+              type: string
+            serviceName:
+              type: string
+            source:
+              $ref: '#/components/schemas/TicketSource'
+            status:
+              $ref: '#/components/schemas/TicketStatus'
+            window:
+              type: object
+              nullable: true
+              required:
+                - id
+                - number
+              properties:
+                id:
+                  type: string
+                number:
+                  type: integer
+            createdAt:
+              type: string
+              format: date-time
+            queueEnteredAt:
+              type: string
+              format: date-time
+            calledAt:
+              type: string
+              format: date-time
+              nullable: true
+            serviceStartedAt:
+              type: string
+              format: date-time
+              nullable: true
+            completedAt:
+              type: string
+              format: date-time
+              nullable: true
+            managementToken:
+              type: string
+              nullable: true
+              description: Client secret token for managing/cancelling the ticket
+        CreateQRTicketRequest:
+          type: object
+          required:
+            - serviceId
+          properties:
+            serviceId:
+              type: string
+        TicketSource:
+          type: string
+          enum:
+            - APPOINTMENT
+            - QR
+            - LIVE
+        TicketStatus:
+          type: string
+          enum:
+            - SCHEDULED
+            - WAITING
+            - CALLED
+            - SERVING
+            - COMPLETED
+            - CANCELLED
+            - NO_SHOW
+        PriorityRule:
+          type: object
+          required:
+            - source
+            - name
+            - weight
+            - maxWaitLimitMinutes
+            - description
+          properties:
+            source:
+              $ref: '#/components/schemas/TicketSource'
+            name:
+              type: string
+            weight:
+              type: integer
+            maxWaitLimitMinutes:
+              type: integer
+            description:
+              type: string
+        AdminBranchOverview:
+          type: object
+          required:
+            - branchId
+            - branchName
+            - metrics
+            - windows
+            - queue
+            - priorities
+            - anomalies
+            - quality
+          properties:
+            branchId:
+              type: string
+              format: uuid
+            branchName:
+              type: string
+            metrics:
+              type: object
+              properties:
+                waitingClientsCount: { type: integer }
+                avgWaitTimeMinutes: { type: integer }
+                maxWaitTimeMinutes: { type: integer }
+                servedTodayCount: { type: integer }
+                activeWindowsCount: { type: integer }
+                totalWindowsCount: { type: integer }
+                p90WaitMinutes: { type: number, nullable: true }
+            windows:
+              type: array
+              items:
+                type: object
+            queue:
+              type: array
+              items:
+                type: object
+            priorities:
+              type: array
+              items:
+                $ref: '#/components/schemas/PriorityRule'
+            anomalies:
+              type: array
+              items:
+                type: object
+            quality:
+              type: object
+              description: Branch-scoped feedback analytics. Current and previous periods are adjacent 30-day server-time intervals.
+              properties:
+                ratingAverage: { type: number, nullable: true }
+                ratingCount: { type: integer, minimum: 0 }
+                current30Average: { type: number, nullable: true }
+                current30Count: { type: integer, minimum: 0 }
+                previous30Average: { type: number, nullable: true }
+                previous30Count: { type: integer, minimum: 0 }
+                delta: { type: number, nullable: true, description: current30Average minus previous30Average; null unless both periods have ratings. }
+                distribution:
+                  type: object
+                  properties:
+                    '1': { type: integer, minimum: 0 }
+                    '2': { type: integer, minimum: 0 }
+                    '3': { type: integer, minimum: 0 }
+                    '4': { type: integer, minimum: 0 }
+                    '5': { type: integer, minimum: 0 }
+                lowRatingCount: { type: integer, minimum: 0, description: Count of 1–2 star feedback. }
+            windowRecommendation:
+              type: object
+              nullable: true
+              properties:
+                recommendedCount: { type: integer, minimum: 1 }
+                reason: { type: string }
+                severity: { type: string, enum: [warning, critical] }
+                p90WaitMinutes: { type: number }
+        ErrorResponse:
+          type: object
+          required:
+            - error
+          properties:
+            error:
+              type: object
+              required:
+                - code
+                - message
+                - requestId
+              properties:
+                code:
+                  type: string
+                message:
+                  type: string
+                requestId:
+                  type: string
+        CreateLiveTicketRequest:
+          type: object
+          additionalProperties: false
+          required:
+            - serviceId
+          properties:
+            serviceId:
+              type: string
+              format: uuid
+        CreateAppointmentRequest:
+          type: object
+          required:
+            - serviceId
+            - scheduledAt
+          properties:
+            serviceId:
+              type: string
+            scheduledAt:
+              type: string
+              format: date-time
+        ChangeWindowStatusRequest:
+          type: object
+          required:
+            - status
+          properties:
+            status:
+              type: string
+        UpdateWindowServicesRequest:
+          type: object
+          required:
+            - serviceIds
+          properties:
+            serviceIds:
+              type: array
+              minItems: 1
+              items:
+                type: string
+                format: uuid
+        RedirectTicketRequest:
+          type: object
+          description: Нужна непустая newServiceId или newWindowId; targetWindowId — алиас newWindowId. APPOINTMENT не поддерживается.
+          anyOf:
+            - required: [newServiceId]
+              properties:
+                newServiceId: { type: string, minLength: 1 }
+            - required: [newWindowId]
+              properties:
+                newWindowId: { type: string, minLength: 1 }
+            - required: [targetWindowId]
+              properties:
+                targetWindowId: { type: string, minLength: 1 }
+          properties:
+            newServiceId:
+              type: string
+            newWindowId:
+              type: string
+            targetWindowId:
+              type: string
+        ReportIncidentRequest:
+          type: object
+          required:
+            - category
+            - description
+          properties:
+            windowId:
+              type: string
+              format: uuid
+            category:
+              type: string
+              minLength: 1
+            description:
+              type: string
+              minLength: 1
+        OperatorIncident:
+          type: object
+          required:
+            - id
+            - branchId
+            - category
+            - description
+            - createdAt
+          properties:
+            id:
+              type: string
+              format: uuid
+            branchId:
+              type: string
+              format: uuid
+            windowId:
+              type: string
+              format: uuid
+              nullable: true
+            operatorId:
+              type: string
+              format: uuid
+              nullable: true
+            category:
+              type: string
+            description:
+              type: string
+            createdAt:
+              type: string
+              format: date-time
+kind: ConfigMap
+metadata:
+  name: swagger-spec
+  namespace: queue-system

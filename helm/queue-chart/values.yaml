@@ -48,7 +48,7 @@ frontend:
   replicaCount: 2
   image:
     repository: vacuumxvx/queue-frontend
-    tag: "v-f1650aa-1000"
+    tag: "v-86d0067"
     pullPolicy: IfNotPresent
   service:
     port: 80

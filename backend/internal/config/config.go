@@ -81,7 +81,13 @@ func Load() (Config, error) {
 			return c, fmt.Errorf("CORS_ALLOWED_ORIGIN must be one or more http(s) origins without a path")
 		}
 	}
-	dsn := url.URL{Scheme: "postgres", User: url.UserPassword(os.Getenv("POSTGRES_USER"), os.Getenv("POSTGRES_PASSWORD")), Host: net.JoinHostPort(os.Getenv("POSTGRES_HOST"), os.Getenv("POSTGRES_PORT")), Path: "/" + os.Getenv("POSTGRES_DB")}
+	pgHost := os.Getenv("POSTGRES_HOST")
+	if pgHost == "postgres" {
+		if _, err := net.LookupHost("postgres"); err != nil {
+			pgHost = "localhost"
+		}
+	}
+	dsn := url.URL{Scheme: "postgres", User: url.UserPassword(os.Getenv("POSTGRES_USER"), os.Getenv("POSTGRES_PASSWORD")), Host: net.JoinHostPort(pgHost, os.Getenv("POSTGRES_PORT")), Path: "/" + os.Getenv("POSTGRES_DB")}
 	// The Foundation Compose network is local development only.
 	dsn.RawQuery = "sslmode=disable&connect_timeout=3"
 	c.DatabaseURL = dsn.String()

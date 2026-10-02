@@ -5,6 +5,7 @@ import { PochtaEmblem } from '../../components/common/PochtaBrand';
 import { ClientServiceRecord, getClientServiceHistory, MOCK_OPERATOR_NAMES, resolveOperatorName, STORAGE_SERVICE_HISTORY_KEY } from '../client/serviceHistory';
 import { MOSCOW_BRANCHES } from '../client/map/branchLocations';
 import { SearchableBranchSelect } from '../../components/common/SearchableBranchSelect';
+import { matchesUserDefaultBranch } from '../client/map/liveBranches';
 
 function TelegramIcon({ size = 18 }: { size?: number }) {
   return (
@@ -148,7 +149,7 @@ export function UserProfileModal({ isOpen, onClose, user, onUserUpdate }: UserPr
   }, [user.id, user.email, branchStorageKey]);
 
   const selectedDefaultBranch = useMemo(() => {
-    return MOSCOW_BRANCHES.find(b => b.id === defaultBranchId) || MOSCOW_BRANCHES[0];
+    return MOSCOW_BRANCHES.find(b => matchesUserDefaultBranch(b, defaultBranchId)) || MOSCOW_BRANCHES[0];
   }, [defaultBranchId]);
 
   const handleSelectDefaultBranch = (branchIdToSave: string) => {
@@ -485,7 +486,7 @@ export function UserProfileModal({ isOpen, onClose, user, onUserUpdate }: UserPr
             <div className="space-y-2">
               <SearchableBranchSelect
                 branches={MOSCOW_BRANCHES as any}
-                selectedId={defaultBranchId}
+                selectedId={selectedDefaultBranch ? selectedDefaultBranch.id : defaultBranchId}
                 onSelect={(id) => handleSelectDefaultBranch(id)}
                 placeholder="Выберите отделение..."
                 compact

@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Search, ChevronDown, Check, X, Lock, Building2 } from 'lucide-react';
 import { Branch } from '../../api/operator/types';
+import { matchesUserDefaultBranch, getUserDefaultBranchId } from '../../features/client/map/liveBranches';
 
 export interface SearchableBranchSelectProps {
   branches: Branch[];
@@ -38,14 +39,25 @@ export const SearchableBranchSelect: React.FC<SearchableBranchSelectProps> = ({
   const listRef = useRef<HTMLUListElement>(null);
 
   const selectedBranch = useMemo(() => {
-    return branches.find(b => b.id === selectedId);
+    return branches.find(b => b.id === selectedId) ||
+           branches.find(b => matchesUserDefaultBranch(b as any, selectedId)) ||
+           branches.find(b => {
+             const anyB = b as { code?: string; postalCode?: string; index?: string };
+             return anyB.code === selectedId || anyB.postalCode === selectedId || anyB.index === selectedId;
+           });
   }, [branches, selectedId]);
+
+  const defaultBranchId = (typeof localStorage !== 'undefined')
+    ? (localStorage.getItem('user_default_branch_id') || selectedId || getUserDefaultBranchId())
+    : (selectedId || getUserDefaultBranchId());
 
   const filteredBranches = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     let list = branches;
     if (q) {
       list = branches.filter(b => {
+        // Отделение по умолчанию всегда остаётся в результатах поиска
+        if (defaultBranchId && matchesUserDefaultBranch(b as any, defaultBranchId)) return true;
         const anyB = b as { address?: string; code?: string; postalCode?: string; index?: string };
         const nameMatch = b.name.toLowerCase().includes(q);
         const addressMatch = anyB.address?.toLowerCase().includes(q);
@@ -56,18 +68,16 @@ export const SearchableBranchSelect: React.FC<SearchableBranchSelectProps> = ({
       });
     }
 
-    const defaultBranchId = (typeof localStorage !== 'undefined')
-      ? (localStorage.getItem('user_default_branch_id') || selectedId)
-      : selectedId;
-
     if (!defaultBranchId) return list;
 
     return [...list].sort((a, b) => {
-      if (a.id === defaultBranchId && b.id !== defaultBranchId) return -1;
-      if (b.id === defaultBranchId && a.id !== defaultBranchId) return 1;
+      const aIsDefault = matchesUserDefaultBranch(a as any, defaultBranchId);
+      const bIsDefault = matchesUserDefaultBranch(b as any, defaultBranchId);
+      if (aIsDefault && !bIsDefault) return -1;
+      if (bIsDefault && !aIsDefault) return 1;
       return 0;
     });
-  }, [branches, searchQuery, selectedId]);
+  }, [branches, searchQuery, defaultBranchId]);
 
   // Reset highlight when query changes
   useEffect(() => {
@@ -278,7 +288,14 @@ export const SearchableBranchSelect: React.FC<SearchableBranchSelectProps> = ({
                     }`}
                   >
                     <div className="flex flex-col min-w-0 flex-1">
-                      <span className="truncate">{branch.name}</span>
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="truncate">{branch.name}</span>
+                        {defaultBranchId && matchesUserDefaultBranch(branch as any, defaultBranchId) && (
+                          <span className="shrink-0 px-1.5 py-0.5 rounded text-[9px] font-bold bg-[#003B73]/10 text-[#003B73]">
+                            По умолчанию
+                          </span>
+                        )}
+                      </div>
                       {extraInfo && (
                         <span className="text-[10px] text-slate-400 font-normal truncate">
                           {extraInfo}

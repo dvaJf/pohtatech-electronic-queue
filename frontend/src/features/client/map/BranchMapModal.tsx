@@ -22,7 +22,7 @@ import {
   Layers,
   CheckCircle2
 } from 'lucide-react';
-import { matchBranchLocation, liveWaitMinutes } from './liveBranches';
+import { matchBranchLocation, liveWaitMinutes, matchesUserDefaultBranch, getUserDefaultBranchId } from './liveBranches';
 import { decideUserLocationUpdate, decideLocationCenterRequest } from './mapViewportPolicy';
 import { useModalFocus } from '../../../hooks/useModalFocus';
 import type { BranchWorkload } from '../../../api/client/clientApi';
@@ -338,9 +338,16 @@ export function BranchMapModal({
   allBranchesRef.current = allBranches;
   targetBranchIdRef.current = targetBranchId;
 
+  const defaultBranchId = typeof localStorage !== 'undefined'
+    ? getUserDefaultBranchId()
+    : '11111111-1111-1111-1111-111111111111';
+
   // Фильтрация списка отделений
   const filteredBranches = useMemo(() => {
     return allBranches.filter((b) => {
+      // Отделение по умолчанию всегда остаётся в результатах поиска
+      if (matchesUserDefaultBranch(b, defaultBranchId)) return true;
+
       // Фильтр-чипы: «Все», «Посылки», «Письма», «Пенсии», «Доступная среда»
       if (selectedFilter !== 'all') {
         if (!b.amenities.includes(selectedFilter)) {
@@ -360,18 +367,16 @@ export function BranchMapModal({
       }
       return true;
     });
-  }, [allBranches, selectedFilter, searchQuery]);
+  }, [allBranches, selectedFilter, searchQuery, defaultBranchId]);
 
   // Сортировка: отделение по умолчанию всегда первое, открытые отделения сверху, закрытые снизу
   const sortedFilteredBranches = useMemo(() => {
-    const defaultBranchId = typeof localStorage !== 'undefined'
-      ? (localStorage.getItem('user_default_branch_id') || localStorage.getItem('client_selected_branch_id'))
-      : null;
-
     return [...filteredBranches].sort((a, b) => {
       if (defaultBranchId) {
-        if (a.id === defaultBranchId && b.id !== defaultBranchId) return -1;
-        if (b.id === defaultBranchId && a.id !== defaultBranchId) return 1;
+        const aIsDefault = matchesUserDefaultBranch(a, defaultBranchId);
+        const bIsDefault = matchesUserDefaultBranch(b, defaultBranchId);
+        if (aIsDefault && !bIsDefault) return -1;
+        if (bIsDefault && !aIsDefault) return 1;
       }
 
       const aClosed = getBranchScheduleStatus(a, workloads[a.id]).isClosed;
@@ -380,7 +385,7 @@ export function BranchMapModal({
       if (!aClosed && bClosed) return -1;
       return 0;
     });
-  }, [filteredBranches, workloads]);
+  }, [filteredBranches, workloads, defaultBranchId]);
 
   // Выбранное активное отделение (null если ничего не выбрано или свернуто)
   const selectedBranch = useMemo(() => {
@@ -1014,8 +1019,15 @@ export function BranchMapModal({
                         <div className="min-w-0 flex-1">
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
-                            <div className="text-xs font-extrabold text-[#031E56] leading-snug">
-                              {branch.name}
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-xs font-extrabold text-[#031E56] leading-snug">
+                                {branch.name}
+                              </span>
+                              {matchesUserDefaultBranch(branch, defaultBranchId) && (
+                                <span className="shrink-0 px-2 py-0.5 rounded-full text-[10px] font-black bg-[#003B73] text-white shadow-xs">
+                                  По умолчанию
+                                </span>
+                              )}
                             </div>
                             <div className="text-[11px] text-slate-500 mt-0.5 line-clamp-1">
                               {branch.address}
@@ -1346,7 +1358,14 @@ export function BranchMapModal({
                         <div className="min-w-0 flex-1">
                           <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0">
-                              <div className="text-xs font-bold text-[#031E56] break-words">{b.name}</div>
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="text-xs font-bold text-[#031E56] break-words">{b.name}</span>
+                                {matchesUserDefaultBranch(b, defaultBranchId) && (
+                                  <span className="shrink-0 px-2 py-0.5 rounded-full text-[10px] font-black bg-[#003B73] text-white shadow-xs">
+                                    По умолчанию
+                                  </span>
+                                )}
+                              </div>
                               <div className="text-[11px] text-slate-500 mt-0.5 break-words">{b.address}</div>
                             </div>
                             {!isClosed && (
@@ -1549,9 +1568,17 @@ export function DetailedBranchCard({
       {/* Информация об отделении */}
       <div className={`${compact && !isExpanded ? 'p-3 space-y-2' : 'p-4 space-y-3'}`}>
         <div>
-          <h3 className="text-sm font-extrabold text-[#031E56] leading-snug">
-            {branch.name}
-          </h3>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h3 className="text-sm font-extrabold text-[#031E56] leading-snug">
+              {branch.name}
+            </h3>
+            {matchesUserDefaultBranch(branch, getUserDefaultBranchId()) && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-[#003B73] text-white shadow-xs">
+                <Building2 size={10} className="text-white" />
+                <span>Отделение по умолчанию</span>
+              </span>
+            )}
+          </div>
           <p className="text-xs text-slate-500 mt-0.5">{branch.address}</p>
         </div>
 

@@ -16,7 +16,7 @@ import { RouteOfferModal } from './RouteOfferModal';
 import { BranchMapModal } from './map/BranchMapModal';
 import { calculateBranchTotalTime, isUsableDurationMinutes, MAX_QUEUE_WAIT_MINUTES, MAX_ROUTE_TRAVEL_MINUTES, MOSCOW_BRANCHES, BranchLocation, RankedBranch } from './map/branchLocations';
 
-import { matchBranchLocation } from './map/liveBranches';
+import { matchBranchLocation, matchesUserDefaultBranch, getUserDefaultBranchId } from './map/liveBranches';
 import { canShowNearbyBranchCard, updateNearbyVisits, dismissNearbyVisit, type NearbyVisitState } from './arrival/arrivalPolicy';
 import { VisitRatingSheet } from './rating/VisitRatingSheet';
 import { shouldOfferVisitRating } from './rating/visitRatingPolicy';
@@ -684,6 +684,7 @@ interface BranchCardProps {
   totalMinutes?: number;
   isFastest?: boolean;
   isClosest?: boolean;
+  isDefault?: boolean;
   timeSavedMinutes?: number;
   location?: BranchLocation;
   ratingAverage?: number | null;
@@ -752,6 +753,7 @@ function BranchCard({
   totalMinutes,
   isFastest,
   isClosest,
+  isDefault,
   timeSavedMinutes,
   location,
   ratingAverage, ratingCount,
@@ -776,7 +778,9 @@ function BranchCard({
       type="button"
       className={`cx-choice active:scale-[0.99] transition-all relative overflow-hidden ${
         selected ? ' cx-choice-selected' : ''
-      } ${isFastest && !isClosed ? 'ring-2 ring-emerald-500/60 bg-emerald-50/20' : ''} ${
+      } ${isDefault && !selected ? 'border-[#003B73]/60 bg-blue-50/30 ring-1 ring-[#003B73]/25 shadow-xs' : ''} ${
+        isFastest && !isClosed ? 'ring-2 ring-emerald-500/60 bg-emerald-50/20' : ''
+      } ${
         isClosed ? 'bg-slate-50/70 border-slate-200 opacity-90' : ''
       }`}
       aria-pressed={selected}
@@ -797,6 +801,12 @@ function BranchCard({
           {/* Верхняя строка: Рейтинг и бейджи слева, статус закрытия в правом верхнем углу */}
           <div className="flex items-center justify-between gap-1.5 mb-1.5 w-full flex-wrap">
             <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+              {isDefault && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-black bg-[#003B73] text-white border border-[#003B73] shadow-xs">
+                  <Building2 size={11} className="text-white" />
+                  <span>Отделение по умолчанию</span>
+                </span>
+              )}
               {!isClosed && (
                 <>
                   {isFastest && (
@@ -1200,13 +1210,19 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
   const [notice, setNotice] = useState<string | null>(null);
 
   const [, setFioSyncVersion] = useState(0);
+  const [defaultBranchSyncVersion, setDefaultBranchSyncVersion] = useState(0);
   useEffect(() => {
     const handleFioSync = () => setFioSyncVersion(v => v + 1);
+    const handleBranchSync = () => setDefaultBranchSyncVersion(v => v + 1);
     window.addEventListener('auth_fio_updated', handleFioSync);
+    window.addEventListener('client_default_branch_updated', handleBranchSync);
     window.addEventListener('storage', handleFioSync);
+    window.addEventListener('storage', handleBranchSync);
     return () => {
       window.removeEventListener('auth_fio_updated', handleFioSync);
+      window.removeEventListener('client_default_branch_updated', handleBranchSync);
       window.removeEventListener('storage', handleFioSync);
+      window.removeEventListener('storage', handleBranchSync);
     };
   }, []);
 
@@ -1542,11 +1558,14 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
 
   // Фильтрация по поиску и применение сортировки: открытые сверху, закрытые снизу
   const displayBranches = useMemo(() => {
+    const userDefaultBranchId = getUserDefaultBranchId(currentUserId);
     let result = enrichedBranches;
     const q = branchSearchQuery.trim().toLowerCase();
     if (q) {
+      const defaultBranch = enrichedBranches.find(b => matchesUserDefaultBranch(b, userDefaultBranchId));
       result = result.filter(
         (b) =>
+          (defaultBranch && b.id === defaultBranch.id) ||
           b.name.toLowerCase().includes(q) ||
           (b.address && b.address.toLowerCase().includes(q)) ||
           (b.metro && b.metro.toLowerCase().includes(q)) ||
@@ -1555,15 +1574,14 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
     }
 
     const isFastestMode = screen !== 'booking' && branchSortMode === 'fastest';
-    const userDefaultBranchId = (typeof localStorage !== 'undefined')
-      ? ((currentUserId ? localStorage.getItem(`user_default_branch_id:${currentUserId}`) : null) || localStorage.getItem('user_default_branch_id') || '')
-      : '';
 
     return [...result].sort((a, b) => {
       // Отделение по умолчанию пользователя ВСЕГДА первое в списке и результатах поиска
       if (userDefaultBranchId) {
-        if (a.id === userDefaultBranchId && b.id !== userDefaultBranchId) return -1;
-        if (b.id === userDefaultBranchId && a.id !== userDefaultBranchId) return 1;
+        const aIsDefault = matchesUserDefaultBranch(a, userDefaultBranchId);
+        const bIsDefault = matchesUserDefaultBranch(b, userDefaultBranchId);
+        if (aIsDefault && !bIsDefault) return -1;
+        if (bIsDefault && !aIsDefault) return 1;
       }
 
       const aClosed = getBranchScheduleStatus({ code: a.loc?.code, name: a.name, workHours: a.workHours }, workloads[a.id]).isClosed;
@@ -1577,7 +1595,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
         return (a.distanceMeters ?? Infinity) - (b.distanceMeters ?? Infinity);
       }
     });
-  }, [enrichedBranches, branchSearchQuery, branchSortMode, screen, workloads, currentUserId]);
+  }, [enrichedBranches, branchSearchQuery, branchSortMode, screen, workloads, currentUserId, defaultBranchSyncVersion]);
 
   const branchPageData = useMemo(
     () => paginateBranches(displayBranches, branchPage, branchPageSize),
@@ -2159,18 +2177,23 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
     const handleDefaultBranchUpdated = (e: Event) => {
       const custom = e as CustomEvent<{ branchId: string }>;
       if (custom.detail?.branchId) {
-        handleBranchSelect(custom.detail.branchId);
+        const targetId = custom.detail.branchId;
+        const matched = branches.find(b => matchesUserDefaultBranch(b, targetId));
+        handleBranchSelect(matched ? matched.id : targetId);
       }
     };
     window.addEventListener('client_default_branch_updated', handleDefaultBranchUpdated);
     return () => window.removeEventListener('client_default_branch_updated', handleDefaultBranchUpdated);
-  }, [handleBranchSelect]);
+  }, [branches, handleBranchSelect]);
 
   useEffect(() => {
-    if (currentUserId && typeof localStorage !== 'undefined') {
+    if (currentUserId && typeof localStorage !== 'undefined' && branches.length > 0) {
       const preferred = localStorage.getItem(`user_default_branch_id:${currentUserId}`) || localStorage.getItem('user_default_branch_id');
-      if (preferred && preferred !== branchId && branches.some(b => b.id === preferred)) {
-        handleBranchSelect(preferred);
+      if (preferred) {
+        const matched = branches.find(b => matchesUserDefaultBranch(b, preferred));
+        if (matched && matched.id !== branchId) {
+          handleBranchSelect(matched.id);
+        }
       }
     }
   }, [currentUserId, branchId, branches, handleBranchSelect]);
@@ -2637,6 +2660,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                     totalMinutes={b.totalMinutes}
                     isFastest={fastestBranch?.id === b.id}
                     isClosest={closestBranch?.id === b.id}
+                    isDefault={matchesUserDefaultBranch(b, getUserDefaultBranchId(currentUserId))}
                     timeSavedMinutes={timeSavedMinutes}
                     location={b.loc}
                     ratingAverage={b.ratingAverage} ratingCount={b.ratingCount}
@@ -2855,6 +2879,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                     totalMinutes={b.totalMinutes}
                     isFastest={fastestBranch?.id === b.id}
                     isClosest={closestBranch?.id === b.id}
+                    isDefault={matchesUserDefaultBranch(b, getUserDefaultBranchId(currentUserId))}
                     timeSavedMinutes={timeSavedMinutes}
                     location={b.loc}
                     ratingAverage={b.ratingAverage} ratingCount={b.ratingCount}

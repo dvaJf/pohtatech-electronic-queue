@@ -1187,6 +1187,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
     return v && v !== 'undefined' && v !== 'null' ? v : '';
   });
   const [scheduledAtInput, setScheduledAtInput] = useState('');
+  const [isAppointmentDateDayOff, setIsAppointmentDateDayOff] = useState(false);
   const [smsReminderEnabled, setSmsReminderEnabled] = useState(true);
   const [bookingStep, setBookingStep] = useState(0);
   const [walkinStep, setWalkinStep] = useState(qrBranchId ? 1 : 0);
@@ -1393,6 +1394,13 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
       setScreen('booking');
       setBookingStep(1);
     } else if (action === 'walkin') {
+      const scheduleStatus = getBranchScheduleStatus(b, workloads[b.id]);
+      if (scheduleStatus.isClosed) {
+        setScreen('booking');
+        setBookingStep(1);
+        setNotice('Отделение сейчас закрыто. Запись доступна на следующий рабочий день.');
+        return;
+      }
       setScreen('walkin');
       setWalkinStep(1);
     }
@@ -2105,8 +2113,20 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
     setServiceId('');
     sessionStorage.removeItem(STORAGE_SERVICE_KEY);
     sessionStorage.setItem(STORAGE_BRANCH_KEY, id);
-    if (screen === 'booking') setBookingStep(1);
-    if (screen === 'walkin') setWalkinStep(1);
+    const selectedBranchObj = branches.find((b) => b.id === id);
+    const scheduleStatus = selectedBranchObj ? getBranchScheduleStatus(selectedBranchObj, workloads[id]) : null;
+
+    if (screen === 'booking') {
+      setBookingStep(1);
+    } else if (screen === 'walkin') {
+      if (scheduleStatus?.isClosed) {
+        setScreen('booking');
+        setBookingStep(1);
+        setNotice('Отделение сейчас закрыто. Запись доступна на следующий рабочий день.');
+      } else {
+        setWalkinStep(1);
+      }
+    }
 
     if (id !== branchId) {
       setServices([]);
@@ -2633,12 +2653,15 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                 onChange={setScheduledAtInput}
                 disabled={creating}
                 workHours={branches.find(b => b.id === branchId)?.workHours}
+                branch={branches.find(b => b.id === branchId)}
+                workload={branchId ? workloads[branchId] : undefined}
+                onDayOffChange={setIsAppointmentDateDayOff}
               />
 
               <button
                 type="button"
                 className="w-full min-h-[48px] py-3 bg-[#003B73] hover:bg-[#054FA6] active:bg-[#00274D] text-white rounded-xl font-bold text-xs uppercase tracking-wider transition-all shadow-md active:scale-[0.99] disabled:opacity-50 flex items-center justify-center gap-2"
-                disabled={creating || !scheduledAtInput}
+                disabled={creating || !scheduledAtInput || isAppointmentDateDayOff}
                 onClick={createAppointmentData}
               >
                 {creating ? (
@@ -2646,6 +2669,8 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                     <span className="w-4 h-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
                     <span>Оформляем...</span>
                   </>
+                ) : isAppointmentDateDayOff ? (
+                  <span>Выберите рабочий день</span>
                 ) : (
                   <span>Подтвердить запись</span>
                 )}

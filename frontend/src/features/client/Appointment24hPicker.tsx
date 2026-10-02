@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo } from 'react';
-import { Calendar, Clock, Check } from 'lucide-react';
-import { parseWorkHours } from '../../utils/workload';
+import { Calendar, Clock, Check, AlertCircle } from 'lucide-react';
+import { parseWorkHours, getMoscowTimeComponents } from '../../utils/workload';
+import { getBranchWeeklySchedule } from './map/branchSchedule';
+import type { BranchWorkload } from '../../api/client/clientApi';
 
 function moscowDateInput(date: Date): string {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -19,11 +21,14 @@ function addMoscowDays(date: Date, days: number): string {
   return shifted.toISOString().slice(0, 10);
 }
 
-interface Appointment24hPickerProps {
+export interface Appointment24hPickerProps {
   value: string; // ISO-like "YYYY-MM-DDTHH:mm"
   onChange: (val: string) => void;
   disabled?: boolean;
   workHours?: string;
+  branch?: { code?: string; name?: string; workHours?: string; isShiftClosed?: boolean };
+  workload?: BranchWorkload;
+  onDayOffChange?: (isDayOff: boolean) => void;
 }
 
 // Популярные 24-часовые интервалы для быстрой записи
@@ -43,8 +48,59 @@ export const Appointment24hPicker: React.FC<Appointment24hPickerProps> = ({
   onChange,
   disabled = false,
   workHours = '08:00–20:00',
+  branch,
+  workload,
+  onDayOffChange,
 }) => {
   const parsedWorkHours = useMemo(() => parseWorkHours(workHours), [workHours]);
+
+  const weeklySchedule = useMemo(
+    () => getBranchWeeklySchedule(branch?.code, branch?.name, workHours),
+    [branch?.code, branch?.name, workHours]
+  );
+
+  const moscowNow = useMemo(() => getMoscowTimeComponents(new Date()), []);
+  const todaySchedule = weeklySchedule[moscowNow.dayIndex];
+
+  const todayCloseMinutes = useMemo(() => {
+    if (todaySchedule?.closeTime) {
+      const [h, m] = todaySchedule.closeTime.split(':').map(Number);
+      return (h || 0) * 60 + (m || 0);
+    }
+    return parsedWorkHours.closeHour * 60;
+  }, [todaySchedule, parsedWorkHours]);
+
+  const currentMinutes = moscowNow.hour * 60 + moscowNow.minute;
+  const isShiftClosed = Boolean(branch?.isShiftClosed || (workload && workload.activeWindows === 0));
+
+  // Запись на сегодня доступна, только если отделение сегодня работает, смена открыта и осталось хотя бы 30 минут до закрытия
+  const canBookToday =
+    !isShiftClosed &&
+    Boolean(todaySchedule?.isOpen) &&
+    !todaySchedule?.isDayOff &&
+    currentMinutes < todayCloseMinutes - 30;
+
+  // Быстрые дни
+  const todayDateStr = useMemo(() => moscowDateInput(new Date()), []);
+  const tomorrowDateStr = useMemo(() => addMoscowDays(new Date(), 1), []);
+  const afterTomorrowDateStr = useMemo(() => addMoscowDays(new Date(), 2), []);
+
+  // Поиск первого доступного дня для записи (завтра или следующий открытый рабочий день)
+  const firstAvailableOffset = useMemo(() => {
+    if (canBookToday) return 0;
+    for (let offset = 1; offset <= 7; offset++) {
+      const nextDayIndex = (moscowNow.dayIndex + offset) % 7;
+      const dayItem = weeklySchedule[nextDayIndex];
+      if (dayItem && dayItem.isOpen && !dayItem.isDayOff) {
+        return offset;
+      }
+    }
+    return 1;
+  }, [canBookToday, moscowNow.dayIndex, weeklySchedule]);
+
+  const firstAvailableDateStr = useMemo(() => {
+    return addMoscowDays(new Date(), firstAvailableOffset);
+  }, [firstAvailableOffset]);
 
   // Разбор текущего значения YYYY-MM-DDTHH:mm
   const [datePart, timePart] = useMemo(() => {
@@ -52,9 +108,10 @@ export const Appointment24hPicker: React.FC<Appointment24hPickerProps> = ({
       const [d, t] = value.split('T');
       return [d, t.slice(0, 5)];
     }
-    // По умолчанию: завтра в 10:00
-    return [addMoscowDays(new Date(), 1), '10:00'];
-  }, [value]);
+    // По умолчанию: первый доступный день в 10:00
+    const defaultDate = canBookToday ? todayDateStr : firstAvailableDateStr;
+    return [defaultDate, '10:00'];
+  }, [value, canBookToday, todayDateStr, firstAvailableDateStr]);
 
   const [selectedHour, selectedMinute] = useMemo(() => {
     if (timePart && timePart.includes(':')) {
@@ -64,41 +121,61 @@ export const Appointment24hPicker: React.FC<Appointment24hPickerProps> = ({
     return ['10', '00'];
   }, [timePart]);
 
+  // Проверка расписания для выбранной пользователем даты
+  const selectedDaySchedule = useMemo(() => {
+    if (!datePart) return null;
+    const [y, m, d] = datePart.split('-').map(Number);
+    const dt = new Date(Date.UTC(y, m - 1, d));
+    const dayOfWeek = (dt.getUTCDay() + 6) % 7; // 0=Пн..6=Вс
+    return weeklySchedule[dayOfWeek] ?? null;
+  }, [datePart, weeklySchedule]);
+
+  const isSelectedDateDayOff = Boolean(
+    selectedDaySchedule && (selectedDaySchedule.isDayOff || !selectedDaySchedule.isOpen)
+  );
+
+  useEffect(() => {
+    onDayOffChange?.(isSelectedDateDayOff);
+  }, [isSelectedDateDayOff, onDayOffChange]);
+
+  // Синхронизация при первом рендере или если отделение закрыто, а дата выбрана на сегодня
+  useEffect(() => {
+    if (!value) {
+      const defaultDate = canBookToday ? todayDateStr : firstAvailableDateStr;
+      onChange(`${defaultDate}T10:00`);
+    } else if (!canBookToday && datePart === todayDateStr) {
+      // Отделение сегодня закрыто, а дата была выставлена на сегодня — переключаем на ближайший доступный день
+      onChange(`${firstAvailableDateStr}T10:00`);
+    }
+  }, [value, canBookToday, datePart, todayDateStr, firstAvailableDateStr, onChange]);
+
   // Допустимый диапазон часов работы отделения (строго 24ч: 08..20)
   const allowedHours = useMemo(() => {
     const hours: string[] = [];
-    const start = Math.max(0, Math.min(23, parsedWorkHours.openHour));
-    const end = Math.max(start, Math.min(23, parsedWorkHours.closeHour - 1));
+    const openH = selectedDaySchedule?.openTime
+      ? parseInt(selectedDaySchedule.openTime.split(':')[0], 10)
+      : parsedWorkHours.openHour;
+    const closeH = selectedDaySchedule?.closeTime
+      ? parseInt(selectedDaySchedule.closeTime.split(':')[0], 10)
+      : parsedWorkHours.closeHour;
+
+    const start = Math.max(0, Math.min(23, openH));
+    const end = Math.max(start, Math.min(23, closeH - 1));
+
     for (let h = start; h <= end; h++) {
+      // Если выбрано «сегодня», исключаем уже прошедшие часы
+      if (datePart === todayDateStr && h <= moscowNow.hour) {
+        continue;
+      }
       hours.push(String(h).padStart(2, '0'));
     }
-    return hours.length > 0 ? hours : ['08', '09', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20'];
-  }, [parsedWorkHours]);
+    return hours.length > 0 ? hours : ['10', '11', '12', '13', '14', '15', '16', '17', '18'];
+  }, [selectedDaySchedule, parsedWorkHours, datePart, todayDateStr, moscowNow.hour]);
 
   const allowedMinutes = [
     '00', '05', '10', '15', '20', '25',
     '30', '35', '40', '45', '50', '55'
   ];
-
-  // Быстрые дни
-  const todayDateStr = useMemo(() => {
-    return moscowDateInput(new Date());
-  }, []);
-
-  const tomorrowDateStr = useMemo(() => {
-    return addMoscowDays(new Date(), 1);
-  }, []);
-
-  const afterTomorrowDateStr = useMemo(() => {
-    return addMoscowDays(new Date(), 2);
-  }, []);
-
-  // Синхронизация при первом рендере если value пусто
-  useEffect(() => {
-    if (!value) {
-      onChange(`${tomorrowDateStr}T10:00`);
-    }
-  }, [value, tomorrowDateStr, onChange]);
 
   const handleDateChange = (newDate: string) => {
     onChange(`${newDate}T${selectedHour}:${selectedMinute}`);
@@ -117,7 +194,18 @@ export const Appointment24hPicker: React.FC<Appointment24hPickerProps> = ({
     onChange(`${datePart}T${h.padStart(2, '0')}:${m.padStart(2, '0')}`);
   };
 
-  // Человекочитаемое представление выбранной даты (без дублирования времени после запятой)
+  // Видимые популярные слоты (на сегодня исключаем уже прошедшие)
+  const visiblePopularSlots = useMemo(() => {
+    if (datePart === todayDateStr) {
+      return POPULAR_24H_SLOTS.filter((slot) => {
+        const [h, m] = slot.split(':').map(Number);
+        return h * 60 + m > currentMinutes + 15;
+      });
+    }
+    return POPULAR_24H_SLOTS;
+  }, [datePart, todayDateStr, currentMinutes]);
+
+  // Человекочитаемое представление выбранной даты
   const formattedPreview = useMemo(() => {
     if (!datePart) return '';
     try {
@@ -130,7 +218,7 @@ export const Appointment24hPicker: React.FC<Appointment24hPickerProps> = ({
   }, [datePart]);
 
   return (
-    <div className="space-y-4 text-left w-full max-w-full min-w-0">
+    <div className="space-y-4 text-left w-full max-w-full min-w-0 font-['Manrope']">
       {/* 1. Выбор даты визита */}
       <div className="space-y-2 w-full max-w-full min-w-0">
         <label className="flex items-center justify-between text-xs font-bold text-slate-700">
@@ -141,16 +229,41 @@ export const Appointment24hPicker: React.FC<Appointment24hPickerProps> = ({
           <span className="text-[10px] sm:text-[11px] text-slate-400 font-normal">Часовой пояс: МСК</span>
         </label>
 
+        {/* Уведомление, если отделение сегодня закрыто */}
+        {!canBookToday && (
+          <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-center gap-2">
+            <Clock className="w-4 h-4 text-amber-600 shrink-0" />
+            <span>
+              Отделение сейчас закрыто. Запись доступна начиная со следующего рабочего дня:{' '}
+              <strong>{firstAvailableOffset === 1 ? 'завтра' : selectedDaySchedule?.dayFull.toLowerCase() ?? firstAvailableDateStr}</strong>.
+            </span>
+          </div>
+        )}
+
+        {/* Уведомление, если выбран выходной день */}
+        {isSelectedDateDayOff && (
+          <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center gap-2 font-medium">
+            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+            <span>
+              В выбранный день (<strong>{selectedDaySchedule?.dayFull}</strong>) отделение не работает (выходной). Пожалуйста, выберите рабочий день.
+            </span>
+          </div>
+        )}
+
         {/* Быстрые кнопки выбора даты */}
         <div className="grid grid-cols-3 gap-1 sm:gap-1.5 select-none w-full max-w-full min-w-0">
           <button
             type="button"
-            disabled={disabled}
-            onClick={() => handleDateChange(todayDateStr)}
+            disabled={disabled || !canBookToday}
+            onClick={() => canBookToday && handleDateChange(todayDateStr)}
             aria-pressed={datePart === todayDateStr}
-            className="appointment-choice appointment-date-choice"
+            className={`appointment-choice appointment-date-choice ${
+              !canBookToday ? 'opacity-40 cursor-not-allowed bg-slate-100 text-slate-400' : ''
+            }`}
+            title={!canBookToday ? 'Сегодня отделение закрыто — запись доступна со следующего рабочего дня' : 'Запись на сегодня'}
           >
             <span>Сегодня</span>
+            {!canBookToday && <span className="text-[9px] block text-rose-600 font-bold leading-tight">закрыто</span>}
           </button>
           <button
             type="button"
@@ -175,7 +288,7 @@ export const Appointment24hPicker: React.FC<Appointment24hPickerProps> = ({
         {/* Календарный ввод конкретной даты */}
         <input
           type="date"
-          min={todayDateStr}
+          min={canBookToday ? todayDateStr : firstAvailableDateStr}
           value={datePart}
           disabled={disabled}
           onChange={(e) => handleDateChange(e.target.value)}
@@ -204,9 +317,9 @@ export const Appointment24hPicker: React.FC<Appointment24hPickerProps> = ({
             </span>
             <select
               value={selectedHour}
-              disabled={disabled}
+              disabled={disabled || isSelectedDateDayOff}
               onChange={(e) => handleHourChange(e.target.value)}
-              className="w-full min-w-0 max-w-full px-2.5 sm:px-3 py-2.5 text-xs font-mono font-bold rounded-xl border border-slate-300 bg-white shadow-2xs focus:ring-2 focus:ring-[#003B73] text-slate-900 truncate"
+              className="w-full min-w-0 max-w-full px-2.5 sm:px-3 py-2.5 text-xs font-mono font-bold rounded-xl border border-slate-300 bg-white shadow-2xs focus:ring-2 focus:ring-[#003B73] text-slate-900 truncate disabled:opacity-50"
               aria-label="Час визита (24-часовой формат)"
             >
               {allowedHours.map((h) => (
@@ -223,9 +336,9 @@ export const Appointment24hPicker: React.FC<Appointment24hPickerProps> = ({
             </span>
             <select
               value={selectedMinute}
-              disabled={disabled}
+              disabled={disabled || isSelectedDateDayOff}
               onChange={(e) => handleMinuteChange(e.target.value)}
-              className="w-full min-w-0 max-w-full px-2.5 sm:px-3 py-2.5 text-xs font-mono font-bold rounded-xl border border-slate-300 bg-white shadow-2xs focus:ring-2 focus:ring-[#003B73] text-slate-900 truncate"
+              className="w-full min-w-0 max-w-full px-2.5 sm:px-3 py-2.5 text-xs font-mono font-bold rounded-xl border border-slate-300 bg-white shadow-2xs focus:ring-2 focus:ring-[#003B73] text-slate-900 truncate disabled:opacity-50"
               aria-label="Минуты визита"
             >
               {allowedMinutes.map((m) => (
@@ -238,28 +351,30 @@ export const Appointment24hPicker: React.FC<Appointment24hPickerProps> = ({
         </div>
 
         {/* Быстрые слоты времени (24-часовые чипы) */}
-        <div className="pt-1 w-full max-w-full min-w-0">
-          <span className="text-[11px] font-semibold text-slate-500 block mb-1.5">
-            Быстрый выбор времени:
-          </span>
-          <div className="grid grid-cols-4 gap-1.5 sm:gap-2 w-full max-w-full min-w-0">
-            {POPULAR_24H_SLOTS.map((slot) => {
-              const active = `${selectedHour}:${selectedMinute}` === slot;
-              return (
-                <button
-                  key={slot}
-                  type="button"
-                  disabled={disabled}
-                  onClick={() => handleSlotSelect(slot)}
-                  aria-pressed={active}
-                  className="appointment-choice appointment-time-choice"
-                >
-                  <span>{slot}</span>
-                </button>
-              );
-            })}
+        {!isSelectedDateDayOff && visiblePopularSlots.length > 0 && (
+          <div className="pt-1 w-full max-w-full min-w-0">
+            <span className="text-[11px] font-semibold text-slate-500 block mb-1.5">
+              Быстрый выбор времени:
+            </span>
+            <div className="grid grid-cols-4 gap-1.5 sm:gap-2 w-full max-w-full min-w-0">
+              {visiblePopularSlots.map((slot) => {
+                const active = `${selectedHour}:${selectedMinute}` === slot;
+                return (
+                  <button
+                    key={slot}
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => handleSlotSelect(slot)}
+                    aria-pressed={active}
+                    className="appointment-choice appointment-time-choice"
+                  >
+                    <span>{slot}</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* 3. Информационный бейдж с подтверждением 24-часового формата */}

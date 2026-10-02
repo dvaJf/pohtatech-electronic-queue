@@ -664,11 +664,10 @@ export function BranchMapModal({
       }, {
         iconLayout: pinLayout,
         iconShape: { type: 'Rectangle', coordinates: [[-70, -36], [70, 4]] },
-        cursor: isClosed ? 'default' : 'pointer',
-        interactive: !isClosed,
+        cursor: 'pointer',
+        interactive: true,
       });
       placemark.events.add('click', () => {
-        if (isClosed) return;
         focusBranchOnMap(b.id);
       });
       placemark.events.add('mouseenter', () => {
@@ -1079,7 +1078,11 @@ export function BranchMapModal({
             </div>
 
             {/* Карточка выбранного отделения внизу сайдбара с кнопками действий */}
-            {selectedBranch && (
+            {selectedBranch && (() => {
+              const selectedSchedule = getBranchScheduleStatus(selectedBranch, workloads[selectedBranch.id]);
+              const isSelectedClosed = selectedSchedule.isClosed;
+
+              return (
               <div className="p-3 bg-white border-t border-[#E2E8F0] shadow-lg animate-in slide-in-from-bottom-2 duration-200">
                 <div className="flex items-center justify-between mb-1.5">
                   <span className="text-[11px] uppercase tracking-wider font-extrabold text-slate-400">
@@ -1106,8 +1109,16 @@ export function BranchMapModal({
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
-                    onClick={() => handleTakeTicket(selectedBranch)}
-                    className="w-full py-2.5 px-3 rounded-xl bg-[#052F85] hover:bg-[#031E56] text-white text-xs font-bold transition-all shadow-md shadow-[#052F85]/20 flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer"
+                    onClick={() => {
+                      if (!isSelectedClosed) handleTakeTicket(selectedBranch);
+                    }}
+                    disabled={isSelectedClosed}
+                    title={isSelectedClosed ? 'Отделение закрыто — получение талона недоступно' : 'Взять талон'}
+                    className={`w-full py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                      isSelectedClosed
+                        ? 'bg-slate-100 border border-slate-200 text-slate-400 cursor-not-allowed shadow-none'
+                        : 'bg-[#052F85] hover:bg-[#031E56] text-white shadow-md shadow-[#052F85]/20 active:scale-95 cursor-pointer'
+                    }`}
                   >
                     <span>Взять талон</span>
                     <ArrowRight size={13} />
@@ -1116,13 +1127,15 @@ export function BranchMapModal({
                     type="button"
                     onClick={() => handleBookAppointment(selectedBranch)}
                     className="w-full py-2.5 px-3 rounded-xl border-2 border-[#052F85] text-[#052F85] hover:bg-blue-50 text-xs font-bold transition-all flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer"
+                    title={isSelectedClosed ? 'Записаться на следующий рабочий день' : 'Записаться на визит'}
                   >
                     <Clock size={13} />
                     <span>Записаться</span>
                   </button>
                 </div>
               </div>
-            )}
+              );
+            })()}
           </aside>
 
           {/* ======================================================== */}
@@ -1649,8 +1662,16 @@ export function DetailedBranchCard({
         {(!compact || isExpanded) && !informationalOnly && <div className="grid grid-cols-2 gap-2 pt-1">
           <button
             type="button"
-            onClick={onTakeTicket}
-            className={`w-full min-h-11 ${compact ? 'py-2' : 'py-2.5'} px-4 rounded-2xl bg-[#052F85] hover:bg-[#031E56] text-white text-xs font-extrabold transition-all shadow-md shadow-[#052F85]/20 flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer`}
+            onClick={() => {
+              if (!scheduleStatus.isClosed) onTakeTicket();
+            }}
+            disabled={scheduleStatus.isClosed}
+            title={scheduleStatus.isClosed ? 'Отделение закрыто — получение талона недоступно' : 'Взять талон'}
+            className={`w-full min-h-11 ${compact ? 'py-2' : 'py-2.5'} px-4 rounded-2xl text-xs font-extrabold transition-all flex items-center justify-center gap-1.5 ${
+              scheduleStatus.isClosed
+                ? 'bg-slate-100 border border-slate-200 text-slate-400 cursor-not-allowed shadow-none'
+                : 'bg-[#052F85] hover:bg-[#031E56] text-white shadow-md shadow-[#052F85]/20 active:scale-95 cursor-pointer'
+            }`}
           >
             <span>Взять талон</span>
             <ArrowRight size={14} />
@@ -1659,6 +1680,7 @@ export function DetailedBranchCard({
             type="button"
             onClick={onBookAppointment}
             className={`w-full min-h-11 ${compact ? 'py-2' : 'py-2.5'} px-4 rounded-2xl border-2 border-[#052F85] text-[#052F85] hover:bg-blue-50 text-xs font-extrabold transition-all flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer`}
+            title={scheduleStatus.isClosed ? 'Записаться на следующий рабочий день' : 'Записаться на визит'}
           >
             <Clock size={14} />
             <span>Записаться</span>

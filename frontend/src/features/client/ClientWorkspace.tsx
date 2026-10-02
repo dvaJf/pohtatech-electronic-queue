@@ -914,9 +914,9 @@ function BranchCard({
 
                 {/* Правый нижний угол: статус закрытия */}
                 {isClosed && (
-                  <span className="shrink-0 inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-50 border border-rose-200 text-rose-700 shadow-2xs ml-auto">
-                    <Clock size={11} className="text-rose-500 shrink-0" />
-                    <span>Отделение закрыто {scheduleStatus.closedUntilText}</span>
+                  <span className="max-w-full inline-flex items-center gap-1 px-2.5 py-0.5 rounded-xl sm:rounded-full text-[11px] font-bold bg-rose-50 border border-rose-200 text-rose-700 shadow-2xs ml-auto text-left leading-tight break-words">
+                    <Clock size={11} className="text-rose-500 shrink-0 self-start mt-0.5" />
+                    <span className="break-words">Отделение закрыто {scheduleStatus.closedUntilText}</span>
                   </span>
                 )}
               </div>

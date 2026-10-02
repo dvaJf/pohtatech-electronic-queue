@@ -1,5 +1,4 @@
 import React from 'react';
-import { Calendar } from 'lucide-react';
 import type { DayScheduleItem } from './branchSchedule';
 import { getMoscowTimeComponents } from '../../../utils/workload';
 
@@ -25,7 +24,6 @@ export function WeeklyScheduleView({
     <div className="bg-slate-50 rounded-2xl p-3 border border-slate-200/80 text-left space-y-2.5 font-['Manrope']">
       <div className="flex items-center justify-between gap-2 pb-1.5 border-b border-slate-200/60">
         <div className="flex items-center gap-1.5 text-xs font-extrabold text-[#031E56]">
-          <Calendar size={13} className="text-[#052F85]" />
           <span>Расписание на неделю</span>
         </div>
       </div>

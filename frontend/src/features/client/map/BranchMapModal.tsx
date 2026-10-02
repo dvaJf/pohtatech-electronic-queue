@@ -892,7 +892,7 @@ export function BranchMapModal({
           {/* ======================================================== */}
           {/* ЛЕВЫЙ САЙДБАР (DESKTOP 35%): Список и фильтры            */}
           {/* ======================================================== */}
-          <aside className="hidden md:flex md:w-[35%] flex-col h-full bg-[#F8FAFC] border-r border-[#E2E8F0] z-20 overflow-hidden">
+          <aside className="hidden md:flex md:w-[38%] lg:w-[35%] md:min-w-[360px] md:max-w-[460px] flex-col h-full bg-[#F8FAFC] border-r border-[#E2E8F0] z-20 overflow-hidden">
             {/* Поиск и быстрые фильтры */}
             <div className="p-4 bg-white border-b border-[#E2E8F0] space-y-3">
               {/* Поле поиска */}
@@ -1064,9 +1064,9 @@ export function BranchMapModal({
 
                         {/* Правый нижний угол: статус закрытия */}
                         {isClosed && (
-                          <span className="shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-50 border border-rose-200 text-[10px] font-bold text-rose-700 shadow-2xs ml-auto">
-                            <Clock size={10} className="shrink-0 text-rose-500" />
-                            <span>Отделение закрыто {scheduleStatus.closedUntilText}</span>
+                          <span className="max-w-full inline-flex items-center gap-1 px-2 py-0.5 rounded-xl sm:rounded-full bg-rose-50 border border-rose-200 text-[10px] font-bold text-rose-700 shadow-2xs ml-auto text-left leading-tight break-words">
+                            <Clock size={10} className="shrink-0 text-rose-500 self-start mt-0.5" />
+                            <span className="break-words">Отделение закрыто {scheduleStatus.closedUntilText}</span>
                           </span>
                         )}
                       </div>
@@ -1186,7 +1186,7 @@ export function BranchMapModal({
 
             {/* Всплывающая подробная карточка отделения над картой на десктопе */}
             {selectedBranch && (
-              <div ref={desktopBranchCardRef} data-testid="desktop-branch-card-overlay" className="hidden md:block absolute bottom-5 right-5 w-80 max-w-[calc(100%-2.5rem)] max-h-[calc(100%-2.5rem)] overflow-y-auto rounded-3xl z-20 shadow-xl animate-in fade-in slide-in-from-bottom-2 duration-200">
+              <div ref={desktopBranchCardRef} data-testid="desktop-branch-card-overlay" className="hidden md:block absolute bottom-5 right-5 w-80 sm:w-96 max-w-[calc(100%-2.5rem)] max-h-[calc(100%-2.5rem)] overflow-y-auto rounded-3xl z-20 shadow-xl animate-in fade-in slide-in-from-bottom-2 duration-200">
                 <DetailedBranchCard
                   branch={selectedBranch}
                   compact
@@ -1362,9 +1362,9 @@ export function BranchMapModal({
 
                             {/* Правый нижний угол: статус закрытия */}
                             {isClosed && (
-                              <span className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-rose-50 border border-rose-200 text-[9px] font-bold text-rose-700 shadow-2xs ml-auto">
-                                <Clock size={9} className="shrink-0 text-rose-500" />
-                                <span>Отделение закрыто {scheduleStatus.closedUntilText}</span>
+                              <span className="max-w-full inline-flex items-center gap-1 px-1.5 py-0.5 rounded-xl sm:rounded-full bg-rose-50 border border-rose-200 text-[9px] font-bold text-rose-700 shadow-2xs ml-auto text-left leading-tight break-words">
+                                <Clock size={9} className="shrink-0 text-rose-500 self-start mt-0.5" />
+                                <span className="break-words">Отделение закрыто {scheduleStatus.closedUntilText}</span>
                               </span>
                             )}
                           </div>
@@ -1540,13 +1540,13 @@ export function DetailedBranchCard({
             <span className="font-semibold text-slate-800">{landmark?.label || 'Ближайшая остановка транспорта'}</span>
           </div>
           <div className="space-y-2">
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex items-start sm:items-center justify-between gap-2 flex-wrap">
               <div className="flex items-center gap-2">
                 <Clock size={14} className="text-slate-400 shrink-0" />
                 <span>Часы работы: <strong>{branch.workHours}</strong></span>
               </div>
               {scheduleStatus.isClosed ? (
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-200 shrink-0">
+                <span className="px-2 py-0.5 rounded-xl sm:rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-200 max-w-full text-left leading-tight break-words">
                   Отделение закрыто {scheduleStatus.closedUntilText}
                 </span>
               ) : (
@@ -1577,7 +1577,7 @@ export function DetailedBranchCard({
               ? { colorClass: 'border-slate-200 text-slate-500', label: 'Нет оценки' }
               : { colorClass: wait.textClass, label: wait.label };
             return (
-              <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-200/60">
+              <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-200/60 flex-wrap">
                 <div className="flex items-center gap-2">
                   <Users size={14} className="text-slate-400 shrink-0" />
                   <span>В зале: <strong>{branch.waitingCount ?? '—'} чел.</strong></span>

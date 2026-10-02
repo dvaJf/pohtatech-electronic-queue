@@ -24,7 +24,8 @@ func (p *Postgres) SubmitFeedback(ctx context.Context, ticketID string, rating i
 		return dbError(err)
 	}
 	defer tx.Rollback(context.Background())
-	var status, expected string
+	var status string
+	var expected *string
 	err = tx.QueryRow(ctx, `SELECT status, management_token_hash FROM tickets WHERE id=$1 FOR UPDATE`, ticket).Scan(&status, &expected)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return application.ErrNotFound
@@ -32,7 +33,7 @@ func (p *Postgres) SubmitFeedback(ctx context.Context, ticketID string, rating i
 	if err != nil {
 		return dbError(err)
 	}
-	if expected == "" || HashManagementToken(token) != expected {
+	if expected == nil || *expected == "" || HashManagementToken(token) != *expected {
 		return application.ErrForbidden
 	}
 	if status != "COMPLETED" {

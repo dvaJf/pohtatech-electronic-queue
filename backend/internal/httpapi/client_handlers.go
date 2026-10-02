@@ -241,8 +241,13 @@ func (a *API) CancelAppointment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	if isAuthorizedStaff || isAuthenticatedClient {
+	if isAuthorizedStaff {
 		ctx = persistence.WithStaffBypass(ctx)
+	} else if isAuthenticatedClient {
+		ctx = persistence.WithClientOwner(ctx, user.ID)
+		if strings.TrimSpace(token) != "" {
+			ctx = persistence.WithManagementToken(ctx, token)
+		}
 	} else {
 		ctx = persistence.WithPublicClient(ctx)
 		ctx = persistence.WithManagementToken(ctx, token)
@@ -273,8 +278,13 @@ func (a *API) CancelTicket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	if isAuthorizedStaff || isAuthenticatedClient {
+	if isAuthorizedStaff {
 		ctx = persistence.WithStaffBypass(ctx)
+	} else if isAuthenticatedClient {
+		ctx = persistence.WithClientOwner(ctx, user.ID)
+		if strings.TrimSpace(token) != "" {
+			ctx = persistence.WithManagementToken(ctx, token)
+		}
 	} else {
 		ctx = persistence.WithPublicClient(ctx)
 		ctx = persistence.WithManagementToken(ctx, token)

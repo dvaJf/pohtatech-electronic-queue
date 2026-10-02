@@ -144,4 +144,75 @@ func TestPublicCancelSecurityEndpoints(t *testing.T) {
 			t.Fatalf("expected 200 OK for staff bypass, got %d: %s", w.Code, w.Body.String())
 		}
 	})
+
+	// Authenticated Client tests (anti-IDOR)
+	aliceID := "user-alice"
+	bobID := "user-bob"
+	bobTicketID := "t-bob-ticket"
+
+	ucClient := &FakeUseCases{
+		GetSessionUserFunc: func(ctx context.Context, token string) (domain.User, error) {
+			return domain.User{
+				ID:        aliceID,
+				Email:     "alice@example.com",
+				Role:      domain.RoleClient,
+				Confirmed: true,
+			}, nil
+		},
+		CancelTicketFunc: func(ctx context.Context, ticketID string) (domain.Ticket, error) {
+			if persistence.IsStaffBypass(ctx) {
+				return domain.Ticket{ID: ticketID, Status: domain.TicketStatusCancelled}, nil
+			}
+			ownerID, hasOwner := persistence.ClientOwnerFromContext(ctx)
+			token, hasToken := persistence.ManagementTokenFromContext(ctx)
+
+			ticketClientID := bobID
+			isOwner := hasOwner && ownerID == ticketClientID
+			if !isOwner {
+				if !hasToken || token != "valid-token-for-bob" {
+					return domain.Ticket{}, application.ErrForbidden
+				}
+			}
+			return domain.Ticket{
+				ID:           ticketID,
+				PublicNumber: "Q-999",
+				Source:       domain.TicketSourceQR,
+				Status:       domain.TicketStatusCancelled,
+				ClientID:     &ticketClientID,
+			}, nil
+		},
+	}
+	rClient := setupTest(ucClient)
+
+	t.Run("Client Alice cannot cancel Client Bob ticket without token (anti-IDOR)", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/tickets/"+bobTicketID+"/cancel", nil)
+		w := httptest.NewRecorder()
+		rClient.ServeHTTP(w, req)
+
+		if w.Code != http.StatusForbidden {
+			t.Fatalf("expected 403 Forbidden when Alice cancels Bob's ticket without token, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("Client Alice cannot cancel Client Bob ticket with wrong token (anti-IDOR)", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/tickets/"+bobTicketID+"/cancel", nil)
+		req.Header.Set("X-Ticket-Manage-Token", "wrong-token")
+		w := httptest.NewRecorder()
+		rClient.ServeHTTP(w, req)
+
+		if w.Code != http.StatusForbidden {
+			t.Fatalf("expected 403 Forbidden with wrong token, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("Client Alice can cancel Client Bob ticket if providing Bob valid manage token", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/tickets/"+bobTicketID+"/cancel", nil)
+		req.Header.Set("X-Ticket-Manage-Token", "valid-token-for-bob")
+		w := httptest.NewRecorder()
+		rClient.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200 OK with valid manage token, got %d: %s", w.Code, w.Body.String())
+		}
+	})
 }

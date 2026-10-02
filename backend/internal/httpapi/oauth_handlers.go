@@ -2,6 +2,9 @@ package httpapi
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -19,20 +22,41 @@ import (
 
 func (a *API) OAuthLogin(w http.ResponseWriter, r *http.Request) {
 	provider := strings.ToLower(chi.URLParam(r, "provider"))
-	isDemo := r.URL.Query().Get("demo") == "1"
+	allowDemo := os.Getenv("ALLOW_DEMO_OAUTH") == "true" || os.Getenv("APP_ENV") == "test" || os.Getenv("APP_ENV") == "development"
+	isDemo := r.URL.Query().Get("demo") == "1" && allowDemo
 
 	redirectURI := getOAuthRedirectURI(r, provider)
+	isSecure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 
 	switch provider {
 	case "yandex":
 		clientID := strings.TrimSpace(os.Getenv("YANDEX_CLIENT_ID"))
-		if clientID == "" || isDemo {
-			// Демо / мгновенный режим без задержек и модерации
+		if isDemo {
+			// Demo mode explicitly enabled for dev/test
 			a.completeOAuthSession(w, r, "client.yandex@yandex.ru", "yandex")
 			return
 		}
-		authURL := fmt.Sprintf("https://oauth.yandex.ru/authorize?response_type=code&client_id=%s&redirect_uri=%s",
-			url.QueryEscape(clientID), url.QueryEscape(redirectURI))
+		if clientID == "" {
+			http.Redirect(w, r, "/?auth_error=oauth_unconfigured", http.StatusTemporaryRedirect)
+			return
+		}
+
+		stateBytes := make([]byte, 16)
+		_, _ = rand.Read(stateBytes)
+		state := hex.EncodeToString(stateBytes)
+
+		http.SetCookie(w, &http.Cookie{
+			Name:     "oauth_state",
+			Value:    state,
+			Path:     "/",
+			MaxAge:   600,
+			HttpOnly: true,
+			Secure:   isSecure,
+			SameSite: http.SameSiteLaxMode,
+		})
+
+		authURL := fmt.Sprintf("https://oauth.yandex.ru/authorize?response_type=code&client_id=%s&redirect_uri=%s&state=%s",
+			url.QueryEscape(clientID), url.QueryEscape(redirectURI), url.QueryEscape(state))
 		http.Redirect(w, r, authURL, http.StatusTemporaryRedirect)
 
 	default:
@@ -49,6 +73,28 @@ func (a *API) OAuthCallback(w http.ResponseWriter, r *http.Request) {
 	code := r.URL.Query().Get("code")
 	if code == "" {
 		http.Redirect(w, r, "/?auth_error=no_code", http.StatusTemporaryRedirect)
+		return
+	}
+
+	isSecure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
+
+	// Validate OAuth state
+	stateQuery := r.URL.Query().Get("state")
+	stateCookie, cookieErr := r.Cookie("oauth_state")
+
+	// Clear oauth_state cookie
+	http.SetCookie(w, &http.Cookie{
+		Name:     "oauth_state",
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   isSecure,
+		SameSite: http.SameSiteLaxMode,
+	})
+
+	if cookieErr != nil || stateCookie.Value == "" || stateQuery == "" || subtle.ConstantTimeCompare([]byte(stateCookie.Value), []byte(stateQuery)) != 1 {
+		http.Redirect(w, r, "/?auth_error=invalid_state", http.StatusTemporaryRedirect)
 		return
 	}
 

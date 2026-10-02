@@ -1,385 +1,703 @@
 apiVersion: v1
 data:
-  init.sql: "-- === 000001_initial.up.sql ===\n-- Foundation intentionally has no
-    business schema.\nSELECT 1;\n\n\n-- === 000002_sprint1.up.sql ===\nCREATE TABLE
-    branches (id uuid PRIMARY KEY, name text NOT NULL);\nCREATE TABLE services (id
-    uuid PRIMARY KEY, code text NOT NULL UNIQUE, name text NOT NULL);\nCREATE TABLE
-    branch_services (\n branch_id uuid NOT NULL REFERENCES branches(id),\n service_id
-    uuid NOT NULL REFERENCES services(id),\n PRIMARY KEY (branch_id, service_id)\n);\nCREATE
-    TABLE windows (\n id uuid PRIMARY KEY,\n branch_id uuid NOT NULL REFERENCES branches(id),\n
-    number integer NOT NULL CHECK (number > 0),\n status text NOT NULL CHECK (status
-    IN ('CLOSED','OPEN','CLOSING')),\n UNIQUE (branch_id, number),\n UNIQUE (id, branch_id)\n);\nCREATE
-    TABLE window_services (\n window_id uuid NOT NULL,\n branch_id uuid NOT NULL,\n
-    service_id uuid NOT NULL,\n PRIMARY KEY (window_id, service_id),\n FOREIGN KEY
-    (window_id, branch_id) REFERENCES windows(id, branch_id),\n FOREIGN KEY (branch_id,
-    service_id) REFERENCES branch_services(branch_id, service_id)\n);\nCREATE SEQUENCE
-    ticket_public_number_seq;\n-- Minimum six digits; nextval is evaluated exactly
-    once and never truncated.\nCREATE FUNCTION next_ticket_public_number() RETURNS
-    text LANGUAGE sql VOLATILE AS $$\n SELECT 'Q-' || lpad(n::text, greatest(6, length(n::text)),
-    '0') FROM (SELECT nextval('ticket_public_number_seq') AS n) s\n$$;\nCREATE TABLE
-    tickets (\n id uuid PRIMARY KEY DEFAULT gen_random_uuid(),\n public_number text
-    NOT NULL UNIQUE DEFAULT next_ticket_public_number(),\n branch_id uuid NOT NULL,\n
-    service_id uuid NOT NULL,\n source text NOT NULL CHECK (source IN ('APPOINTMENT','QR','LIVE')),\n
-    status text NOT NULL CHECK (status IN ('SCHEDULED','WAITING','CALLED','SERVING','COMPLETED','CANCELLED','NO_SHOW')),\n
-    window_id uuid,\n idempotency_key text NOT NULL UNIQUE CHECK (length(btrim(idempotency_key))
-    > 0),\n created_at timestamptz NOT NULL DEFAULT clock_timestamp(),\n queue_entered_at
-    timestamptz NOT NULL DEFAULT clock_timestamp(),\n called_at timestamptz,\n service_started_at
-    timestamptz,\n completed_at timestamptz,\n FOREIGN KEY (branch_id, service_id)
-    REFERENCES branch_services(branch_id, service_id),\n FOREIGN KEY (window_id, branch_id)
-    REFERENCES windows(id, branch_id),\n FOREIGN KEY (window_id, service_id) REFERENCES
-    window_services(window_id, service_id),\n CHECK (status NOT IN ('CALLED','SERVING','COMPLETED')
-    OR (window_id IS NOT NULL AND called_at IS NOT NULL)),\n CHECK (status NOT IN
-    ('SERVING','COMPLETED') OR service_started_at IS NOT NULL),\n CHECK (status <>
-    'COMPLETED' OR completed_at IS NOT NULL)\n);\nCREATE UNIQUE INDEX tickets_one_active_per_window
-    ON tickets(window_id) WHERE status IN ('CALLED','SERVING');\nCREATE INDEX tickets_waiting_fifo
-    ON tickets(branch_id, queue_entered_at, id) INCLUDE (service_id) WHERE status
-    = 'WAITING';\nCREATE INDEX branch_services_service ON branch_services(service_id);\nCREATE
-    INDEX window_services_branch_service ON window_services(branch_id, service_id);\nCREATE
-    INDEX tickets_branch_service ON tickets(branch_id, service_id);\nCREATE INDEX
-    tickets_window_service ON tickets(window_id, service_id);\nINSERT INTO branches
-    VALUES ('11111111-1111-1111-1111-111111111111','Демо-отделение №1');\nINSERT INTO
-    services VALUES\n ('22222222-2222-2222-2222-222222222222','PARCELS','Посылки'),\n
-    ('55555555-5555-5555-5555-555555555555','PAYMENTS','Платежи');\nINSERT INTO branch_services
-    SELECT '11111111-1111-1111-1111-111111111111', id FROM services;\nINSERT INTO
-    windows VALUES\n ('33333333-3333-3333-3333-333333333333','11111111-1111-1111-1111-111111111111',1,'OPEN'),\n
-    ('44444444-4444-4444-4444-444444444444','11111111-1111-1111-1111-111111111111',2,'OPEN'),\n
-    ('66666666-6666-6666-6666-666666666666','11111111-1111-1111-1111-111111111111',3,'OPEN');\nINSERT
-    INTO window_services SELECT id, branch_id,\n CASE WHEN number = 2 THEN '55555555-5555-5555-5555-555555555555'::uuid
-    ELSE '22222222-2222-2222-2222-222222222222'::uuid END FROM windows;\n\n\n-- ===
-    000003_tz2.up.sql ===\nALTER TABLE tickets ADD COLUMN scheduled_at timestamptz;\n\n\n--
-    === 000004_priority_rules.up.sql ===\nCREATE TABLE priority_rules (\n branch_id
-    uuid NOT NULL REFERENCES branches(id),\n source    text NOT NULL CHECK (source
-    IN ('APPOINTMENT','QR','LIVE')),\n name      text NOT NULL,\n weight    integer
-    NOT NULL CHECK (weight >= 0),\n max_wait_limit_minutes integer NOT NULL CHECK
-    (max_wait_limit_minutes >= 0),\n description text NOT NULL DEFAULT '',\n PRIMARY
-    KEY (branch_id, source)\n);\n\n-- Seed default rules for existing demo branch\nINSERT
-    INTO priority_rules (branch_id, source, name, weight, max_wait_limit_minutes,
-    description)\nVALUES\n ('11111111-1111-1111-1111-111111111111', 'APPOINTMENT',
-    'Предварительная запись', 100, 5,  'Обслуживаются первыми по времени'),\n ('11111111-1111-1111-1111-111111111111',
-    'QR',          'QR-код',                 50,  15, 'Живая очередь по коду в отделении'),\n
-    ('11111111-1111-1111-1111-111111111111', 'LIVE',        'Живая очередь',           10,
-    \ 30, 'Талоны от оператора');\n\n\n-- === 000005_appointment_policy_events.up.sql
-    ===\n-- Ensure scheduled_at column exists and migrate legacy scheduled_time if
-    present.\nDO $$\nBEGIN\n    IF EXISTS (SELECT 1 FROM information_schema.columns
-    WHERE table_name='tickets' AND column_name='scheduled_time')\n       AND NOT EXISTS
-    (SELECT 1 FROM information_schema.columns WHERE table_name='tickets' AND column_name='scheduled_at')
-    THEN\n        ALTER TABLE tickets RENAME COLUMN scheduled_time TO scheduled_at;\n
-    \   ELSE\n        ALTER TABLE tickets ADD COLUMN IF NOT EXISTS scheduled_at timestamptz;\n
-    \   END IF;\nEND $$;\n\nUPDATE tickets SET queue_entered_at=scheduled_at, status='SCHEDULED',
-    window_id=NULL\n WHERE source='APPOINTMENT' AND status IN ('WAITING','SCHEDULED')
-    AND scheduled_at IS NOT NULL;\nALTER TABLE tickets ADD CONSTRAINT tickets_scheduled_source
-    CHECK (\n (source='APPOINTMENT' AND scheduled_at IS NOT NULL)\n OR (source<>'APPOINTMENT'
-    AND scheduled_at IS NULL));\nALTER TABLE tickets ADD CONSTRAINT tickets_scheduled_unassigned
-    CHECK (\n source<>'APPOINTMENT' OR status<>'SCHEDULED' OR\n (window_id IS NULL
-    AND queue_entered_at=scheduled_at));\nALTER TABLE tickets ADD CONSTRAINT tickets_cancelled_unassigned
-    CHECK (\n source<>'APPOINTMENT' OR status<>'CANCELLED' OR window_id IS NULL);\n--
-    Durable canonical UTC RFC3339Nano creation input. Retained on down to avoid\n--
-    losing idempotency precision; pre-000005 requests legitimately have NULL.\nALTER
-    TABLE tickets ADD COLUMN IF NOT EXISTS appointment_requested_at text;\nCREATE
-    SEQUENCE appointment_public_number_seq;\n-- Reconcile only during migration. Ordinary
-    creation always uses nextval.\n-- This also handles down/up while retaining tickets
-    and their public numbers.\nDO $$\nDECLARE highest_number bigint;\nBEGIN\n SELECT
-    max(substring(public_number FROM 3)::bigint) INTO highest_number\n FROM tickets
-    WHERE public_number ~ '^A-[0-9]+$';\n IF highest_number > 0 THEN\n  PERFORM setval('appointment_public_number_seq',
-    highest_number, true);\n END IF;\nEND\n$$;\nCREATE FUNCTION next_appointment_public_number()
-    RETURNS text LANGUAGE sql VOLATILE AS $$\n SELECT 'A-' || lpad(n::text, greatest(6,length(n::text)),
-    '0')\n FROM (SELECT nextval('appointment_public_number_seq') AS n) s\n$$;\nCREATE
-    TABLE queue_policies (\n branch_id uuid PRIMARY KEY REFERENCES branches(id),\n
-    appointment_due_priority integer NOT NULL CHECK (appointment_due_priority BETWEEN
-    0 AND 1000),\n qr_priority integer NOT NULL CHECK (qr_priority BETWEEN 0 AND 1000),\n
-    version bigint NOT NULL CHECK (version > 0),\n updated_at timestamptz NOT NULL
-    DEFAULT clock_timestamp(),\n CHECK (appointment_due_priority > qr_priority)\n);\nINSERT
-    INTO queue_policies(branch_id,appointment_due_priority,qr_priority,version)\n
-    VALUES ('11111111-1111-1111-1111-111111111111',100,10,1);\nCREATE TABLE ticket_events
-    (\n id bigserial PRIMARY KEY,\n ticket_id uuid NOT NULL REFERENCES tickets(id),\n
-    type text NOT NULL CHECK(type IN ('CREATED','CALLED','SERVICE_STARTED','COMPLETED','CANCELLED')),\n
-    from_status text,\n to_status text NOT NULL,\n window_id uuid REFERENCES windows(id),\n
-    policy_version bigint,\n decision_priority integer,\n occurred_at timestamptz
-    NOT NULL DEFAULT clock_timestamp(),\n CHECK ((type='CREATED' AND from_status IS
-    NULL AND to_status IN ('WAITING','SCHEDULED') AND window_id IS NULL)\n OR (type='CALLED'
-    AND from_status IS NOT NULL AND from_status IN ('WAITING','SCHEDULED') AND to_status='CALLED'
-    AND window_id IS NOT NULL)\n OR (type='SERVICE_STARTED' AND from_status IS NOT
-    NULL AND from_status='CALLED' AND to_status='SERVING' AND window_id IS NOT NULL)\n
-    OR (type='COMPLETED' AND from_status IS NOT NULL AND from_status='SERVING' AND
-    to_status='COMPLETED' AND window_id IS NOT NULL)\n OR (type='CANCELLED' AND from_status
-    IS NOT NULL AND from_status='SCHEDULED' AND to_status='CANCELLED' AND window_id
-    IS NULL)),\n CHECK ((type='CALLED' AND policy_version IS NOT NULL AND policy_version>0
-    AND decision_priority IS NOT NULL AND decision_priority BETWEEN 0 AND 1000)\n
-    OR (type<>'CALLED' AND policy_version IS NULL AND decision_priority IS NULL))\n);\nCREATE
-    INDEX ticket_events_chronological ON ticket_events(ticket_id,occurred_at,id);\nCREATE
-    INDEX tickets_due_appointments ON tickets(branch_id,scheduled_at,id) INCLUDE(service_id)\n
-    WHERE source='APPOINTMENT' AND status='SCHEDULED';\n-- Audit entries cannot be
-    edited through ordinary SQL either.\nCREATE FUNCTION reject_ticket_event_mutation()
-    RETURNS trigger LANGUAGE plpgsql AS $$\nBEGIN\n RAISE EXCEPTION 'ticket events
-    are append-only';\nEND\n$$;\nCREATE TRIGGER ticket_events_immutable BEFORE UPDATE
-    OR DELETE ON ticket_events\n FOR EACH ROW EXECUTE FUNCTION reject_ticket_event_mutation();\n\n\n--
-    === 000006_sprint3_queue_engine.up.sql ===\nALTER TABLE tickets\n ADD COLUMN arrived_at
-    timestamptz,\n ADD COLUMN no_show_at timestamptz,\n ADD CONSTRAINT tickets_arrival_source
-    CHECK (arrived_at IS NULL OR source='APPOINTMENT'),\n ADD CONSTRAINT tickets_no_show_fact
-    CHECK ((status='NO_SHOW') = (no_show_at IS NOT NULL)),\n ADD CONSTRAINT tickets_no_show_called
-    CHECK (status<>'NO_SHOW' OR called_at IS NOT NULL);\n\nALTER TABLE queue_policies\n
-    ADD COLUMN live_priority integer NOT NULL DEFAULT 10,\n ADD COLUMN anti_starvation_threshold_minutes
-    integer NOT NULL DEFAULT 15,\n ADD COLUMN anti_starvation_points_per_minute integer
-    NOT NULL DEFAULT 10,\n ADD COLUMN appointment_grace_minutes integer NOT NULL DEFAULT
-    30,\n ADD COLUMN appointment_late_penalty_per_minute integer NOT NULL DEFAULT
-    5,\n ADD COLUMN appointment_late_penalty_max_points integer NOT NULL DEFAULT 90;\n--
-    Install the frozen Sprint 3 defaults as one versioned policy change per branch.\nUPDATE
-    queue_policies SET appointment_due_priority=100, qr_priority=10,\n version=version+1,
-    updated_at=transaction_timestamp();\nALTER TABLE queue_policies\n ADD CONSTRAINT
-    policy_live_range CHECK (live_priority BETWEEN 0 AND 1000 AND appointment_due_priority>live_priority),\n
-    ADD CONSTRAINT policy_aging_range CHECK (anti_starvation_threshold_minutes BETWEEN
-    0 AND 240 AND anti_starvation_points_per_minute BETWEEN 1 AND 600),\n ADD CONSTRAINT
-    policy_lateness_range CHECK (appointment_grace_minutes BETWEEN 0 AND 120 AND appointment_late_penalty_per_minute
-    BETWEEN 0 AND 600 AND appointment_late_penalty_max_points BETWEEN 0 AND 1000 AND
-    appointment_late_penalty_max_points<=appointment_due_priority);\n\nALTER TABLE
-    ticket_events DROP CONSTRAINT ticket_events_type_check,\n DROP CONSTRAINT ticket_events_check,
-    DROP CONSTRAINT ticket_events_check1;\nALTER TABLE ticket_events ALTER COLUMN
-    decision_priority TYPE bigint;\nALTER TABLE ticket_events\n ADD CONSTRAINT ticket_events_type_check
-    CHECK (type IN ('CREATED','ARRIVED','CALLED','SERVICE_STARTED','COMPLETED','CANCELLED','NO_SHOW')),\n
-    ADD CONSTRAINT ticket_events_check CHECK (\n (type='CREATED' AND from_status IS
-    NULL AND to_status IN ('WAITING','SCHEDULED') AND window_id IS NULL)\n OR (type='ARRIVED'
-    AND from_status IS NOT NULL AND from_status='SCHEDULED' AND to_status='SCHEDULED'
-    AND window_id IS NULL)\n OR (type='CALLED' AND from_status IS NOT NULL AND from_status
-    IN ('WAITING','SCHEDULED') AND to_status='CALLED' AND window_id IS NOT NULL)\n
-    OR (type='SERVICE_STARTED' AND from_status IS NOT NULL AND from_status='CALLED'
-    AND to_status='SERVING' AND window_id IS NOT NULL)\n OR (type='COMPLETED' AND
-    from_status IS NOT NULL AND from_status='SERVING' AND to_status='COMPLETED' AND
-    window_id IS NOT NULL)\n OR (type='CANCELLED' AND from_status IS NOT NULL AND
-    from_status='SCHEDULED' AND to_status='CANCELLED' AND window_id IS NULL)\n OR
-    (type='NO_SHOW' AND from_status IS NOT NULL AND from_status='CALLED' AND to_status='NO_SHOW'
-    AND window_id IS NOT NULL)),\n ADD CONSTRAINT ticket_events_check1 CHECK (\n (type='CALLED'
-    AND policy_version IS NOT NULL AND policy_version>0 AND decision_priority IS NOT
-    NULL AND decision_priority>=0)\n OR (type<>'CALLED' AND policy_version IS NULL
-    AND decision_priority IS NULL));\n\nCREATE SEQUENCE live_public_number_seq;\nDO
-    $$\nDECLARE highest_number bigint;\nBEGIN\n SELECT max(substring(public_number
-    FROM 3)::bigint) INTO highest_number FROM tickets WHERE public_number ~ '^L-[0-9]+$';\n
-    IF highest_number>0 THEN PERFORM setval('live_public_number_seq',highest_number,true);
-    END IF;\nEND $$;\nCREATE FUNCTION next_live_public_number() RETURNS text LANGUAGE
-    sql VOLATILE AS $$\n SELECT 'L-' || lpad(n::text,greatest(6,length(n::text)),'0')
-    FROM (SELECT nextval('live_public_number_seq') AS n) s\n$$;\nCREATE INDEX tickets_qr_live_candidates
-    ON tickets(branch_id,queue_entered_at,id) INCLUDE(service_id)\n WHERE source IN
-    ('QR','LIVE') AND status='WAITING';\n-- tickets_due_appointments and tickets_one_active_per_window
-    remain authoritative.\n\n\n-- === 000007_branches_extended.up.sql ===\nALTER TABLE
-    branches\n  ADD COLUMN IF NOT EXISTS address     text NOT NULL DEFAULT '',\n  ADD
-    COLUMN IF NOT EXISTS work_hours  text NOT NULL DEFAULT '08:00–20:00',\n  ADD COLUMN
-    IF NOT EXISTS timezone_offset integer NOT NULL DEFAULT 3;\n\n-- Обновить демо-отделение
-    реальными данными\nUPDATE branches\nSET address = 'г. Рязань, ул. Ленина, д. 20',\n
-    \   work_hours = '08:00–20:00',\n    timezone_offset = 3\nWHERE id = '11111111-1111-1111-1111-111111111111';\n\n\n--
-    === 000008_users_auth.up.sql ===\nCREATE TABLE IF NOT EXISTS users (\n  id            uuid
-    \       PRIMARY KEY DEFAULT gen_random_uuid(),\n  email         text        NOT
-    NULL UNIQUE,\n  password_hash text        NOT NULL,\n  role          text        NOT
-    NULL DEFAULT 'client'\n    CONSTRAINT users_role_check CHECK (role IN ('client','employee','opc_chief','terminal')),\n
-    \ is_terminal   boolean     NOT NULL DEFAULT false,\n  confirmed     boolean     NOT
-    NULL DEFAULT false,\n  confirm_token text,\n  created_at    timestamptz NOT NULL
-    DEFAULT clock_timestamp()\n);\n\nCREATE TABLE IF NOT EXISTS sessions (\n  token
-    \     text        PRIMARY KEY,\n  user_id    uuid        NOT NULL REFERENCES users(id)
-    ON DELETE CASCADE,\n  expires_at timestamptz NOT NULL,\n  created_at timestamptz
-    NOT NULL DEFAULT clock_timestamp()\n);\n\nCREATE INDEX IF NOT EXISTS sessions_user_id_idx
-    ON sessions(user_id);\nCREATE INDEX IF NOT EXISTS sessions_expires_at_idx ON sessions(expires_at);\n\n--
-    Создать тестового admin-пользователя (пароль: admin1234, bcrypt)\n-- Хэш bcrypt
-    для \"admin1234\" cost=12:\n-- $2a$10$0PlADjwCyuOVbtw1kGoWGOIOpBcPXULZShPGVabqqlzsYYh4HwqRW\nINSERT
-    INTO users (email, password_hash, role, is_terminal, confirmed)\nVALUES ('admin@pochta.local',
-    '$2a$10$0PlADjwCyuOVbtw1kGoWGOIOpBcPXULZShPGVabqqlzsYYh4HwqRW', 'opc_chief', false,
-    true)\nON CONFLICT (email) DO NOTHING;\n\n\n-- === 000009_ui_services.up.sql ===\nINSERT
-    INTO services (id, code, name)\nVALUES \n  ('33333333-2222-2222-2222-222222222222',
-    'SEND', 'Отправка писем и посылок'),\n  ('44444444-2222-2222-2222-222222222222',
-    'RETAIL', 'Почтовые товары')\nON CONFLICT (id) DO NOTHING;\n\nINSERT INTO branch_services
-    (branch_id, service_id)\nVALUES \n  ('11111111-1111-1111-1111-111111111111', '33333333-2222-2222-2222-222222222222'),\n
-    \ ('11111111-1111-1111-1111-111111111111', '44444444-2222-2222-2222-222222222222')\nON
-    CONFLICT (branch_id, service_id) DO NOTHING;\n\nINSERT INTO window_services (window_id,
-    branch_id, service_id)\nVALUES\n  ('33333333-3333-3333-3333-333333333333', '11111111-1111-1111-1111-111111111111',
-    '33333333-2222-2222-2222-222222222222'),\n  ('66666666-6666-6666-6666-666666666666',
-    '11111111-1111-1111-1111-111111111111', '33333333-2222-2222-2222-222222222222'),\n
-    \ ('33333333-3333-3333-3333-333333333333', '11111111-1111-1111-1111-111111111111',
-    '44444444-2222-2222-2222-222222222222'),\n  ('44444444-4444-4444-4444-444444444444',
-    '11111111-1111-1111-1111-111111111111', '44444444-2222-2222-2222-222222222222'),\n
-    \ ('66666666-6666-6666-6666-666666666666', '11111111-1111-1111-1111-111111111111',
-    '44444444-2222-2222-2222-222222222222')\nON CONFLICT (window_id, service_id) DO
-    NOTHING;\n\n\n-- === 000010_seed_operator.up.sql ===\n-- Тестовый оператор (пароль:
-    operator1234, bcrypt cost=10)\nINSERT INTO users (email, password_hash, role,
-    is_terminal, confirmed)\nVALUES ('operator@pochta.local', '$2a$10$9rE.JPFRj5xnpZplKdVRUebVNSl9PSx64nCYvnoU1vIQiFkNVFZYS',
-    'employee', false, true)\nON CONFLICT (email) DO NOTHING;\n\n\n-- === 000011_return_redirect_events.up.sql
-    ===\n-- Extend audit coverage only; existing immutable events and lifecycle remain
-    unchanged.\nALTER TABLE ticket_events DROP CONSTRAINT ticket_events_type_check,
-    DROP CONSTRAINT ticket_events_check;\nALTER TABLE ticket_events\n ADD CONSTRAINT
-    ticket_events_type_check CHECK (type IN ('CREATED','ARRIVED','CALLED','SERVICE_STARTED','COMPLETED','CANCELLED','NO_SHOW','RETURNED','REDIRECTED')),\n
-    ADD CONSTRAINT ticket_events_check CHECK (\n (type='CREATED' AND from_status IS
-    NULL AND to_status IN ('WAITING','SCHEDULED') AND window_id IS NULL)\n OR (type='ARRIVED'
-    AND from_status IS NOT NULL AND from_status='SCHEDULED' AND to_status='SCHEDULED'
-    AND window_id IS NULL)\n OR (type='CALLED' AND from_status IS NOT NULL AND from_status
-    IN ('WAITING','SCHEDULED') AND to_status='CALLED' AND window_id IS NOT NULL)\n
-    OR (type='SERVICE_STARTED' AND from_status IS NOT NULL AND from_status='CALLED'
-    AND to_status='SERVING' AND window_id IS NOT NULL)\n OR (type='COMPLETED' AND
-    from_status IS NOT NULL AND from_status='SERVING' AND to_status='COMPLETED' AND
-    window_id IS NOT NULL)\n OR (type='CANCELLED' AND from_status IS NOT NULL AND
-    from_status='SCHEDULED' AND to_status='CANCELLED' AND window_id IS NULL)\n OR
-    (type='NO_SHOW' AND from_status IS NOT NULL AND from_status='CALLED' AND to_status='NO_SHOW'
-    AND window_id IS NOT NULL)\n OR (type IN ('RETURNED','REDIRECTED') AND from_status
-    IS NOT NULL AND from_status IN ('CALLED','SERVING') AND to_status='WAITING'));\n\n\n\n--
-    === 000012_window_services_unfreeze.up.sql ===\n-- Operators must always be able
-    to drop a window capability, even when the window\n-- already served tickets of
-    that service. The composite foreign key from tickets to\n-- window_services was
-    the only blocker: it froze historical capabilities in place and\n-- made DELETE
-    FROM window_services fail with SQLSTATE 23503. Ticket integrity stays\n-- protected
-    by the remaining tickets foreign keys — (window_id, branch_id) references\n--
-    windows(id, branch_id) and (branch_id, service_id) references\n-- branch_services(branch_id,
-    service_id).\nALTER TABLE tickets DROP CONSTRAINT IF EXISTS tickets_window_id_service_id_fkey;\n\n\n\n--
-    === 000013_cancel_waiting_tickets.up.sql ===\nALTER TABLE ticket_events DROP CONSTRAINT
-    ticket_events_check;\nALTER TABLE ticket_events\n  ADD CONSTRAINT ticket_events_check
-    CHECK (\n  (type='CREATED' AND from_status IS NULL AND to_status IN ('WAITING','SCHEDULED')
-    AND window_id IS NULL)\n  OR (type='ARRIVED' AND from_status IS NOT NULL AND from_status='SCHEDULED'
-    AND to_status='SCHEDULED' AND window_id IS NULL)\n  OR (type='CALLED' AND from_status
-    IS NOT NULL AND from_status IN ('WAITING','SCHEDULED') AND to_status='CALLED'
-    AND window_id IS NOT NULL)\n  OR (type='SERVICE_STARTED' AND from_status IS NOT
-    NULL AND from_status='CALLED' AND to_status='SERVING' AND window_id IS NOT NULL)\n
-    \ OR (type='COMPLETED' AND from_status IS NOT NULL AND from_status='SERVING' AND
-    to_status='COMPLETED' AND window_id IS NOT NULL)\n  OR (type='CANCELLED' AND from_status
-    IS NOT NULL AND from_status IN ('SCHEDULED','WAITING') AND to_status='CANCELLED'
-    AND window_id IS NULL)\n  OR (type='NO_SHOW' AND from_status IS NOT NULL AND from_status='CALLED'
-    AND to_status='NO_SHOW' AND window_id IS NOT NULL)\n  OR (type IN ('RETURNED','REDIRECTED')
-    AND from_status IS NOT NULL AND from_status IN ('CALLED','SERVING') AND to_status='WAITING'));\n\n\n--
-    === 000014_due_at_queue_engine.up.sql ===\n-- Add due_at algorithm scheduling
-    columns to tickets\nALTER TABLE tickets\n  ADD COLUMN IF NOT EXISTS checkin_at
-    timestamptz,\n  ADD COLUMN IF NOT EXISTS ready_at timestamptz,\n  ADD COLUMN IF
-    NOT EXISTS due_at timestamptz,\n  ADD COLUMN IF NOT EXISTS source_rank integer
-    NOT NULL DEFAULT 1,\n  ADD COLUMN IF NOT EXISTS policy_version bigint NOT NULL
-    DEFAULT 1,\n  ADD COLUMN IF NOT EXISTS recall_count integer NOT NULL DEFAULT 0,\n
-    \ ADD COLUMN IF NOT EXISTS client_id text;\n\n-- Add journal tracking columns
-    to ticket_events\nALTER TABLE ticket_events\n  ADD COLUMN IF NOT EXISTS actor
-    text,\n  ADD COLUMN IF NOT EXISTS reason text,\n  ADD COLUMN IF NOT EXISTS due_at
-    timestamptz,\n  ADD COLUMN IF NOT EXISTS request_id text,\n  ADD COLUMN IF NOT
-    EXISTS at timestamptz DEFAULT clock_timestamp();\n\n-- Backfill existing WAITING
-    tickets\nUPDATE tickets\nSET checkin_at = COALESCE(arrived_at, queue_entered_at,
-    created_at),\n    ready_at = COALESCE(arrived_at, queue_entered_at, created_at),\n
-    \   due_at = COALESCE(arrived_at, queue_entered_at, created_at) + interval '30
-    minutes',\n    source_rank = CASE source WHEN 'APPOINTMENT' THEN 0 WHEN 'QR' THEN
-    1 ELSE 2 END,\n    policy_version = 1,\n    recall_count = 0\nWHERE status = 'WAITING'
-    AND due_at IS NULL;\n\n-- Backfill existing SCHEDULED tickets (appointment slot
-    time is due_at, ready at slot - 10 min)\nUPDATE tickets\nSET ready_at = COALESCE(scheduled_at
-    - interval '10 minutes', created_at),\n    due_at = COALESCE(scheduled_at, created_at),\n
-    \   source_rank = 0,\n    policy_version = 1,\n    recall_count = 0\nWHERE status
-    = 'SCHEDULED' AND due_at IS NULL;\n\n-- Backfill CALLED and SERVING tickets\nUPDATE
-    tickets\nSET checkin_at = COALESCE(arrived_at, queue_entered_at, created_at),\n
-    \   ready_at = COALESCE(arrived_at, queue_entered_at, created_at),\n    due_at
-    = COALESCE(scheduled_at, queue_entered_at, created_at),\n    source_rank = CASE
-    source WHEN 'APPOINTMENT' THEN 0 WHEN 'QR' THEN 1 ELSE 2 END,\n    policy_version
-    = 1,\n    recall_count = 0\nWHERE status IN ('CALLED', 'SERVING') AND due_at IS
-    NULL;\n\n-- Index for due_at queue ordering\nCREATE INDEX IF NOT EXISTS tickets_waiting_due_at
-    ON tickets(due_at, source_rank, checkin_at, id)\n  WHERE status = 'WAITING';\n\n--
-    Unique partial index: one active ticket per client\nCREATE UNIQUE INDEX IF NOT
-    EXISTS tickets_one_active_per_client ON tickets(client_id)\n  WHERE status IN
-    ('WAITING', 'CALLED', 'SERVING') AND client_id IS NOT NULL;\n\n-- Index on ticket_events
-    request_id for idempotent call-next lookups\nCREATE INDEX IF NOT EXISTS ticket_events_request_id
-    ON ticket_events(request_id)\n  WHERE request_id IS NOT NULL;\n\n-- Allow ARRIVED
-    events to transition to WAITING as well as SCHEDULED\nALTER TABLE ticket_events
-    DROP CONSTRAINT IF EXISTS ticket_events_check;\nALTER TABLE ticket_events ADD
-    CONSTRAINT ticket_events_check CHECK (\n  (type='CREATED' AND from_status IS NULL
-    AND to_status IN ('WAITING','SCHEDULED') AND window_id IS NULL)\n  OR (type='ARRIVED'
-    AND from_status IS NOT NULL AND from_status='SCHEDULED' AND to_status IN ('SCHEDULED','WAITING')
-    AND window_id IS NULL)\n  OR (type='CALLED' AND from_status IS NOT NULL AND from_status
-    IN ('WAITING','SCHEDULED','CALLED') AND to_status='CALLED' AND window_id IS NOT
-    NULL)\n  OR (type='SERVICE_STARTED' AND from_status IS NOT NULL AND from_status='CALLED'
-    AND to_status='SERVING' AND window_id IS NOT NULL)\n  OR (type='COMPLETED' AND
-    from_status IS NOT NULL AND from_status='SERVING' AND to_status='COMPLETED' AND
-    window_id IS NOT NULL)\n  OR (type='CANCELLED' AND from_status IS NOT NULL AND
-    from_status IN ('SCHEDULED','WAITING') AND to_status='CANCELLED' AND window_id
-    IS NULL)\n  OR (type='NO_SHOW' AND from_status IS NOT NULL AND from_status='CALLED'
-    AND to_status='NO_SHOW' AND window_id IS NOT NULL)\n  OR (type IN ('RETURNED','REDIRECTED')
-    AND from_status IS NOT NULL AND from_status IN ('CALLED','SERVING') AND to_status='WAITING')\n);\n\n--
-    Trigger to reject UPDATE/DELETE mutations on ticket_events (append-only audit
-    log)\nCREATE OR REPLACE FUNCTION trg_ticket_events_append_only()\nRETURNS TRIGGER
-    AS $$\nBEGIN\n    IF TG_OP = 'UPDATE' THEN\n        RAISE EXCEPTION 'ticket_events
-    is append-only: UPDATE is rejected';\n    ELSIF TG_OP = 'DELETE' THEN\n        RAISE
-    EXCEPTION 'ticket_events is append-only: DELETE is rejected';\n    END IF;\n    RETURN
-    NULL;\nEND;\n$$ LANGUAGE plpgsql;\n\nDROP TRIGGER IF EXISTS trg_ticket_events_no_mutation
-    ON ticket_events;\nCREATE TRIGGER trg_ticket_events_no_mutation\nBEFORE UPDATE
-    OR DELETE ON ticket_events\nFOR EACH ROW EXECUTE FUNCTION trg_ticket_events_append_only();\n\n--
-    Trigger to synchronize due_at and ready_at when scheduled_at or checkin_at are
-    modified\nCREATE OR REPLACE FUNCTION trg_tickets_sync_due_at()\nRETURNS TRIGGER
-    AS $$\nBEGIN\n    IF NEW.source = 'APPOINTMENT' THEN\n        IF NEW.scheduled_at
-    IS NOT NULL AND (TG_OP = 'INSERT' OR NEW.scheduled_at IS DISTINCT FROM OLD.scheduled_at)
-    THEN\n            NEW.due_at := NEW.scheduled_at;\n            IF NEW.checkin_at
-    IS NULL THEN\n                NEW.ready_at := NEW.scheduled_at;\n            ELSE\n
-    \               NEW.ready_at := GREATEST(NEW.checkin_at, NEW.scheduled_at - INTERVAL
-    '10 minutes');\n            END IF;\n        END IF;\n    ELSE\n        -- For
-    QR and LIVE\n        IF TG_OP = 'UPDATE' AND NEW.queue_entered_at IS DISTINCT
-    FROM OLD.queue_entered_at THEN\n            NEW.checkin_at := COALESCE(NEW.queue_entered_at,
-    NEW.checkin_at, clock_timestamp());\n            NEW.ready_at := COALESCE(NEW.queue_entered_at,
-    NEW.ready_at, clock_timestamp());\n            NEW.due_at := COALESCE(NEW.queue_entered_at,
-    NEW.due_at, clock_timestamp()) + INTERVAL '30 minutes';\n        ELSIF NEW.due_at
-    IS NULL THEN\n            NEW.due_at := COALESCE(NEW.checkin_at, NEW.queue_entered_at,
-    clock_timestamp()) + INTERVAL '30 minutes';\n            NEW.ready_at := COALESCE(NEW.checkin_at,
-    NEW.queue_entered_at, clock_timestamp());\n        END IF;\n    END IF;\n    RETURN
-    NEW;\nEND;\n$$ LANGUAGE plpgsql;\n\nDROP TRIGGER IF EXISTS trg_tickets_sync_due
-    ON tickets;\nCREATE TRIGGER trg_tickets_sync_due\nBEFORE INSERT OR UPDATE OF scheduled_at,
-    queue_entered_at, checkin_at ON tickets\nFOR EACH ROW EXECUTE FUNCTION trg_tickets_sync_due_at();\n\n\n--
-    === 000015_renumber_windows.up.sql ===\nDO $$\nDECLARE\n    b RECORD;\nBEGIN\n
-    \   FOR b IN SELECT DISTINCT branch_id FROM windows LOOP\n        UPDATE windows
-    \n        SET number = number + 100000 \n        WHERE branch_id = b.branch_id;\n\n
-    \       WITH ordered AS (\n            SELECT id, ROW_NUMBER() OVER (ORDER BY
-    number ASC) AS new_num\n            FROM windows\n            WHERE branch_id
-    = b.branch_id\n        )\n        UPDATE windows w\n        SET number = o.new_num\n
-    \       FROM ordered o\n        WHERE w.id = o.id;\n    END LOOP;\nEND $$;\n\n\n--
-    === 000016_notification_outbox.up.sql ===\nCREATE TABLE IF NOT EXISTS notification_outbox
-    (\n    id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),\n    ticket_id
-    \      uuid NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,\n    branch_id
-    \      uuid NOT NULL REFERENCES branches(id) ON DELETE CASCADE,\n    event_type
-    \     text NOT NULL,\n    payload         jsonb NOT NULL DEFAULT '{}'::jsonb,\n
-    \   status          text NOT NULL DEFAULT 'PENDING'\n        CONSTRAINT notification_outbox_status_check
-    CHECK (status IN ('PENDING', 'SENT', 'FAILED')),\n    attempts        int NOT
-    NULL DEFAULT 0,\n    max_attempts    int NOT NULL DEFAULT 3,\n    next_attempt_at
-    timestamptz NOT NULL DEFAULT clock_timestamp(),\n    created_at      timestamptz
-    NOT NULL DEFAULT clock_timestamp(),\n    sent_at         timestamptz,\n    last_error
-    \     text\n);\n\nCREATE INDEX IF NOT EXISTS notification_outbox_pending_idx\n
-    \   ON notification_outbox(status, next_attempt_at)\n    WHERE status = 'PENDING';\n\nCREATE
-    INDEX IF NOT EXISTS notification_outbox_ticket_idx\n    ON notification_outbox(ticket_id);\n\n\n--
-    === 000017_operator_incidents.up.sql ===\nCREATE TABLE IF NOT EXISTS operator_incidents
-    (\n    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),\n    branch_id UUID NOT
-    NULL REFERENCES branches(id) ON DELETE CASCADE,\n    window_id UUID REFERENCES
-    windows(id) ON DELETE SET NULL,\n    operator_id UUID REFERENCES users(id) ON
-    DELETE SET NULL,\n    category TEXT NOT NULL,\n    description TEXT NOT NULL,\n
-    \   created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()\n);\n\nCREATE INDEX
-    IF NOT EXISTS idx_operator_incidents_branch ON operator_incidents(branch_id, created_at
-    DESC);\n\n\n-- === 000018_near_turn_and_policy_audit.up.sql ===\nALTER TABLE notification_outbox
-    ADD COLUMN IF NOT EXISTS dedupe_key text;\nCREATE UNIQUE INDEX IF NOT EXISTS notification_outbox_dedupe_idx
-    ON notification_outbox(dedupe_key);\n\nALTER TABLE ticket_events DROP CONSTRAINT
-    IF EXISTS ticket_events_type_check;\nALTER TABLE ticket_events ADD CONSTRAINT
-    ticket_events_type_check CHECK (\n  type = ANY (ARRAY['CREATED'::text, 'ARRIVED'::text,
-    'CALLED'::text, 'SERVICE_STARTED'::text, 'COMPLETED'::text, 'CANCELLED'::text,
-    'NO_SHOW'::text, 'RETURNED'::text, 'REDIRECTED'::text, 'QUEUE_RECALCULATED'::text])\n);\n\nALTER
-    TABLE ticket_events DROP CONSTRAINT IF EXISTS ticket_events_check1;\nALTER TABLE
-    ticket_events ADD CONSTRAINT ticket_events_check1 CHECK (\n  (type = ANY (ARRAY['CALLED'::text,
-    'QUEUE_RECALCULATED'::text]) AND policy_version IS NOT NULL AND policy_version
-    > 0)\n  OR (type <> ALL (ARRAY['CALLED'::text, 'QUEUE_RECALCULATED'::text]) AND
-    policy_version IS NULL AND decision_priority IS NULL)\n);\n\nALTER TABLE ticket_events
-    DROP CONSTRAINT IF EXISTS ticket_events_check;\nALTER TABLE ticket_events ADD
-    CONSTRAINT ticket_events_check CHECK (\n  (type = 'CREATED'::text AND from_status
-    IS NULL AND (to_status = ANY (ARRAY['WAITING'::text, 'SCHEDULED'::text])) AND
-    window_id IS NULL)\n  OR (type = 'ARRIVED'::text AND from_status IS NOT NULL AND
-    from_status = 'SCHEDULED'::text AND (to_status = ANY (ARRAY['SCHEDULED'::text,
-    'WAITING'::text])) AND window_id IS NULL)\n  OR (type = 'CALLED'::text AND from_status
-    IS NOT NULL AND (from_status = ANY (ARRAY['WAITING'::text, 'SCHEDULED'::text,
-    'CALLED'::text])) AND to_status = 'CALLED'::text AND window_id IS NOT NULL)\n
-    \ OR (type = 'SERVICE_STARTED'::text AND from_status IS NOT NULL AND from_status
-    = 'CALLED'::text AND to_status = 'SERVING'::text AND window_id IS NOT NULL)\n
-    \ OR (type = 'COMPLETED'::text AND from_status IS NOT NULL AND from_status = 'SERVING'::text
-    AND to_status = 'COMPLETED'::text AND window_id IS NOT NULL)\n  OR (type = 'CANCELLED'::text
-    AND from_status IS NOT NULL AND (from_status = ANY (ARRAY['SCHEDULED'::text, 'WAITING'::text]))
-    AND to_status = 'CANCELLED'::text AND window_id IS NULL)\n  OR (type = 'NO_SHOW'::text
-    AND from_status IS NOT NULL AND from_status = 'CALLED'::text AND to_status = 'NO_SHOW'::text
-    AND window_id IS NOT NULL)\n  OR ((type = ANY (ARRAY['RETURNED'::text, 'REDIRECTED'::text]))
-    AND from_status IS NOT NULL AND (from_status = ANY (ARRAY['CALLED'::text, 'SERVING'::text]))
-    AND to_status = 'WAITING'::text)\n  OR (type = 'QUEUE_RECALCULATED'::text AND
-    from_status IS NULL AND (to_status = ANY (ARRAY['WAITING'::text, 'SCHEDULED'::text]))
-    AND window_id IS NULL)\n);\n\n-- === 000019_ticket_management_and_requeue.up.sql
-    ===\nALTER TABLE tickets\n  ADD COLUMN IF NOT EXISTS management_token_hash text,\n
-    \ ADD COLUMN IF NOT EXISTS requeued_at timestamptz;\n\nCREATE INDEX IF NOT EXISTS
-    idx_tickets_management_token_hash\n  ON tickets(management_token_hash)\n  WHERE
-    management_token_hash IS NOT NULL;\n\n-- === schema_migrations (golang-migrate
-    compatibility) ===\nCREATE TABLE IF NOT EXISTS schema_migrations (\n  version
-    bigint NOT NULL PRIMARY KEY,\n  dirty boolean NOT NULL\n);\nDELETE FROM schema_migrations;\nINSERT
-    INTO schema_migrations (version, dirty) VALUES (19, false);\n\n"
+  init.sql: |+
+    -- === 000001_initial.up.sql ===
+    -- Foundation intentionally has no business schema.
+    SELECT 1;
+
+
+    -- === 000002_sprint1.up.sql ===
+    CREATE TABLE branches (id uuid PRIMARY KEY, name text NOT NULL);
+    CREATE TABLE services (id uuid PRIMARY KEY, code text NOT NULL UNIQUE, name text NOT NULL);
+    CREATE TABLE branch_services (
+     branch_id uuid NOT NULL REFERENCES branches(id),
+     service_id uuid NOT NULL REFERENCES services(id),
+     PRIMARY KEY (branch_id, service_id)
+    );
+    CREATE TABLE windows (
+     id uuid PRIMARY KEY,
+     branch_id uuid NOT NULL REFERENCES branches(id),
+     number integer NOT NULL CHECK (number > 0),
+     status text NOT NULL CHECK (status IN ('CLOSED','OPEN','CLOSING')),
+     UNIQUE (branch_id, number),
+     UNIQUE (id, branch_id)
+    );
+    CREATE TABLE window_services (
+     window_id uuid NOT NULL,
+     branch_id uuid NOT NULL,
+     service_id uuid NOT NULL,
+     PRIMARY KEY (window_id, service_id),
+     FOREIGN KEY (window_id, branch_id) REFERENCES windows(id, branch_id),
+     FOREIGN KEY (branch_id, service_id) REFERENCES branch_services(branch_id, service_id)
+    );
+    CREATE SEQUENCE ticket_public_number_seq;
+    -- Minimum six digits; nextval is evaluated exactly once and never truncated.
+    CREATE FUNCTION next_ticket_public_number() RETURNS text LANGUAGE sql VOLATILE AS $$
+     SELECT 'Q-' || lpad(n::text, greatest(6, length(n::text)), '0') FROM (SELECT nextval('ticket_public_number_seq') AS n) s
+    $$;
+    CREATE TABLE tickets (
+     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+     public_number text NOT NULL UNIQUE DEFAULT next_ticket_public_number(),
+     branch_id uuid NOT NULL,
+     service_id uuid NOT NULL,
+     source text NOT NULL CHECK (source IN ('APPOINTMENT','QR','LIVE')),
+     status text NOT NULL CHECK (status IN ('SCHEDULED','WAITING','CALLED','SERVING','COMPLETED','CANCELLED','NO_SHOW')),
+     window_id uuid,
+     idempotency_key text NOT NULL UNIQUE CHECK (length(btrim(idempotency_key)) > 0),
+     created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+     queue_entered_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+     called_at timestamptz,
+     service_started_at timestamptz,
+     completed_at timestamptz,
+     FOREIGN KEY (branch_id, service_id) REFERENCES branch_services(branch_id, service_id),
+     FOREIGN KEY (window_id, branch_id) REFERENCES windows(id, branch_id),
+     FOREIGN KEY (window_id, service_id) REFERENCES window_services(window_id, service_id),
+     CHECK (status NOT IN ('CALLED','SERVING','COMPLETED') OR (window_id IS NOT NULL AND called_at IS NOT NULL)),
+     CHECK (status NOT IN ('SERVING','COMPLETED') OR service_started_at IS NOT NULL),
+     CHECK (status <> 'COMPLETED' OR completed_at IS NOT NULL)
+    );
+    CREATE UNIQUE INDEX tickets_one_active_per_window ON tickets(window_id) WHERE status IN ('CALLED','SERVING');
+    CREATE INDEX tickets_waiting_fifo ON tickets(branch_id, queue_entered_at, id) INCLUDE (service_id) WHERE status = 'WAITING';
+    CREATE INDEX branch_services_service ON branch_services(service_id);
+    CREATE INDEX window_services_branch_service ON window_services(branch_id, service_id);
+    CREATE INDEX tickets_branch_service ON tickets(branch_id, service_id);
+    CREATE INDEX tickets_window_service ON tickets(window_id, service_id);
+    INSERT INTO branches VALUES ('11111111-1111-1111-1111-111111111111','Демо-отделение №1');
+    INSERT INTO services VALUES
+     ('22222222-2222-2222-2222-222222222222','PARCELS','Посылки'),
+     ('55555555-5555-5555-5555-555555555555','PAYMENTS','Платежи');
+    INSERT INTO branch_services SELECT '11111111-1111-1111-1111-111111111111', id FROM services;
+    INSERT INTO windows VALUES
+     ('33333333-3333-3333-3333-333333333333','11111111-1111-1111-1111-111111111111',1,'OPEN'),
+     ('44444444-4444-4444-4444-444444444444','11111111-1111-1111-1111-111111111111',2,'OPEN'),
+     ('66666666-6666-6666-6666-666666666666','11111111-1111-1111-1111-111111111111',3,'OPEN');
+    INSERT INTO window_services SELECT id, branch_id,
+     CASE WHEN number = 2 THEN '55555555-5555-5555-5555-555555555555'::uuid ELSE '22222222-2222-2222-2222-222222222222'::uuid END FROM windows;
+
+
+    -- === 000003_tz2.up.sql ===
+    ALTER TABLE tickets ADD COLUMN scheduled_at timestamptz;
+
+
+    -- === 000004_priority_rules.up.sql ===
+    CREATE TABLE priority_rules (
+     branch_id uuid NOT NULL REFERENCES branches(id),
+     source    text NOT NULL CHECK (source IN ('APPOINTMENT','QR','LIVE')),
+     name      text NOT NULL,
+     weight    integer NOT NULL CHECK (weight >= 0),
+     max_wait_limit_minutes integer NOT NULL CHECK (max_wait_limit_minutes >= 0),
+     description text NOT NULL DEFAULT '',
+     PRIMARY KEY (branch_id, source)
+    );
+
+    -- Seed default rules for existing demo branch
+    INSERT INTO priority_rules (branch_id, source, name, weight, max_wait_limit_minutes, description)
+    VALUES
+     ('11111111-1111-1111-1111-111111111111', 'APPOINTMENT', 'Предварительная запись', 100, 5,  'Обслуживаются первыми по времени'),
+     ('11111111-1111-1111-1111-111111111111', 'QR',          'QR-код',                 50,  15, 'Живая очередь по коду в отделении'),
+     ('11111111-1111-1111-1111-111111111111', 'LIVE',        'Живая очередь',           10,  30, 'Талоны от оператора');
+
+
+    -- === 000005_appointment_policy_events.up.sql ===
+    -- Ensure scheduled_at column exists and migrate legacy scheduled_time if present.
+    DO $$
+    BEGIN
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tickets' AND column_name='scheduled_time')
+           AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tickets' AND column_name='scheduled_at') THEN
+            ALTER TABLE tickets RENAME COLUMN scheduled_time TO scheduled_at;
+        ELSE
+            ALTER TABLE tickets ADD COLUMN IF NOT EXISTS scheduled_at timestamptz;
+        END IF;
+    END $$;
+
+    UPDATE tickets SET queue_entered_at=scheduled_at, status='SCHEDULED', window_id=NULL
+     WHERE source='APPOINTMENT' AND status IN ('WAITING','SCHEDULED') AND scheduled_at IS NOT NULL;
+    ALTER TABLE tickets ADD CONSTRAINT tickets_scheduled_source CHECK (
+     (source='APPOINTMENT' AND scheduled_at IS NOT NULL)
+     OR (source<>'APPOINTMENT' AND scheduled_at IS NULL));
+    ALTER TABLE tickets ADD CONSTRAINT tickets_scheduled_unassigned CHECK (
+     source<>'APPOINTMENT' OR status<>'SCHEDULED' OR
+     (window_id IS NULL AND queue_entered_at=scheduled_at));
+    ALTER TABLE tickets ADD CONSTRAINT tickets_cancelled_unassigned CHECK (
+     source<>'APPOINTMENT' OR status<>'CANCELLED' OR window_id IS NULL);
+    -- Durable canonical UTC RFC3339Nano creation input. Retained on down to avoid
+    -- losing idempotency precision; pre-000005 requests legitimately have NULL.
+    ALTER TABLE tickets ADD COLUMN IF NOT EXISTS appointment_requested_at text;
+    CREATE SEQUENCE appointment_public_number_seq;
+    -- Reconcile only during migration. Ordinary creation always uses nextval.
+    -- This also handles down/up while retaining tickets and their public numbers.
+    DO $$
+    DECLARE highest_number bigint;
+    BEGIN
+     SELECT max(substring(public_number FROM 3)::bigint) INTO highest_number
+     FROM tickets WHERE public_number ~ '^A-[0-9]+$';
+     IF highest_number > 0 THEN
+      PERFORM setval('appointment_public_number_seq', highest_number, true);
+     END IF;
+    END
+    $$;
+    CREATE FUNCTION next_appointment_public_number() RETURNS text LANGUAGE sql VOLATILE AS $$
+     SELECT 'A-' || lpad(n::text, greatest(6,length(n::text)), '0')
+     FROM (SELECT nextval('appointment_public_number_seq') AS n) s
+    $$;
+    CREATE TABLE queue_policies (
+     branch_id uuid PRIMARY KEY REFERENCES branches(id),
+     appointment_due_priority integer NOT NULL CHECK (appointment_due_priority BETWEEN 0 AND 1000),
+     qr_priority integer NOT NULL CHECK (qr_priority BETWEEN 0 AND 1000),
+     version bigint NOT NULL CHECK (version > 0),
+     updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+     CHECK (appointment_due_priority > qr_priority)
+    );
+    INSERT INTO queue_policies(branch_id,appointment_due_priority,qr_priority,version)
+     VALUES ('11111111-1111-1111-1111-111111111111',100,10,1);
+    CREATE TABLE ticket_events (
+     id bigserial PRIMARY KEY,
+     ticket_id uuid NOT NULL REFERENCES tickets(id),
+     type text NOT NULL CHECK(type IN ('CREATED','CALLED','SERVICE_STARTED','COMPLETED','CANCELLED')),
+     from_status text,
+     to_status text NOT NULL,
+     window_id uuid REFERENCES windows(id),
+     policy_version bigint,
+     decision_priority integer,
+     occurred_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+     CHECK ((type='CREATED' AND from_status IS NULL AND to_status IN ('WAITING','SCHEDULED') AND window_id IS NULL)
+     OR (type='CALLED' AND from_status IS NOT NULL AND from_status IN ('WAITING','SCHEDULED') AND to_status='CALLED' AND window_id IS NOT NULL)
+     OR (type='SERVICE_STARTED' AND from_status IS NOT NULL AND from_status='CALLED' AND to_status='SERVING' AND window_id IS NOT NULL)
+     OR (type='COMPLETED' AND from_status IS NOT NULL AND from_status='SERVING' AND to_status='COMPLETED' AND window_id IS NOT NULL)
+     OR (type='CANCELLED' AND from_status IS NOT NULL AND from_status='SCHEDULED' AND to_status='CANCELLED' AND window_id IS NULL)),
+     CHECK ((type='CALLED' AND policy_version IS NOT NULL AND policy_version>0 AND decision_priority IS NOT NULL AND decision_priority BETWEEN 0 AND 1000)
+     OR (type<>'CALLED' AND policy_version IS NULL AND decision_priority IS NULL))
+    );
+    CREATE INDEX ticket_events_chronological ON ticket_events(ticket_id,occurred_at,id);
+    CREATE INDEX tickets_due_appointments ON tickets(branch_id,scheduled_at,id) INCLUDE(service_id)
+     WHERE source='APPOINTMENT' AND status='SCHEDULED';
+    -- Audit entries cannot be edited through ordinary SQL either.
+    CREATE FUNCTION reject_ticket_event_mutation() RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN
+     RAISE EXCEPTION 'ticket events are append-only';
+    END
+    $$;
+    CREATE TRIGGER ticket_events_immutable BEFORE UPDATE OR DELETE ON ticket_events
+     FOR EACH ROW EXECUTE FUNCTION reject_ticket_event_mutation();
+
+
+    -- === 000006_sprint3_queue_engine.up.sql ===
+    ALTER TABLE tickets
+     ADD COLUMN arrived_at timestamptz,
+     ADD COLUMN no_show_at timestamptz,
+     ADD CONSTRAINT tickets_arrival_source CHECK (arrived_at IS NULL OR source='APPOINTMENT'),
+     ADD CONSTRAINT tickets_no_show_fact CHECK ((status='NO_SHOW') = (no_show_at IS NOT NULL)),
+     ADD CONSTRAINT tickets_no_show_called CHECK (status<>'NO_SHOW' OR called_at IS NOT NULL);
+
+    ALTER TABLE queue_policies
+     ADD COLUMN live_priority integer NOT NULL DEFAULT 10,
+     ADD COLUMN anti_starvation_threshold_minutes integer NOT NULL DEFAULT 15,
+     ADD COLUMN anti_starvation_points_per_minute integer NOT NULL DEFAULT 10,
+     ADD COLUMN appointment_grace_minutes integer NOT NULL DEFAULT 30,
+     ADD COLUMN appointment_late_penalty_per_minute integer NOT NULL DEFAULT 5,
+     ADD COLUMN appointment_late_penalty_max_points integer NOT NULL DEFAULT 90;
+    -- Install the frozen Sprint 3 defaults as one versioned policy change per branch.
+    UPDATE queue_policies SET appointment_due_priority=100, qr_priority=10,
+     version=version+1, updated_at=transaction_timestamp();
+    ALTER TABLE queue_policies
+     ADD CONSTRAINT policy_live_range CHECK (live_priority BETWEEN 0 AND 1000 AND appointment_due_priority>live_priority),
+     ADD CONSTRAINT policy_aging_range CHECK (anti_starvation_threshold_minutes BETWEEN 0 AND 240 AND anti_starvation_points_per_minute BETWEEN 1 AND 600),
+     ADD CONSTRAINT policy_lateness_range CHECK (appointment_grace_minutes BETWEEN 0 AND 120 AND appointment_late_penalty_per_minute BETWEEN 0 AND 600 AND appointment_late_penalty_max_points BETWEEN 0 AND 1000 AND appointment_late_penalty_max_points<=appointment_due_priority);
+
+    ALTER TABLE ticket_events DROP CONSTRAINT ticket_events_type_check,
+     DROP CONSTRAINT ticket_events_check, DROP CONSTRAINT ticket_events_check1;
+    ALTER TABLE ticket_events ALTER COLUMN decision_priority TYPE bigint;
+    ALTER TABLE ticket_events
+     ADD CONSTRAINT ticket_events_type_check CHECK (type IN ('CREATED','ARRIVED','CALLED','SERVICE_STARTED','COMPLETED','CANCELLED','NO_SHOW')),
+     ADD CONSTRAINT ticket_events_check CHECK (
+     (type='CREATED' AND from_status IS NULL AND to_status IN ('WAITING','SCHEDULED') AND window_id IS NULL)
+     OR (type='ARRIVED' AND from_status IS NOT NULL AND from_status='SCHEDULED' AND to_status='SCHEDULED' AND window_id IS NULL)
+     OR (type='CALLED' AND from_status IS NOT NULL AND from_status IN ('WAITING','SCHEDULED') AND to_status='CALLED' AND window_id IS NOT NULL)
+     OR (type='SERVICE_STARTED' AND from_status IS NOT NULL AND from_status='CALLED' AND to_status='SERVING' AND window_id IS NOT NULL)
+     OR (type='COMPLETED' AND from_status IS NOT NULL AND from_status='SERVING' AND to_status='COMPLETED' AND window_id IS NOT NULL)
+     OR (type='CANCELLED' AND from_status IS NOT NULL AND from_status='SCHEDULED' AND to_status='CANCELLED' AND window_id IS NULL)
+     OR (type='NO_SHOW' AND from_status IS NOT NULL AND from_status='CALLED' AND to_status='NO_SHOW' AND window_id IS NOT NULL)),
+     ADD CONSTRAINT ticket_events_check1 CHECK (
+     (type='CALLED' AND policy_version IS NOT NULL AND policy_version>0 AND decision_priority IS NOT NULL AND decision_priority>=0)
+     OR (type<>'CALLED' AND policy_version IS NULL AND decision_priority IS NULL));
+
+    CREATE SEQUENCE live_public_number_seq;
+    DO $$
+    DECLARE highest_number bigint;
+    BEGIN
+     SELECT max(substring(public_number FROM 3)::bigint) INTO highest_number FROM tickets WHERE public_number ~ '^L-[0-9]+$';
+     IF highest_number>0 THEN PERFORM setval('live_public_number_seq',highest_number,true); END IF;
+    END $$;
+    CREATE FUNCTION next_live_public_number() RETURNS text LANGUAGE sql VOLATILE AS $$
+     SELECT 'L-' || lpad(n::text,greatest(6,length(n::text)),'0') FROM (SELECT nextval('live_public_number_seq') AS n) s
+    $$;
+    CREATE INDEX tickets_qr_live_candidates ON tickets(branch_id,queue_entered_at,id) INCLUDE(service_id)
+     WHERE source IN ('QR','LIVE') AND status='WAITING';
+    -- tickets_due_appointments and tickets_one_active_per_window remain authoritative.
+
+
+    -- === 000007_branches_extended.up.sql ===
+    ALTER TABLE branches
+      ADD COLUMN IF NOT EXISTS address     text NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS work_hours  text NOT NULL DEFAULT '08:00–20:00',
+      ADD COLUMN IF NOT EXISTS timezone_offset integer NOT NULL DEFAULT 3;
+
+    -- Обновить демо-отделение реальными данными
+    UPDATE branches
+    SET address = 'г. Рязань, ул. Ленина, д. 20',
+        work_hours = '08:00–20:00',
+        timezone_offset = 3
+    WHERE id = '11111111-1111-1111-1111-111111111111';
+
+
+    -- === 000008_users_auth.up.sql ===
+    CREATE TABLE IF NOT EXISTS users (
+      id            uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+      email         text        NOT NULL UNIQUE,
+      password_hash text        NOT NULL,
+      role          text        NOT NULL DEFAULT 'client'
+        CONSTRAINT users_role_check CHECK (role IN ('client','employee','opc_chief','terminal')),
+      is_terminal   boolean     NOT NULL DEFAULT false,
+      confirmed     boolean     NOT NULL DEFAULT false,
+      confirm_token text,
+      created_at    timestamptz NOT NULL DEFAULT clock_timestamp()
+    );
+
+    CREATE TABLE IF NOT EXISTS sessions (
+      token      text        PRIMARY KEY,
+      user_id    uuid        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      expires_at timestamptz NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT clock_timestamp()
+    );
+
+    CREATE INDEX IF NOT EXISTS sessions_user_id_idx ON sessions(user_id);
+    CREATE INDEX IF NOT EXISTS sessions_expires_at_idx ON sessions(expires_at);
+
+    -- Создать тестового admin-пользователя (пароль: admin1234, bcrypt)
+    -- Хэш bcrypt для "admin1234" cost=12:
+    -- $2a$10$0PlADjwCyuOVbtw1kGoWGOIOpBcPXULZShPGVabqqlzsYYh4HwqRW
+    INSERT INTO users (email, password_hash, role, is_terminal, confirmed)
+    VALUES ('admin@pochta.local', '$2a$10$0PlADjwCyuOVbtw1kGoWGOIOpBcPXULZShPGVabqqlzsYYh4HwqRW', 'opc_chief', false, true)
+    ON CONFLICT (email) DO NOTHING;
+
+
+    -- === 000009_ui_services.up.sql ===
+    INSERT INTO services (id, code, name)
+    VALUES
+      ('33333333-2222-2222-2222-222222222222', 'SEND', 'Отправка писем и посылок'),
+      ('44444444-2222-2222-2222-222222222222', 'RETAIL', 'Почтовые товары')
+    ON CONFLICT (id) DO NOTHING;
+
+    INSERT INTO branch_services (branch_id, service_id)
+    VALUES
+      ('11111111-1111-1111-1111-111111111111', '33333333-2222-2222-2222-222222222222'),
+      ('11111111-1111-1111-1111-111111111111', '44444444-2222-2222-2222-222222222222')
+    ON CONFLICT (branch_id, service_id) DO NOTHING;
+
+    INSERT INTO window_services (window_id, branch_id, service_id)
+    VALUES
+      ('33333333-3333-3333-3333-333333333333', '11111111-1111-1111-1111-111111111111', '33333333-2222-2222-2222-222222222222'),
+      ('66666666-6666-6666-6666-666666666666', '11111111-1111-1111-1111-111111111111', '33333333-2222-2222-2222-222222222222'),
+      ('33333333-3333-3333-3333-333333333333', '11111111-1111-1111-1111-111111111111', '44444444-2222-2222-2222-222222222222'),
+      ('44444444-4444-4444-4444-444444444444', '11111111-1111-1111-1111-111111111111', '44444444-2222-2222-2222-222222222222'),
+      ('66666666-6666-6666-6666-666666666666', '11111111-1111-1111-1111-111111111111', '44444444-2222-2222-2222-222222222222')
+    ON CONFLICT (window_id, service_id) DO NOTHING;
+
+
+    -- === 000010_seed_operator.up.sql ===
+    -- Тестовый оператор (пароль: operator1234, bcrypt cost=10)
+    INSERT INTO users (email, password_hash, role, is_terminal, confirmed)
+    VALUES ('operator@pochta.local', '$2a$10$9rE.JPFRj5xnpZplKdVRUebVNSl9PSx64nCYvnoU1vIQiFkNVFZYS', 'employee', false, true)
+    ON CONFLICT (email) DO NOTHING;
+
+
+    -- === 000011_return_redirect_events.up.sql ===
+    -- Extend audit coverage only; existing immutable events and lifecycle remain unchanged.
+    ALTER TABLE ticket_events DROP CONSTRAINT ticket_events_type_check, DROP CONSTRAINT ticket_events_check;
+    ALTER TABLE ticket_events
+     ADD CONSTRAINT ticket_events_type_check CHECK (type IN ('CREATED','ARRIVED','CALLED','SERVICE_STARTED','COMPLETED','CANCELLED','NO_SHOW','RETURNED','REDIRECTED')),
+     ADD CONSTRAINT ticket_events_check CHECK (
+     (type='CREATED' AND from_status IS NULL AND to_status IN ('WAITING','SCHEDULED') AND window_id IS NULL)
+     OR (type='ARRIVED' AND from_status IS NOT NULL AND from_status='SCHEDULED' AND to_status='SCHEDULED' AND window_id IS NULL)
+     OR (type='CALLED' AND from_status IS NOT NULL AND from_status IN ('WAITING','SCHEDULED') AND to_status='CALLED' AND window_id IS NOT NULL)
+     OR (type='SERVICE_STARTED' AND from_status IS NOT NULL AND from_status='CALLED' AND to_status='SERVING' AND window_id IS NOT NULL)
+     OR (type='COMPLETED' AND from_status IS NOT NULL AND from_status='SERVING' AND to_status='COMPLETED' AND window_id IS NOT NULL)
+     OR (type='CANCELLED' AND from_status IS NOT NULL AND from_status='SCHEDULED' AND to_status='CANCELLED' AND window_id IS NULL)
+     OR (type='NO_SHOW' AND from_status IS NOT NULL AND from_status='CALLED' AND to_status='NO_SHOW' AND window_id IS NOT NULL)
+     OR (type IN ('RETURNED','REDIRECTED') AND from_status IS NOT NULL AND from_status IN ('CALLED','SERVING') AND to_status='WAITING'));
+
+
+
+    -- === 000012_window_services_unfreeze.up.sql ===
+    -- Operators must always be able to drop a window capability, even when the window
+    -- already served tickets of that service. The composite foreign key from tickets to
+    -- window_services was the only blocker: it froze historical capabilities in place and
+    -- made DELETE FROM window_services fail with SQLSTATE 23503. Ticket integrity stays
+    -- protected by the remaining tickets foreign keys — (window_id, branch_id) references
+    -- windows(id, branch_id) and (branch_id, service_id) references
+    -- branch_services(branch_id, service_id).
+    ALTER TABLE tickets DROP CONSTRAINT IF EXISTS tickets_window_id_service_id_fkey;
+
+
+
+    -- === 000013_cancel_waiting_tickets.up.sql ===
+    ALTER TABLE ticket_events DROP CONSTRAINT ticket_events_check;
+    ALTER TABLE ticket_events
+      ADD CONSTRAINT ticket_events_check CHECK (
+      (type='CREATED' AND from_status IS NULL AND to_status IN ('WAITING','SCHEDULED') AND window_id IS NULL)
+      OR (type='ARRIVED' AND from_status IS NOT NULL AND from_status='SCHEDULED' AND to_status='SCHEDULED' AND window_id IS NULL)
+      OR (type='CALLED' AND from_status IS NOT NULL AND from_status IN ('WAITING','SCHEDULED') AND to_status='CALLED' AND window_id IS NOT NULL)
+      OR (type='SERVICE_STARTED' AND from_status IS NOT NULL AND from_status='CALLED' AND to_status='SERVING' AND window_id IS NOT NULL)
+      OR (type='COMPLETED' AND from_status IS NOT NULL AND from_status='SERVING' AND to_status='COMPLETED' AND window_id IS NOT NULL)
+      OR (type='CANCELLED' AND from_status IS NOT NULL AND from_status IN ('SCHEDULED','WAITING') AND to_status='CANCELLED' AND window_id IS NULL)
+      OR (type='NO_SHOW' AND from_status IS NOT NULL AND from_status='CALLED' AND to_status='NO_SHOW' AND window_id IS NOT NULL)
+      OR (type IN ('RETURNED','REDIRECTED') AND from_status IS NOT NULL AND from_status IN ('CALLED','SERVING') AND to_status='WAITING'));
+
+
+    -- === 000014_due_at_queue_engine.up.sql ===
+    -- Add due_at algorithm scheduling columns to tickets
+    ALTER TABLE tickets
+      ADD COLUMN IF NOT EXISTS checkin_at timestamptz,
+      ADD COLUMN IF NOT EXISTS ready_at timestamptz,
+      ADD COLUMN IF NOT EXISTS due_at timestamptz,
+      ADD COLUMN IF NOT EXISTS source_rank integer NOT NULL DEFAULT 1,
+      ADD COLUMN IF NOT EXISTS policy_version bigint NOT NULL DEFAULT 1,
+      ADD COLUMN IF NOT EXISTS recall_count integer NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS client_id text;
+
+    -- Add journal tracking columns to ticket_events
+    ALTER TABLE ticket_events
+      ADD COLUMN IF NOT EXISTS actor text,
+      ADD COLUMN IF NOT EXISTS reason text,
+      ADD COLUMN IF NOT EXISTS due_at timestamptz,
+      ADD COLUMN IF NOT EXISTS request_id text,
+      ADD COLUMN IF NOT EXISTS at timestamptz DEFAULT clock_timestamp();
+
+    -- Backfill existing WAITING tickets
+    UPDATE tickets
+    SET checkin_at = COALESCE(arrived_at, queue_entered_at, created_at),
+        ready_at = COALESCE(arrived_at, queue_entered_at, created_at),
+        due_at = COALESCE(arrived_at, queue_entered_at, created_at) + interval '30 minutes',
+        source_rank = CASE source WHEN 'APPOINTMENT' THEN 0 WHEN 'QR' THEN 1 ELSE 2 END,
+        policy_version = 1,
+        recall_count = 0
+    WHERE status = 'WAITING' AND due_at IS NULL;
+
+    -- Backfill existing SCHEDULED tickets (appointment slot time is due_at, ready at slot - 10 min)
+    UPDATE tickets
+    SET ready_at = COALESCE(scheduled_at - interval '10 minutes', created_at),
+        due_at = COALESCE(scheduled_at, created_at),
+        source_rank = 0,
+        policy_version = 1,
+        recall_count = 0
+    WHERE status = 'SCHEDULED' AND due_at IS NULL;
+
+    -- Backfill CALLED and SERVING tickets
+    UPDATE tickets
+    SET checkin_at = COALESCE(arrived_at, queue_entered_at, created_at),
+        ready_at = COALESCE(arrived_at, queue_entered_at, created_at),
+        due_at = COALESCE(scheduled_at, queue_entered_at, created_at),
+        source_rank = CASE source WHEN 'APPOINTMENT' THEN 0 WHEN 'QR' THEN 1 ELSE 2 END,
+        policy_version = 1,
+        recall_count = 0
+    WHERE status IN ('CALLED', 'SERVING') AND due_at IS NULL;
+
+    -- Index for due_at queue ordering
+    CREATE INDEX IF NOT EXISTS tickets_waiting_due_at ON tickets(due_at, source_rank, checkin_at, id)
+      WHERE status = 'WAITING';
+
+    -- Unique partial index: one active ticket per client
+    CREATE UNIQUE INDEX IF NOT EXISTS tickets_one_active_per_client ON tickets(client_id)
+      WHERE status IN ('WAITING', 'CALLED', 'SERVING') AND client_id IS NOT NULL;
+
+    -- Index on ticket_events request_id for idempotent call-next lookups
+    CREATE INDEX IF NOT EXISTS ticket_events_request_id ON ticket_events(request_id)
+      WHERE request_id IS NOT NULL;
+
+    -- Allow ARRIVED events to transition to WAITING as well as SCHEDULED
+    ALTER TABLE ticket_events DROP CONSTRAINT IF EXISTS ticket_events_check;
+    ALTER TABLE ticket_events ADD CONSTRAINT ticket_events_check CHECK (
+      (type='CREATED' AND from_status IS NULL AND to_status IN ('WAITING','SCHEDULED') AND window_id IS NULL)
+      OR (type='ARRIVED' AND from_status IS NOT NULL AND from_status='SCHEDULED' AND to_status IN ('SCHEDULED','WAITING') AND window_id IS NULL)
+      OR (type='CALLED' AND from_status IS NOT NULL AND from_status IN ('WAITING','SCHEDULED','CALLED') AND to_status='CALLED' AND window_id IS NOT NULL)
+      OR (type='SERVICE_STARTED' AND from_status IS NOT NULL AND from_status='CALLED' AND to_status='SERVING' AND window_id IS NOT NULL)
+      OR (type='COMPLETED' AND from_status IS NOT NULL AND from_status='SERVING' AND to_status='COMPLETED' AND window_id IS NOT NULL)
+      OR (type='CANCELLED' AND from_status IS NOT NULL AND from_status IN ('SCHEDULED','WAITING') AND to_status='CANCELLED' AND window_id IS NULL)
+      OR (type='NO_SHOW' AND from_status IS NOT NULL AND from_status='CALLED' AND to_status='NO_SHOW' AND window_id IS NOT NULL)
+      OR (type IN ('RETURNED','REDIRECTED') AND from_status IS NOT NULL AND from_status IN ('CALLED','SERVING') AND to_status='WAITING')
+    );
+
+    -- Trigger to reject UPDATE/DELETE mutations on ticket_events (append-only audit log)
+    CREATE OR REPLACE FUNCTION trg_ticket_events_append_only()
+    RETURNS TRIGGER AS $$
+    BEGIN
+        IF TG_OP = 'UPDATE' THEN
+            RAISE EXCEPTION 'ticket_events is append-only: UPDATE is rejected';
+        ELSIF TG_OP = 'DELETE' THEN
+            RAISE EXCEPTION 'ticket_events is append-only: DELETE is rejected';
+        END IF;
+        RETURN NULL;
+    END;
+    $$ LANGUAGE plpgsql;
+
+    DROP TRIGGER IF EXISTS trg_ticket_events_no_mutation ON ticket_events;
+    CREATE TRIGGER trg_ticket_events_no_mutation
+    BEFORE UPDATE OR DELETE ON ticket_events
+    FOR EACH ROW EXECUTE FUNCTION trg_ticket_events_append_only();
+
+    -- Trigger to synchronize due_at and ready_at when scheduled_at or checkin_at are modified
+    CREATE OR REPLACE FUNCTION trg_tickets_sync_due_at()
+    RETURNS TRIGGER AS $$
+    BEGIN
+        IF NEW.source = 'APPOINTMENT' THEN
+            IF NEW.scheduled_at IS NOT NULL AND (TG_OP = 'INSERT' OR NEW.scheduled_at IS DISTINCT FROM OLD.scheduled_at) THEN
+                NEW.due_at := NEW.scheduled_at;
+                IF NEW.checkin_at IS NULL THEN
+                    NEW.ready_at := NEW.scheduled_at;
+                ELSE
+                    NEW.ready_at := GREATEST(NEW.checkin_at, NEW.scheduled_at - INTERVAL '10 minutes');
+                END IF;
+            END IF;
+        ELSE
+            -- For QR and LIVE
+            IF TG_OP = 'UPDATE' AND NEW.queue_entered_at IS DISTINCT FROM OLD.queue_entered_at THEN
+                NEW.checkin_at := COALESCE(NEW.queue_entered_at, NEW.checkin_at, clock_timestamp());
+                NEW.ready_at := COALESCE(NEW.queue_entered_at, NEW.ready_at, clock_timestamp());
+                NEW.due_at := COALESCE(NEW.queue_entered_at, NEW.due_at, clock_timestamp()) + INTERVAL '30 minutes';
+            ELSIF NEW.due_at IS NULL THEN
+                NEW.due_at := COALESCE(NEW.checkin_at, NEW.queue_entered_at, clock_timestamp()) + INTERVAL '30 minutes';
+                NEW.ready_at := COALESCE(NEW.checkin_at, NEW.queue_entered_at, clock_timestamp());
+            END IF;
+        END IF;
+        RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql;
+
+    DROP TRIGGER IF EXISTS trg_tickets_sync_due ON tickets;
+    CREATE TRIGGER trg_tickets_sync_due
+    BEFORE INSERT OR UPDATE OF scheduled_at, queue_entered_at, checkin_at ON tickets
+    FOR EACH ROW EXECUTE FUNCTION trg_tickets_sync_due_at();
+
+
+    -- === 000015_renumber_windows.up.sql ===
+    DO $$
+    DECLARE
+        b RECORD;
+    BEGIN
+        FOR b IN SELECT DISTINCT branch_id FROM windows LOOP
+            UPDATE windows
+            SET number = number + 100000
+            WHERE branch_id = b.branch_id;
+
+            WITH ordered AS (
+                SELECT id, ROW_NUMBER() OVER (ORDER BY number ASC) AS new_num
+                FROM windows
+                WHERE branch_id = b.branch_id
+            )
+            UPDATE windows w
+            SET number = o.new_num
+            FROM ordered o
+            WHERE w.id = o.id;
+        END LOOP;
+    END $$;
+
+
+    -- === 000016_notification_outbox.up.sql ===
+    CREATE TABLE IF NOT EXISTS notification_outbox (
+        id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        ticket_id       uuid NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+        branch_id       uuid NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
+        event_type      text NOT NULL,
+        payload         jsonb NOT NULL DEFAULT '{}'::jsonb,
+        status          text NOT NULL DEFAULT 'PENDING'
+            CONSTRAINT notification_outbox_status_check CHECK (status IN ('PENDING', 'SENT', 'FAILED')),
+        attempts        int NOT NULL DEFAULT 0,
+        max_attempts    int NOT NULL DEFAULT 3,
+        next_attempt_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+        created_at      timestamptz NOT NULL DEFAULT clock_timestamp(),
+        sent_at         timestamptz,
+        last_error      text
+    );
+
+    CREATE INDEX IF NOT EXISTS notification_outbox_pending_idx
+        ON notification_outbox(status, next_attempt_at)
+        WHERE status = 'PENDING';
+
+    CREATE INDEX IF NOT EXISTS notification_outbox_ticket_idx
+        ON notification_outbox(ticket_id);
+
+
+    -- === 000017_operator_incidents.up.sql ===
+    CREATE TABLE IF NOT EXISTS operator_incidents (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        branch_id UUID NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
+        window_id UUID REFERENCES windows(id) ON DELETE SET NULL,
+        operator_id UUID REFERENCES users(id) ON DELETE SET NULL,
+        category TEXT NOT NULL,
+        description TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_operator_incidents_branch ON operator_incidents(branch_id, created_at DESC);
+
+
+    -- === 000018_near_turn_and_policy_audit.up.sql ===
+    ALTER TABLE notification_outbox ADD COLUMN IF NOT EXISTS dedupe_key text;
+    CREATE UNIQUE INDEX IF NOT EXISTS notification_outbox_dedupe_idx ON notification_outbox(dedupe_key);
+
+    ALTER TABLE ticket_events DROP CONSTRAINT IF EXISTS ticket_events_type_check;
+    ALTER TABLE ticket_events ADD CONSTRAINT ticket_events_type_check CHECK (
+      type = ANY (ARRAY['CREATED'::text, 'ARRIVED'::text, 'CALLED'::text, 'SERVICE_STARTED'::text, 'COMPLETED'::text, 'CANCELLED'::text, 'NO_SHOW'::text, 'RETURNED'::text, 'REDIRECTED'::text, 'QUEUE_RECALCULATED'::text])
+    );
+
+    ALTER TABLE ticket_events DROP CONSTRAINT IF EXISTS ticket_events_check1;
+    ALTER TABLE ticket_events ADD CONSTRAINT ticket_events_check1 CHECK (
+      (type = ANY (ARRAY['CALLED'::text, 'QUEUE_RECALCULATED'::text]) AND policy_version IS NOT NULL AND policy_version > 0)
+      OR (type <> ALL (ARRAY['CALLED'::text, 'QUEUE_RECALCULATED'::text]) AND policy_version IS NULL AND decision_priority IS NULL)
+    );
+
+    ALTER TABLE ticket_events DROP CONSTRAINT IF EXISTS ticket_events_check;
+    ALTER TABLE ticket_events ADD CONSTRAINT ticket_events_check CHECK (
+      (type = 'CREATED'::text AND from_status IS NULL AND (to_status = ANY (ARRAY['WAITING'::text, 'SCHEDULED'::text])) AND window_id IS NULL)
+      OR (type = 'ARRIVED'::text AND from_status IS NOT NULL AND from_status = 'SCHEDULED'::text AND (to_status = ANY (ARRAY['SCHEDULED'::text, 'WAITING'::text])) AND window_id IS NULL)
+      OR (type = 'CALLED'::text AND from_status IS NOT NULL AND (from_status = ANY (ARRAY['WAITING'::text, 'SCHEDULED'::text, 'CALLED'::text])) AND to_status = 'CALLED'::text AND window_id IS NOT NULL)
+      OR (type = 'SERVICE_STARTED'::text AND from_status IS NOT NULL AND from_status = 'CALLED'::text AND to_status = 'SERVING'::text AND window_id IS NOT NULL)
+      OR (type = 'COMPLETED'::text AND from_status IS NOT NULL AND from_status = 'SERVING'::text AND to_status = 'COMPLETED'::text AND window_id IS NOT NULL)
+      OR (type = 'CANCELLED'::text AND from_status IS NOT NULL AND (from_status = ANY (ARRAY['SCHEDULED'::text, 'WAITING'::text])) AND to_status = 'CANCELLED'::text AND window_id IS NULL)
+      OR (type = 'NO_SHOW'::text AND from_status IS NOT NULL AND from_status = 'CALLED'::text AND to_status = 'NO_SHOW'::text AND window_id IS NOT NULL)
+      OR ((type = ANY (ARRAY['RETURNED'::text, 'REDIRECTED'::text])) AND from_status IS NOT NULL AND (from_status = ANY (ARRAY['CALLED'::text, 'SERVING'::text])) AND to_status = 'WAITING'::text)
+      OR (type = 'QUEUE_RECALCULATED'::text AND from_status IS NULL AND (to_status = ANY (ARRAY['WAITING'::text, 'SCHEDULED'::text])) AND window_id IS NULL)
+    );
+
+    -- === 000019_ticket_management_and_requeue.up.sql ===
+    ALTER TABLE tickets
+      ADD COLUMN IF NOT EXISTS management_token_hash text,
+      ADD COLUMN IF NOT EXISTS requeued_at timestamptz;
+
+    CREATE INDEX IF NOT EXISTS idx_tickets_management_token_hash
+      ON tickets(management_token_hash)
+      WHERE management_token_hash IS NOT NULL;
+
+    -- === 000020_branch_coordinates.up.sql ===
+    ALTER TABLE branches
+      ADD COLUMN IF NOT EXISTS latitude double precision,
+      ADD COLUMN IF NOT EXISTS longitude double precision,
+      ADD COLUMN IF NOT EXISTS is_demo boolean NOT NULL DEFAULT false;
+
+    DO $$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'branch_coordinate_pair') THEN
+        ALTER TABLE branches ADD CONSTRAINT branch_coordinate_pair CHECK ((latitude IS NULL) = (longitude IS NULL));
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'branch_latitude_range') THEN
+        ALTER TABLE branches ADD CONSTRAINT branch_latitude_range CHECK (latitude BETWEEN -90 AND 90);
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'branch_longitude_range') THEN
+        ALTER TABLE branches ADD CONSTRAINT branch_longitude_range CHECK (longitude BETWEEN -180 AND 180);
+      END IF;
+    END $$;
+
+    -- === 000021_user_phone_and_sms.up.sql ===
+    ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS phone text,
+      ADD COLUMN IF NOT EXISTS phone_verified boolean NOT NULL DEFAULT false,
+      ADD COLUMN IF NOT EXISTS phone_code text,
+      ADD COLUMN IF NOT EXISTS phone_code_expires_at timestamptz;
+
+    CREATE INDEX IF NOT EXISTS users_phone_idx ON users(phone) WHERE phone IS NOT NULL;
+
+    ALTER TABLE tickets
+      ADD COLUMN IF NOT EXISTS sms_reminder_sent boolean NOT NULL DEFAULT false;
+
+    CREATE INDEX IF NOT EXISTS tickets_sms_reminder_idx ON tickets(scheduled_at, sms_reminder_sent, status)
+      WHERE source = 'APPOINTMENT' AND status = 'SCHEDULED' AND sms_reminder_sent = false;
+
+    -- === 000022_email_confirm_code.up.sql ===
+    ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS confirm_code VARCHAR(6),
+      ADD COLUMN IF NOT EXISTS confirm_code_expires_at TIMESTAMPTZ;
+
+    CREATE INDEX IF NOT EXISTS idx_users_confirm_code ON users(email, confirm_code);
+
+    -- === 000023_multichannel_notifications.up.sql ===
+    CREATE TABLE IF NOT EXISTS notification_subscriptions (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        ticket_id uuid NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+        channel text NOT NULL CHECK (channel IN ('TELEGRAM','WEB_PUSH','SMS','EMAIL')),
+        destination text NOT NULL,
+        enabled boolean NOT NULL DEFAULT true,
+        created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+        updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+        UNIQUE (ticket_id, channel, destination)
+    );
+    CREATE INDEX IF NOT EXISTS notification_subscriptions_ticket_channel_idx ON notification_subscriptions(ticket_id, channel) WHERE enabled;
+
+    CREATE TABLE IF NOT EXISTS telegram_link_tokens (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        ticket_id uuid NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+        token_hash text NOT NULL UNIQUE,
+        expires_at timestamptz NOT NULL,
+        consumed_at timestamptz,
+        created_at timestamptz NOT NULL DEFAULT clock_timestamp()
+    );
+    CREATE INDEX IF NOT EXISTS telegram_link_tokens_active_idx ON telegram_link_tokens(token_hash, expires_at) WHERE consumed_at IS NULL;
+
+    ALTER TABLE notification_outbox ADD COLUMN IF NOT EXISTS channel text NOT NULL DEFAULT 'DEMO';
+    ALTER TABLE notification_outbox ADD COLUMN IF NOT EXISTS subscription_id uuid REFERENCES notification_subscriptions(id) ON DELETE SET NULL;
+    ALTER TABLE notification_outbox ADD COLUMN IF NOT EXISTS destination text;
+    ALTER TABLE notification_outbox ADD COLUMN IF NOT EXISTS available_at timestamptz NOT NULL DEFAULT clock_timestamp();
+    ALTER TABLE notification_outbox ADD COLUMN IF NOT EXISTS claimed_until timestamptz;
+    CREATE INDEX IF NOT EXISTS notification_outbox_delivery_pending_idx ON notification_outbox(status, available_at, next_attempt_at) WHERE status = 'PENDING';
+    CREATE UNIQUE INDEX IF NOT EXISTS notification_outbox_delivery_dedupe_idx ON notification_outbox(dedupe_key) WHERE dedupe_key IS NOT NULL;
+
+    -- === 000024_ticket_feedback.up.sql ===
+    CREATE TABLE IF NOT EXISTS ticket_feedback (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        ticket_id uuid NOT NULL UNIQUE REFERENCES tickets(id) ON DELETE RESTRICT,
+        rating smallint NOT NULL CHECK (rating BETWEEN 1 AND 5),
+        comment text NOT NULL DEFAULT '' CHECK (char_length(comment) <= 500),
+        created_at timestamptz NOT NULL DEFAULT clock_timestamp()
+    );
+    CREATE INDEX IF NOT EXISTS ticket_feedback_created_at_idx ON ticket_feedback(created_at DESC);
+
+    -- === 000025_alice_external_accounts.up.sql ===
+    CREATE TABLE IF NOT EXISTS external_accounts (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        provider varchar(50) NOT NULL,
+        external_user_id varchar(255) NOT NULL,
+        created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+        updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+        CONSTRAINT external_accounts_provider_external_id_unique UNIQUE (provider, external_user_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS external_accounts_user_id_idx ON external_accounts(user_id);
+
+    -- === 000026_alice_user_sync.up.sql ===
+    DO $$
+    DECLARE
+        oauth_uid uuid;
+    BEGIN
+        SELECT id INTO oauth_uid FROM users
+        WHERE (email LIKE '%@yandex.ru' OR password_hash = 'OAUTH_ACCOUNT')
+          AND email NOT LIKE '%@alice.yandex.ru'
+        ORDER BY created_at DESC LIMIT 1;
+
+        IF oauth_uid IS NOT NULL THEN
+            UPDATE external_accounts SET user_id = oauth_uid WHERE provider = 'yandex_alice';
+            UPDATE tickets SET client_id = oauth_uid::text
+            WHERE client_id IN (SELECT id::text FROM users WHERE email LIKE 'yandex_alice_%');
+        END IF;
+    END $$;
+
+    -- === schema_migrations (golang-migrate compatibility) ===
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      version bigint NOT NULL PRIMARY KEY,
+      dirty boolean NOT NULL
+    );
+    DELETE FROM schema_migrations;
+    INSERT INTO schema_migrations (version, dirty) VALUES (26, false);
+
 kind: ConfigMap
 metadata:
   name: postgres-init
-  namespace: queue-system

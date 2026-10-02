@@ -103,6 +103,13 @@ func (p *Postgres) ReconcileStaleTickets(ctx context.Context, authoritativeTime 
 			if err = insertEvent(ctx, tx, t, domain.TicketEventNoShow, &from, nil, nil, extra); err != nil {
 				return err
 			}
+			if t.Window != nil {
+				var winStatus domain.WindowStatus
+				_ = tx.QueryRow(ctx, `SELECT status FROM windows WHERE id=$1::uuid`, t.Window.ID).Scan(&winStatus)
+				if winStatus == domain.WindowStatusClosing {
+					_, _ = tx.Exec(ctx, `UPDATE windows SET status='CLOSED' WHERE id=$1::uuid`, t.Window.ID)
+				}
+			}
 		}
 	}
 

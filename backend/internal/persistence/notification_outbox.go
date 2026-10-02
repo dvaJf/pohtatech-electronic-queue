@@ -327,7 +327,7 @@ func (p *Postgres) EnqueueNearTurnIfEligible(ctx context.Context, ticketID strin
 	if err != nil {
 		return dbError(err)
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback(context.Background())
 
 	// Establish snapshot time
 	var now time.Time

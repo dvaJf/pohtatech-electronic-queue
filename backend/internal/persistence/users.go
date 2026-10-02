@@ -286,20 +286,6 @@ func (p *Postgres) LoginOAuth(ctx context.Context, email string) (domain.Session
 		return domain.Session{}, dbError(err)
 	}
 
-	// Link any existing Alice tickets and external accounts to this user
-	_, _ = p.pool.Exec(ctx, `
-		UPDATE external_accounts 
-		SET user_id = $1::uuid 
-		WHERE provider = 'yandex_alice'
-	`, u.ID)
-	_, _ = p.pool.Exec(ctx, `
-		UPDATE tickets 
-		SET client_id = $1 
-		WHERE client_id IN (
-			SELECT id::text FROM users WHERE email LIKE 'yandex_alice_%'
-		)
-	`, u.ID)
-
 	return domain.Session{Token: token, UserID: u.ID, ExpiresAt: expiresAt}, nil
 }
 
@@ -613,6 +599,12 @@ func (p *Postgres) LinkExternalAccount(ctx context.Context, userID, provider, ex
 	}
 	defer tx.Rollback(context.Background())
 
+	cleanID := strings.ReplaceAll(externalUserID, "-", "")
+	if len(cleanID) > 24 {
+		cleanID = cleanID[:24]
+	}
+	syntheticEmail := fmt.Sprintf("%s_%s@alice.yandex.ru", provider, cleanID)
+
 	_, err = tx.Exec(ctx, `
 		INSERT INTO external_accounts (user_id, provider, external_user_id)
 		VALUES ($1::uuid, $2, $3)
@@ -626,9 +618,9 @@ func (p *Postgres) LinkExternalAccount(ctx context.Context, userID, provider, ex
 		UPDATE tickets 
 		SET client_id = $1 
 		WHERE client_id IN (
-			SELECT id::text FROM users WHERE email LIKE 'yandex_alice_%'
+			SELECT id::text FROM users WHERE email = $2
 		)
-	`, userID)
+	`, userID, syntheticEmail)
 
 	return tx.Commit(ctx)
 }

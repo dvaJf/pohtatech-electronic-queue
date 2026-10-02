@@ -149,16 +149,11 @@ func (p *Postgres) CancelAppointment(ctx context.Context, ticketID string) (appl
 	_ = tx.QueryRow(ctx, `SELECT management_token_hash FROM tickets WHERE id=$1`, id).Scan(&storedHash)
 	if !IsStaffBypass(ctx) {
 		token, hasToken := ManagementTokenFromContext(ctx)
-		if IsPublicClient(ctx) {
+		ownerID, hasOwner := ClientOwnerFromContext(ctx)
+		isOwner := hasOwner && t.ClientID != nil && *t.ClientID == ownerID
+
+		if !isOwner {
 			if !hasToken || token == "" || storedHash == nil || *storedHash == "" {
-				return empty, application.ErrForbidden
-			}
-			computed := HashManagementToken(token)
-			if subtle.ConstantTimeCompare([]byte(*storedHash), []byte(computed)) != 1 {
-				return empty, application.ErrForbidden
-			}
-		} else if hasToken {
-			if storedHash == nil || *storedHash == "" {
 				return empty, application.ErrForbidden
 			}
 			computed := HashManagementToken(token)
@@ -208,16 +203,11 @@ func (p *Postgres) CancelTicket(ctx context.Context, ticketID string) (domain.Ti
 	_ = tx.QueryRow(ctx, `SELECT management_token_hash FROM tickets WHERE id=$1`, id).Scan(&storedHash)
 	if !IsStaffBypass(ctx) {
 		token, hasToken := ManagementTokenFromContext(ctx)
-		if IsPublicClient(ctx) {
+		ownerID, hasOwner := ClientOwnerFromContext(ctx)
+		isOwner := hasOwner && t.ClientID != nil && *t.ClientID == ownerID
+
+		if !isOwner {
 			if !hasToken || token == "" || storedHash == nil || *storedHash == "" {
-				return empty, application.ErrForbidden
-			}
-			computed := HashManagementToken(token)
-			if subtle.ConstantTimeCompare([]byte(*storedHash), []byte(computed)) != 1 {
-				return empty, application.ErrForbidden
-			}
-		} else if hasToken {
-			if storedHash == nil || *storedHash == "" {
 				return empty, application.ErrForbidden
 			}
 			computed := HashManagementToken(token)

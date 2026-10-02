@@ -77,6 +77,27 @@ type QueuePolicyConfig struct {
 	ML            MLPolicy                 `yaml:"ml"`
 }
 
+func (c QueuePolicyConfig) Clone() QueuePolicyConfig {
+	cp := c
+	if c.Sources != nil {
+		cp.Sources = make(map[string]SourcePolicy, len(c.Sources))
+		for k, v := range c.Sources {
+			if v.MaxWaitMinutes != nil {
+				m := *v.MaxWaitMinutes
+				v.MaxWaitMinutes = &m
+			}
+			cp.Sources[k] = v
+		}
+	}
+	if c.Services != nil {
+		cp.Services = make(map[string]ServicePolicy, len(c.Services))
+		for k, v := range c.Services {
+			cp.Services[k] = v
+		}
+	}
+	return cp
+}
+
 func (c *QueuePolicyConfig) Validate() error {
 	if c.PolicyVersion <= 0 {
 		return errors.New("policy_version must be positive")

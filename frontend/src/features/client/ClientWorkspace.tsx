@@ -47,8 +47,16 @@ const ANON_SCOPE = 'anon';
 
 type ClientScreen = 'home' | 'booking' | 'walkin' | 'my';
 
+export const DEFAULT_OPERATOR_NAMES: Record<number, string> = {
+  1: 'Оператор окна №1',
+  2: 'Оператор окна №2',
+  3: 'Оператор окна №3',
+  4: 'Оператор окна №4',
+  5: 'Оператор окна №5',
+};
+
 function getTicketOperatorName(ticket: Ticket): string {
-  return resolveOperatorName(ticket);
+  return resolveOperatorName(ticket, DEFAULT_OPERATOR_NAMES);
 }
 
 function getCompletedTicketMetadata(ticket: Ticket) {
@@ -171,7 +179,7 @@ function TelegramIcon({ size = 18 }: { size?: number }) {
   return <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="#229ED9"/><path d="M17.67 6.99 5.93 11.52c-.8.32-.8.76-.15.96l3.01.94 1.16 3.55c.14.39.07.55.48.55.32 0 .46-.15.64-.32l1.46-1.42 3.04 2.24c.56.31.96.15 1.1-.52l2-9.42c.2-.82-.31-1.19-1-0.88Zm-8.41 6.15 6.79-4.28c.34-.2.65-.09.4.14l-5.5 4.97-.22 2.42-1.47-3.26Z" fill="white"/></svg>;
 }
 
-function NotificationControls({ ticket, managementToken }: { ticket: Ticket; managementToken?: string }) {
+function NotificationControls({ ticket, managementToken }: { ticket: Ticket; managementToken?: string | null }) {
   const [email, setEmail] = useState(''); const [notice, setNotice] = useState(''); const [busy, setBusy] = useState<string | null>(null);
   const [telegramError, setTelegramError] = useState(false);
   const [subscriptions, setSubscriptions] = useState<NotificationSubscription[]>([]);
@@ -228,13 +236,7 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
       return;
     }
     try {
-      const subs = await api.listNotificationSubscriptions(ticket.id, token);
-      setSubscriptions(subs);
-      const tgSub = subs.find(s => s.channel === 'TELEGRAM' && s.enabled && s.destination && /^\d+$/.test(s.destination));
-      if (tgSub && tgSub.destination && typeof localStorage !== 'undefined') {
-        localStorage.setItem('user_telegram_chat_id', tgSub.destination);
-        localStorage.setItem('user_telegram_connected', 'true');
-      }
+      setSubscriptions(await api.listNotificationSubscriptions(ticket.id, token));
     } catch {
       setSubscriptionsError(true);
     }
@@ -458,155 +460,56 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
     }
   };
 
-  const isTgProfileEnabled = typeof localStorage !== 'undefined' && localStorage.getItem('user_telegram_connected') === 'true';
-  const isPushProfileEnabled = typeof localStorage !== 'undefined' ? localStorage.getItem('user_browser_push_enabled') !== 'false' : true;
-  const isSmsProfileEnabled = typeof localStorage !== 'undefined' && (localStorage.getItem('user_sms_enabled') === 'true' || Boolean(localStorage.getItem('user_phone')));
-
-  const [tgOptState, setTgOptState] = useState<boolean | null>(null);
-  const isTgActive = tgOptState !== null 
-    ? tgOptState 
-    : (connected('TELEGRAM') && typeof localStorage !== 'undefined' && localStorage.getItem(`ticket_telegram_disabled:${ticket.id}`) !== 'true');
-
-  const isPushActive = isPushProfileEnabled && !ticketPushDisabled;
-  const [smsTicketEnabled, setSmsTicketEnabled] = useState<boolean>(() => {
-    if (typeof localStorage !== 'undefined') {
-      return localStorage.getItem(`ticket_sms_disabled:${ticket.id}`) !== 'true';
-    }
-    return true;
-  });
-
-  const handleToggleTgChannel = async (target: boolean) => {
-    setTgOptState(target);
-    if (target) {
-      await telegram();
-    } else {
-      await disconnect('TELEGRAM');
-    }
-  };
-
-  const handleTogglePushChannel = async (target: boolean) => {
-    if (target) {
-      if (typeof localStorage !== 'undefined') {
-        localStorage.removeItem(`ticket_webpush_disabled:${ticket.id}`);
-        localStorage.setItem('user_browser_push_enabled', 'true');
-      }
-      setTicketPushDisabled(false);
-      setProfilePushEnabled(true);
-      if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
-        try {
-          await Notification.requestPermission();
-        } catch {}
-      }
-      if (token && capabilities?.webPush?.enabled) {
-        await push();
-      }
-      setNotice('Уведомления в браузере включены (звуковой гонг и push-оповещения).');
-    } else {
-      if (typeof localStorage !== 'undefined') {
-        localStorage.setItem(`ticket_webpush_disabled:${ticket.id}`, 'true');
-      }
-      setTicketPushDisabled(true);
-      if (connected('WEB_PUSH')) {
-        await disconnect('WEB_PUSH');
-      }
-      setNotice('Уведомления в браузере для этого талона отключены.');
-    }
-  };
-
-  const handleToggleSmsChannel = (target: boolean) => {
-    if (!isSmsProfileEnabled) return;
-    setSmsTicketEnabled(target);
-    if (typeof localStorage !== 'undefined') {
-      if (target) {
-        localStorage.removeItem(`ticket_sms_disabled:${ticket.id}`);
-      } else {
-        localStorage.setItem(`ticket_sms_disabled:${ticket.id}`, 'true');
-      }
-    }
-    setNotice(target ? 'СМС-уведомления по талону включены.' : 'СМС-уведомления по талону отключены.');
-  };
-
-  const renderChannelRow = (
-    icon: React.ReactNode,
-    title: string,
-    description: string,
-    profileEnabled: boolean,
-    ticketActive: boolean,
-    onToggle: (checked: boolean) => void,
-    busyChannel?: boolean
-  ) => (
-    <div className="p-3 rounded-2xl border border-slate-200/90 bg-white flex items-center justify-between gap-3 shadow-2xs">
-      <div className="flex items-start gap-3 min-w-0">
-        <div className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center shrink-0 mt-0.5 text-slate-700">
-          {icon}
+  const toggleHeader = (
+    <div className="flex items-center justify-between pb-3 mb-2 border-b border-slate-200/80">
+      <div className="flex items-center gap-2.5">
+        <div className={`w-8 h-8 rounded-xl flex items-center justify-center transition-colors ${notificationsEnabled ? 'bg-blue-100 text-[#003B73]' : 'bg-slate-200 text-slate-500'}`}>
+          <Bell size={18} />
         </div>
-        <div className="space-y-0.5 min-w-0">
+        <div>
           <div className="flex items-center gap-2">
-            <strong className="text-xs font-bold text-slate-900">{title}</strong>
-            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${!profileEnabled ? 'bg-slate-100 text-slate-400' : ticketActive ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'}`}>
-              {!profileEnabled ? 'Отключено в профиле' : ticketActive ? 'Включено' : 'Выключено'}
+            <strong className="text-xs font-bold text-slate-800">Уведомления по талону</strong>
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${notificationsEnabled ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'}`}>
+              {notificationsEnabled ? 'Включены' : 'Выключены'}
             </span>
           </div>
           <p className="text-[11px] text-slate-500 leading-tight">
-            {!profileEnabled ? 'Для активации включите этот канал в профиле' : description}
+            {notificationsEnabled ? 'Оповещения о статусе очереди и вызове к окну' : 'Оповещения отключены для этого талона'}
           </p>
         </div>
       </div>
-
-      <button
-        type="button"
-        role="switch"
-        aria-checked={profileEnabled && ticketActive}
-        disabled={!profileEnabled || busyChannel}
-        onClick={() => onToggle(!ticketActive)}
-        title={!profileEnabled ? 'Канал отключен в профиле пользователя' : ticketActive ? 'Отключить для этого талона' : 'Включить для этого талона'}
-        className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent p-0 transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-[#003B73] focus:ring-offset-1 disabled:opacity-40 disabled:cursor-not-allowed ${
-          profileEnabled && ticketActive ? 'bg-[#003B73]' : 'bg-slate-300'
-        }`}
-      >
-        <span
-          aria-hidden="true"
-          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
-            profileEnabled && ticketActive ? 'translate-x-5' : 'translate-x-0'
-          }`}
+      <label className="relative inline-flex items-center cursor-pointer select-none shrink-0" title={notificationsEnabled ? 'Выключить уведомления' : 'Включить уведомления'}>
+        <input
+          type="checkbox"
+          checked={notificationsEnabled}
+          onChange={e => void handleToggleSwitch(e.target.checked)}
+          className="sr-only peer"
+          aria-label="Включить или выключить уведомления по талону"
         />
-      </button>
+        <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#054FA6]" />
+      </label>
     </div>
   );
 
   return (
-    <section className="cx-notifications space-y-2" aria-label="Каналы уведомлений талона">
-      <div className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
-        Каналы уведомлений по талону:
-      </div>
-      {renderChannelRow(
-        <TelegramIcon size={18} />,
-        'Telegram',
-        'Сообщения о движении очереди и вызове к окну',
-        true,
-        Boolean(isTgActive),
-        (val) => void handleToggleTgChannel(val),
-        busy === 'TELEGRAM'
+    <section className="cx-notifications" aria-label="Уведомления по талону">
+      {toggleHeader}
+      {notificationsEnabled ? (
+        <div className="space-y-1">
+          {row(<TelegramIcon/>, 'Telegram', 'Получать сообщения о движении очереди.', 'TELEGRAM', providerAction('telegram', 'TELEGRAM', 'Подключить Telegram', telegram), unavailableMessage('telegram', 'Telegram'))}
+          {row(<Bell size={18}/>, 'Уведомления браузера', 'Системные уведомления даже при свёрнутой вкладке.', 'WEB_PUSH', providerAction('webPush', 'WEB_PUSH', 'Включить', push), unavailableMessage('webPush', 'Уведомления браузера'))}
+          {ticket.source === 'APPOINTMENT' && row(<Mail size={18}/>, 'Email', capabilities?.email.mode === 'demo' ? 'Email доступен только в демонстрационном режиме.' : 'Подтверждение предварительной записи.', 'EMAIL', connected('EMAIL') ? action('EMAIL', '', () => {}) : subscriptionForm('email', emailForm), unavailableMessage('email', 'Email'))}
+        </div>
+      ) : (
+        <div className="p-2.5 my-1 rounded-xl bg-slate-100 text-[11px] text-slate-600 flex items-center justify-between">
+          <span>Уведомления по талону отключены тумблером.</span>
+          <button type="button" className="text-[#054FA6] font-bold hover:underline ml-2 shrink-0" onClick={() => void handleToggleSwitch(true)}>
+            Включить
+          </button>
+        </div>
       )}
-      {renderChannelRow(
-        <Bell size={18} />,
-        'Браузер',
-        'Всплывающие push-уведомления на устройстве',
-        isPushProfileEnabled,
-        Boolean(isPushActive),
-        (val) => void handleTogglePushChannel(val),
-        busy === 'WEB_PUSH'
-      )}
-      {renderChannelRow(
-        <Phone size={18} />,
-        'СМС',
-        'Бесплатное СМС-напоминание и вызов к окну',
-        isSmsProfileEnabled,
-        smsTicketEnabled,
-        (val) => handleToggleSmsChannel(val)
-      )}
-
-      {subscriptionsError && token && <p className="cx-notification-status" role="status" aria-live="polite">Не удалось загрузить настройки уведомлений. <button type="button" className="cx-notification-link" onClick={() => void refresh()}>Повторить</button></p>}
+      {!canManage && <p className="cx-notification-status" role="status">{managementUnavailable}</p>}
+      {subscriptionsError && <p className="cx-notification-status" role="status" aria-live="polite">Не удалось загрузить настройки уведомлений. <button type="button" className="cx-notification-link" onClick={() => void refresh()}>Повторить</button></p>}
       {capabilitiesError && <p className="cx-notification-status" role="status" aria-live="polite">Не удалось определить доступность каналов. <button type="button" className="cx-notification-link" onClick={() => void refresh()}>Повторить</button></p>}
       {notice && <p className="cx-notification-status" role="status" aria-live="polite">{notice}</p>}
     </section>
@@ -3093,7 +2996,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                       )}
                     </div>
 
-                    {!terminalStatuses.has(ticket.status) && <NotificationControls ticket={ticket} managementToken={managementToken} />}
+                    {!terminalStatuses.has(ticket.status) && <NotificationControls ticket={ticket} managementToken={getSavedMgmtTokens(ownerScope)[ticket.id] || ticket.managementToken} />}
 
 
 

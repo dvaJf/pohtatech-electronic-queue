@@ -98,12 +98,13 @@ func (p *Postgres) GetBranchWorkload(ctx context.Context, branchID string) (doma
 	maxCount := 0
 	for rows.Next() {
 		var h, count int
-		if err := rows.Scan(&h, &count); err == nil {
-			historicalCounts[h] = count
-			totalHistory += count
-			if count > maxCount {
-				maxCount = count
-			}
+		if err := rows.Scan(&h, &count); err != nil {
+			return domain.BranchWorkload{}, dbError(err)
+		}
+		historicalCounts[h] = count
+		totalHistory += count
+		if count > maxCount {
+			maxCount = count
 		}
 	}
 
@@ -259,9 +260,13 @@ func (p *Postgres) CloseShift(ctx context.Context, branchID string) (domain.Shif
 	var toUpdate []wndState
 	for rows.Next() {
 		var ws wndState
-		if err := rows.Scan(&ws.id, &ws.isBusy); err == nil {
-			toUpdate = append(toUpdate, ws)
+		if err := rows.Scan(&ws.id, &ws.isBusy); err != nil {
+			return result, dbError(err)
 		}
+		toUpdate = append(toUpdate, ws)
+	}
+	if err := rows.Err(); err != nil {
+		return result, dbError(err)
 	}
 	rows.Close()
 

@@ -135,8 +135,9 @@ export function getBranchWeeklySchedule(
   }
 
   const weekdayHours = rawWorkHours?.trim() || matchedConfig?.weekday || '08:00–20:00';
-  const saturdayHours = matchedConfig ? matchedConfig.saturday : '09:00–18:00';
-  const sundayHours = matchedConfig !== undefined ? matchedConfig.sunday : (weekdayHours.includes('22:00') ? '09:00–18:00' : null);
+  const isCustomWorkHours = Boolean(rawWorkHours && (!matchedConfig || rawWorkHours.trim() !== matchedConfig.weekday));
+  const saturdayHours = isCustomWorkHours ? weekdayHours : (matchedConfig ? matchedConfig.saturday : '09:00–18:00');
+  const sundayHours = isCustomWorkHours ? (weekdayHours.includes('22:00') ? weekdayHours : null) : (matchedConfig !== undefined ? matchedConfig.sunday : (weekdayHours.includes('22:00') ? '09:00–18:00' : null));
 
   return DAY_NAMES.map((d, index) => {
     let hoursText = weekdayHours;

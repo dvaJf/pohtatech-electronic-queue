@@ -1202,6 +1202,7 @@ export function BranchMapModal({
               <div ref={desktopBranchCardRef} data-testid="desktop-branch-card-overlay" className="hidden md:block absolute bottom-5 right-5 w-80 sm:w-96 max-w-[calc(100%-2.5rem)] max-h-[calc(100%-2.5rem)] overflow-y-auto rounded-3xl z-20 shadow-xl animate-in fade-in slide-in-from-bottom-2 duration-200">
                 <DetailedBranchCard
                   branch={selectedBranch}
+                  workload={workloads[selectedBranch.id]}
                   compact
                   userLocation={userLocation}
                   onClose={clearBranchSelection}
@@ -1305,6 +1306,7 @@ export function BranchMapModal({
                 {selectedBranch ? (
                   <DetailedBranchCard
                     branch={selectedBranch}
+                    workload={workloads[selectedBranch.id]}
                     showCollapseLink
                     userLocation={userLocation}
                     onClose={clearBranchSelection}
@@ -1431,6 +1433,7 @@ function FilterChip({
  */
 export function DetailedBranchCard({
   branch,
+  workload,
   onTakeTicket,
   onBookAppointment,
   onClose,
@@ -1440,6 +1443,7 @@ export function DetailedBranchCard({
   userLocation,
 }: {
   branch: MapBranch;
+  workload?: BranchWorkload;
   onTakeTicket: () => void;
   onBookAppointment: () => void;
   onClose?: () => void;
@@ -1453,7 +1457,7 @@ export function DetailedBranchCard({
   const [showWeeklySchedule, setShowWeeklySchedule] = useState(false);
   const wait = getWaitBadgeInfo(branch.liveWaitMinutes);
   const landmark = getLandmarkPresentation(branch.rawLocation);
-  const scheduleStatus = getBranchScheduleStatus(branch);
+  const scheduleStatus = getBranchScheduleStatus(branch, workload);
 
   const displayPhoto = useMemo(() => {
     if (branch.photoUrl && !branch.photoUrl.startsWith('data:image/svg')) {

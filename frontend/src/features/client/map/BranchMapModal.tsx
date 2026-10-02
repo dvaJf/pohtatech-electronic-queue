@@ -664,11 +664,10 @@ export function BranchMapModal({
       }, {
         iconLayout: pinLayout,
         iconShape: { type: 'Rectangle', coordinates: [[-70, -36], [70, 4]] },
-        cursor: isClosed ? 'default' : 'pointer',
-        interactive: !isClosed,
+        cursor: 'pointer',
+        interactive: true,
       });
       placemark.events.add('click', () => {
-        if (isClosed) return;
         focusBranchOnMap(b.id);
       });
       placemark.events.add('mouseenter', () => {
@@ -892,11 +891,11 @@ export function BranchMapModal({
           {/* ======================================================== */}
           {/* ЛЕВЫЙ САЙДБАР (DESKTOP 35%): Список и фильтры            */}
           {/* ======================================================== */}
-          <aside className="hidden md:flex md:w-[35%] flex-col h-full bg-[#F8FAFC] border-r border-[#E2E8F0] z-20 overflow-hidden">
+          <aside className="hidden md:flex md:w-[38%] lg:w-[35%] md:min-w-[360px] md:max-w-[460px] flex-col h-full bg-[#F8FAFC] border-r border-[#E2E8F0] z-20 overflow-hidden">
             {/* Поиск и быстрые фильтры */}
             <div className="p-4 bg-white border-b border-[#E2E8F0] space-y-3">
               {/* Поле поиска */}
-              <div className="relative">
+              <div className="relative flex items-center">
                 <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={17} />
                 <input
                   type="text"
@@ -904,15 +903,15 @@ export function BranchMapModal({
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Поиск по адресу, метро, индексу..."
-                  style={{ paddingLeft: '2.75rem' }}
-                  className="w-full pl-11 pr-4 py-2.5 rounded-2xl bg-[#F8FAFC] border border-[#E2E8F0] text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#052F85] focus:bg-white transition-all placeholder:text-slate-400"
+                  style={{ paddingLeft: '2.75rem', paddingRight: '2.75rem' }}
+                  className="w-full pl-11 pr-11 py-2.5 rounded-2xl bg-[#F8FAFC] border border-[#E2E8F0] text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#052F85] focus:bg-white transition-all placeholder:text-slate-400"
                 />
                 {searchQuery && (
                   <button
                     type="button"
                     onClick={() => setSearchQuery('')}
                     aria-label="Очистить поиск"
-                    className="absolute right-0 top-1/2 -translate-y-1/2 w-11 h-11 flex items-center justify-center text-slate-400 hover:text-slate-600"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-200/60 transition-colors border-0 bg-transparent p-0 cursor-pointer"
                   >
                     <X size={14} />
                   </button>
@@ -1064,9 +1063,9 @@ export function BranchMapModal({
 
                         {/* Правый нижний угол: статус закрытия */}
                         {isClosed && (
-                          <span className="shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-50 border border-rose-200 text-[10px] font-bold text-rose-700 shadow-2xs ml-auto">
-                            <Clock size={10} className="shrink-0 text-rose-500" />
-                            <span>Отделение закрыто {scheduleStatus.closedUntilText}</span>
+                          <span className="max-w-full inline-flex items-center gap-1 px-2 py-0.5 rounded-xl sm:rounded-full bg-rose-50 border border-rose-200 text-[10px] font-bold text-rose-700 shadow-2xs ml-auto text-left leading-tight break-words">
+                            <Clock size={10} className="shrink-0 text-rose-500 self-start mt-0.5" />
+                            <span className="break-words">Отделение закрыто {scheduleStatus.closedUntilText}</span>
                           </span>
                         )}
                       </div>
@@ -1079,7 +1078,11 @@ export function BranchMapModal({
             </div>
 
             {/* Карточка выбранного отделения внизу сайдбара с кнопками действий */}
-            {selectedBranch && (
+            {selectedBranch && (() => {
+              const selectedSchedule = getBranchScheduleStatus(selectedBranch, workloads[selectedBranch.id]);
+              const isSelectedClosed = selectedSchedule.isClosed;
+
+              return (
               <div className="p-3 bg-white border-t border-[#E2E8F0] shadow-lg animate-in slide-in-from-bottom-2 duration-200">
                 <div className="flex items-center justify-between mb-1.5">
                   <span className="text-[11px] uppercase tracking-wider font-extrabold text-slate-400">
@@ -1106,8 +1109,16 @@ export function BranchMapModal({
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
-                    onClick={() => handleTakeTicket(selectedBranch)}
-                    className="w-full py-2.5 px-3 rounded-xl bg-[#052F85] hover:bg-[#031E56] text-white text-xs font-bold transition-all shadow-md shadow-[#052F85]/20 flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer"
+                    onClick={() => {
+                      if (!isSelectedClosed) handleTakeTicket(selectedBranch);
+                    }}
+                    disabled={isSelectedClosed}
+                    title={isSelectedClosed ? 'Отделение закрыто — получение талона недоступно' : 'Взять талон'}
+                    className={`w-full py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                      isSelectedClosed
+                        ? 'bg-slate-100 border border-slate-200 text-slate-400 cursor-not-allowed shadow-none'
+                        : 'bg-[#052F85] hover:bg-[#031E56] text-white shadow-md shadow-[#052F85]/20 active:scale-95 cursor-pointer'
+                    }`}
                   >
                     <span>Взять талон</span>
                     <ArrowRight size={13} />
@@ -1116,13 +1127,15 @@ export function BranchMapModal({
                     type="button"
                     onClick={() => handleBookAppointment(selectedBranch)}
                     className="w-full py-2.5 px-3 rounded-xl border-2 border-[#052F85] text-[#052F85] hover:bg-blue-50 text-xs font-bold transition-all flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer"
+                    title={isSelectedClosed ? 'Записаться на следующий рабочий день' : 'Записаться на визит'}
                   >
                     <Clock size={13} />
                     <span>Записаться</span>
                   </button>
                 </div>
               </div>
-            )}
+              );
+            })()}
           </aside>
 
           {/* ======================================================== */}
@@ -1186,9 +1199,10 @@ export function BranchMapModal({
 
             {/* Всплывающая подробная карточка отделения над картой на десктопе */}
             {selectedBranch && (
-              <div ref={desktopBranchCardRef} data-testid="desktop-branch-card-overlay" className="hidden md:block absolute bottom-5 right-5 w-80 max-w-[calc(100%-2.5rem)] max-h-[calc(100%-2.5rem)] overflow-y-auto rounded-3xl z-20 shadow-xl animate-in fade-in slide-in-from-bottom-2 duration-200">
+              <div ref={desktopBranchCardRef} data-testid="desktop-branch-card-overlay" className="hidden md:block absolute bottom-5 right-5 w-80 sm:w-96 max-w-[calc(100%-2.5rem)] max-h-[calc(100%-2.5rem)] overflow-y-auto rounded-3xl z-20 shadow-xl animate-in fade-in slide-in-from-bottom-2 duration-200">
                 <DetailedBranchCard
                   branch={selectedBranch}
+                  workload={workloads[selectedBranch.id]}
                   compact
                   userLocation={userLocation}
                   onClose={clearBranchSelection}
@@ -1263,7 +1277,7 @@ export function BranchMapModal({
 
               {/* Мобильное поле поиска */}
               {bottomSheetState !== 'collapsed' && <div className="px-3 pt-2 pb-1 bg-white">
-                <div className="relative">
+                <div className="relative flex items-center">
                   <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={15} />
                   <input
                     type="text"
@@ -1271,15 +1285,15 @@ export function BranchMapModal({
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder="Поиск по адресу, метро, индексу..."
-                    style={{ paddingLeft: '2.75rem' }}
-                    className="w-full pl-11 pr-8 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#052F85] focus:bg-white transition-all placeholder:text-slate-400"
+                    style={{ paddingLeft: '2.75rem', paddingRight: '2.5rem' }}
+                    className="w-full pl-11 pr-10 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#052F85] focus:bg-white transition-all placeholder:text-slate-400"
                   />
                   {searchQuery && (
                     <button
                       type="button"
                       onClick={() => setSearchQuery('')}
                       aria-label="Очистить поиск"
-                      className="absolute right-0 top-1/2 -translate-y-1/2 w-11 h-11 flex items-center justify-center text-slate-400 hover:text-slate-600"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-200/60 transition-colors border-0 bg-transparent p-0 cursor-pointer"
                     >
                       <X size={13} />
                     </button>
@@ -1292,6 +1306,7 @@ export function BranchMapModal({
                 {selectedBranch ? (
                   <DetailedBranchCard
                     branch={selectedBranch}
+                    workload={workloads[selectedBranch.id]}
                     showCollapseLink
                     userLocation={userLocation}
                     onClose={clearBranchSelection}
@@ -1362,9 +1377,9 @@ export function BranchMapModal({
 
                             {/* Правый нижний угол: статус закрытия */}
                             {isClosed && (
-                              <span className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-rose-50 border border-rose-200 text-[9px] font-bold text-rose-700 shadow-2xs ml-auto">
-                                <Clock size={9} className="shrink-0 text-rose-500" />
-                                <span>Отделение закрыто {scheduleStatus.closedUntilText}</span>
+                              <span className="max-w-full inline-flex items-center gap-1 px-1.5 py-0.5 rounded-xl sm:rounded-full bg-rose-50 border border-rose-200 text-[9px] font-bold text-rose-700 shadow-2xs ml-auto text-left leading-tight break-words">
+                                <Clock size={9} className="shrink-0 text-rose-500 self-start mt-0.5" />
+                                <span className="break-words">Отделение закрыто {scheduleStatus.closedUntilText}</span>
                               </span>
                             )}
                           </div>
@@ -1418,6 +1433,7 @@ function FilterChip({
  */
 export function DetailedBranchCard({
   branch,
+  workload,
   onTakeTicket,
   onBookAppointment,
   onClose,
@@ -1427,6 +1443,7 @@ export function DetailedBranchCard({
   userLocation,
 }: {
   branch: MapBranch;
+  workload?: BranchWorkload;
   onTakeTicket: () => void;
   onBookAppointment: () => void;
   onClose?: () => void;
@@ -1440,7 +1457,7 @@ export function DetailedBranchCard({
   const [showWeeklySchedule, setShowWeeklySchedule] = useState(false);
   const wait = getWaitBadgeInfo(branch.liveWaitMinutes);
   const landmark = getLandmarkPresentation(branch.rawLocation);
-  const scheduleStatus = getBranchScheduleStatus(branch);
+  const scheduleStatus = getBranchScheduleStatus(branch, workload);
 
   const displayPhoto = useMemo(() => {
     if (branch.photoUrl && !branch.photoUrl.startsWith('data:image/svg')) {
@@ -1540,13 +1557,13 @@ export function DetailedBranchCard({
             <span className="font-semibold text-slate-800">{landmark?.label || 'Ближайшая остановка транспорта'}</span>
           </div>
           <div className="space-y-2">
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex items-start sm:items-center justify-between gap-2 flex-wrap">
               <div className="flex items-center gap-2">
                 <Clock size={14} className="text-slate-400 shrink-0" />
                 <span>Часы работы: <strong>{branch.workHours}</strong></span>
               </div>
               {scheduleStatus.isClosed ? (
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-200 shrink-0">
+                <span className="px-2 py-0.5 rounded-xl sm:rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-200 max-w-full text-left leading-tight break-words">
                   Отделение закрыто {scheduleStatus.closedUntilText}
                 </span>
               ) : (
@@ -1577,7 +1594,7 @@ export function DetailedBranchCard({
               ? { colorClass: 'border-slate-200 text-slate-500', label: 'Нет оценки' }
               : { colorClass: wait.textClass, label: wait.label };
             return (
-              <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-200/60">
+              <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-200/60 flex-wrap">
                 <div className="flex items-center gap-2">
                   <Users size={14} className="text-slate-400 shrink-0" />
                   <span>В зале: <strong>{branch.waitingCount ?? '—'} чел.</strong></span>
@@ -1649,8 +1666,16 @@ export function DetailedBranchCard({
         {(!compact || isExpanded) && !informationalOnly && <div className="grid grid-cols-2 gap-2 pt-1">
           <button
             type="button"
-            onClick={onTakeTicket}
-            className={`w-full min-h-11 ${compact ? 'py-2' : 'py-2.5'} px-4 rounded-2xl bg-[#052F85] hover:bg-[#031E56] text-white text-xs font-extrabold transition-all shadow-md shadow-[#052F85]/20 flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer`}
+            onClick={() => {
+              if (!scheduleStatus.isClosed) onTakeTicket();
+            }}
+            disabled={scheduleStatus.isClosed}
+            title={scheduleStatus.isClosed ? 'Отделение закрыто — получение талона недоступно' : 'Взять талон'}
+            className={`w-full min-h-11 ${compact ? 'py-2' : 'py-2.5'} px-4 rounded-2xl text-xs font-extrabold transition-all flex items-center justify-center gap-1.5 ${
+              scheduleStatus.isClosed
+                ? 'bg-slate-100 border border-slate-200 text-slate-400 cursor-not-allowed shadow-none'
+                : 'bg-[#052F85] hover:bg-[#031E56] text-white shadow-md shadow-[#052F85]/20 active:scale-95 cursor-pointer'
+            }`}
           >
             <span>Взять талон</span>
             <ArrowRight size={14} />
@@ -1659,6 +1684,7 @@ export function DetailedBranchCard({
             type="button"
             onClick={onBookAppointment}
             className={`w-full min-h-11 ${compact ? 'py-2' : 'py-2.5'} px-4 rounded-2xl border-2 border-[#052F85] text-[#052F85] hover:bg-blue-50 text-xs font-extrabold transition-all flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer`}
+            title={scheduleStatus.isClosed ? 'Записаться на следующий рабочий день' : 'Записаться на визит'}
           >
             <Clock size={14} />
             <span>Записаться</span>

@@ -60,31 +60,31 @@
 html[data-text-scale="125"] { --client-text-scale: 1.25; }
 html[data-text-scale="150"] { --client-text-scale: 1.5; }
 
-:is(.main-product-header, .cx-client-flow, .client-typography) {
+:is(.main-product-header, .cx-client-flow, .client-typography, .faq-page) {
   font-size: var(--client-text-base);
 }
-:is(.main-product-header, .cx-client-flow, .client-typography) .text-xs { font-size: var(--client-text-xs) !important; }
-:is(.main-product-header, .cx-client-flow, .client-typography) .text-sm { font-size: var(--client-text-sm) !important; }
-:is(.main-product-header, .cx-client-flow, .client-typography) .text-base { font-size: var(--client-text-base) !important; }
-:is(.main-product-header, .cx-client-flow, .client-typography) .text-lg { font-size: var(--client-text-lg) !important; }
-:is(.main-product-header, .cx-client-flow, .client-typography) .text-xl { font-size: var(--client-text-xl) !important; }
-:is(.main-product-header, .cx-client-flow, .client-typography) .text-2xl { font-size: var(--client-text-2xl) !important; }
-:is(.main-product-header, .cx-client-flow, .client-typography) .text-3xl { font-size: var(--client-text-3xl) !important; }
-:is(.main-product-header, .cx-client-flow, .client-typography) [class~="text-[9px]"] { font-size: calc(9px * var(--client-text-scale)) !important; }
-:is(.main-product-header, .cx-client-flow, .client-typography) [class~="text-[10px]"] { font-size: calc(10px * var(--client-text-scale)) !important; }
-:is(.main-product-header, .cx-client-flow, .client-typography) [class~="text-[11px]"]:not(.pvz-pin-marker) { font-size: calc(11px * var(--client-text-scale)) !important; }
+:is(.main-product-header, .cx-client-flow, .client-typography, .faq-page) .text-xs { font-size: var(--client-text-xs) !important; }
+:is(.main-product-header, .cx-client-flow, .client-typography, .faq-page) .text-sm { font-size: var(--client-text-sm) !important; }
+:is(.main-product-header, .cx-client-flow, .client-typography, .faq-page) .text-base { font-size: var(--client-text-base) !important; }
+:is(.main-product-header, .cx-client-flow, .client-typography, .faq-page) .text-lg { font-size: var(--client-text-lg) !important; }
+:is(.main-product-header, .cx-client-flow, .client-typography, .faq-page) .text-xl { font-size: var(--client-text-xl) !important; }
+:is(.main-product-header, .cx-client-flow, .client-typography, .faq-page) .text-2xl { font-size: var(--client-text-2xl) !important; }
+:is(.main-product-header, .cx-client-flow, .client-typography, .faq-page) .text-3xl { font-size: var(--client-text-3xl) !important; }
+:is(.main-product-header, .cx-client-flow, .client-typography, .faq-page) [class~="text-[9px]"] { font-size: calc(9px * var(--client-text-scale)) !important; }
+:is(.main-product-header, .cx-client-flow, .client-typography, .faq-page) [class~="text-[10px]"] { font-size: calc(10px * var(--client-text-scale)) !important; }
+:is(.main-product-header, .cx-client-flow, .client-typography, .faq-page) [class~="text-[11px]"]:not(.pvz-pin-marker) { font-size: calc(11px * var(--client-text-scale)) !important; }
 @media (min-width: 640px) {
-  :is(.main-product-header, .cx-client-flow, .client-typography) [class~="sm:text-xs"] { font-size: var(--client-text-xs) !important; }
-  :is(.main-product-header, .cx-client-flow, .client-typography) [class~="sm:text-sm"] { font-size: var(--client-text-sm) !important; }
-  :is(.main-product-header, .cx-client-flow, .client-typography) [class~="sm:text-base"] { font-size: var(--client-text-base) !important; }
-  :is(.main-product-header, .cx-client-flow, .client-typography) [class~="sm:text-lg"] { font-size: var(--client-text-lg) !important; }
-  :is(.main-product-header, .cx-client-flow, .client-typography) [class~="sm:text-xl"] { font-size: var(--client-text-xl) !important; }
-  :is(.main-product-header, .cx-client-flow, .client-typography) [class~="sm:text-3xl"] { font-size: var(--client-text-3xl) !important; }
-  :is(.main-product-header, .cx-client-flow, .client-typography) [class~="sm:text-[10px]"] { font-size: calc(10px * var(--client-text-scale)) !important; }
-  :is(.main-product-header, .cx-client-flow, .client-typography) [class~="sm:text-[11px]"] { font-size: calc(11px * var(--client-text-scale)) !important; }
+  :is(.main-product-header, .cx-client-flow, .client-typography, .faq-page) [class~="sm:text-xs"] { font-size: var(--client-text-xs) !important; }
+  :is(.main-product-header, .cx-client-flow, .client-typography, .faq-page) [class~="sm:text-sm"] { font-size: var(--client-text-sm) !important; }
+  :is(.main-product-header, .cx-client-flow, .client-typography, .faq-page) [class~="sm:text-base"] { font-size: var(--client-text-base) !important; }
+  :is(.main-product-header, .cx-client-flow, .client-typography, .faq-page) [class~="sm:text-lg"] { font-size: var(--client-text-lg) !important; }
+  :is(.main-product-header, .cx-client-flow, .client-typography, .faq-page) [class~="sm:text-xl"] { font-size: var(--client-text-xl) !important; }
+  :is(.main-product-header, .cx-client-flow, .client-typography, .faq-page) [class~="sm:text-3xl"] { font-size: var(--client-text-3xl) !important; }
+  :is(.main-product-header, .cx-client-flow, .client-typography, .faq-page) [class~="sm:text-[10px]"] { font-size: calc(10px * var(--client-text-scale)) !important; }
+  :is(.main-product-header, .cx-client-flow, .client-typography, .faq-page) [class~="sm:text-[11px]"] { font-size: calc(11px * var(--client-text-scale)) !important; }
 }
 @media (min-width: 768px) {
-  .client-typography [class~="md:text-lg"] { font-size: var(--client-text-lg) !important; }
+  :is(.client-typography, .faq-page) [class~="md:text-lg"] { font-size: var(--client-text-lg) !important; }
 }
 
 .main-product-header button {

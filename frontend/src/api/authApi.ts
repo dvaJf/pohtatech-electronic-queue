@@ -153,6 +153,7 @@ export async function listUsers(params: { page?: number; limit?: number; search?
   if (typeof localStorage !== 'undefined') {
     data.items = data.items.map(u => ({
       ...u,
+      fio: u.fio || localStorage.getItem(`user_fio:${u.id}`) || localStorage.getItem(`user_fio:${u.email}`) || undefined,
       branchId: u.branchId || localStorage.getItem(`operator_branch:${u.id}`) || localStorage.getItem(`operator_branch:${u.email}`) || undefined
     }));
   }

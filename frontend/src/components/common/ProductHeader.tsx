@@ -385,16 +385,16 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
           </a>
 
           <div className="product-header-tools flex shrink-0 items-center gap-2 text-xs">
-            <div className="header-utility-group hidden items-center gap-0.5 md:flex">
+            <div className="header-utility-group hidden items-center gap-2 md:flex">
               <button type="button" onClick={() => toggleSound()} aria-pressed={soundEnabled}
                 aria-label="Звуковое оповещение" title={soundEnabled ? 'Выключить звук' : 'Включить звук'}
-                className="flex h-11 w-11 items-center justify-center rounded-lg border-0 bg-transparent p-0 text-blue-100/80 hover:bg-white/10 hover:text-white">
+                className="flex h-11 w-11 items-center justify-center rounded-xl border border-white/25 bg-white/10 p-0 text-blue-100/80 hover:bg-white/15 hover:text-white transition-colors">
                 {soundEnabled ? <VolumeIcon className="h-5 w-5" /> : <VolumeCrossIcon className="h-5 w-5" />}
               </button>
               <button ref={a11yButtonRef} type="button" onClick={() => setA11yOpen(value => !value)}
                 aria-pressed={accessibilityActive} aria-expanded={a11yOpen} aria-controls="a11y-settings"
                 aria-label="Настройки доступности" title="Настройки доступности"
-                className={`flex h-11 w-11 items-center justify-center rounded-lg border-0 bg-transparent p-0 hover:bg-white/10 ${accessibilityActive ? 'text-emerald-300' : 'text-blue-100/80 hover:text-white'}`}>
+                className={`flex h-11 w-11 items-center justify-center rounded-xl border border-white/25 bg-white/10 p-0 transition-colors hover:bg-white/15 ${accessibilityActive ? 'text-emerald-300 border-emerald-300/45 bg-emerald-300/15' : 'text-blue-100/80 hover:text-white'}`}>
                 <AccessibilityIcon className="h-5 w-5" />
               </button>
             </div>

@@ -117,10 +117,10 @@ html[data-text-scale="150"] { --client-text-scale: 1.5; }
 .main-product-header .product-header-tools [class*="border-white"] { border-color: var(--border-subtle) !important; }
 .main-product-header .product-header-tools [class*="bg-emerald"] { background: var(--success-soft) !important; color: var(--success) !important; }
 .main-product-header .product-header-tools [class*="bg-white/10"] { background: var(--surface-muted) !important; }
-.main-product-header .header-utility-group { gap: 0; padding: 2px; border: 1px solid var(--border-subtle) !important; border-radius: 12px; background: var(--surface-muted) !important; }
-.main-product-header .header-utility-group button { border: 0 !important; border-radius: 8px !important; background: transparent !important; color: var(--text-secondary) !important; }
-.main-product-header .header-utility-group button + button { border-left: 1px solid var(--border-subtle) !important; border-radius: 0 8px 8px 0 !important; }
-.main-product-header .header-utility-group button:hover { background: var(--surface-card) !important; color: var(--color-primary) !important; }
+.main-product-header .header-utility-group { display: flex; align-items: center; gap: 8px !important; padding: 0 !important; border: 0 !important; background: transparent !important; }
+.main-product-header .header-utility-group button { border: 1px solid var(--border-subtle) !important; border-radius: 12px !important; background: var(--surface-muted) !important; color: var(--text-secondary) !important; transition: all 0.15s ease-in-out; }
+.main-product-header .header-utility-group button + button { border-left: 1px solid var(--border-subtle) !important; border-radius: 12px !important; }
+.main-product-header .header-utility-group button:hover { background: var(--surface-card) !important; border-color: var(--border-strong) !important; color: var(--color-primary) !important; }
 .main-product-header .header-time { border: 0 !important; background: transparent !important; color: var(--text-secondary) !important; }
 .main-product-header .header-account-trigger { border: 1px solid var(--border-subtle) !important; background: var(--surface-muted) !important; color: var(--text-primary) !important; }
 .main-product-header .header-account-trigger:hover { border-color: var(--border-strong) !important; background: var(--surface-card) !important; }

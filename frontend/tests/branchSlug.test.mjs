@@ -1,10 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {
+import { readFile } from 'node:fs/promises';
+import ts from 'typescript';
+
+async function loadTS(path) {
+  const source = await readFile(new URL(path, import.meta.url), 'utf8');
+  const { outputText } = ts.transpileModule(source, {
+    compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 },
+  });
+  return import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
+}
+
+const {
   resolveBranchIdFromPostalCode,
   getBranchPostalCode,
   getBranchDisplayName,
-} from '../src/utils/branchSlug.ts';
+} = await loadTS('../src/utils/branchSlug.ts');
 
 test('resolveBranchIdFromPostalCode resolves official Russian Post 6-digit postal indexes', () => {
   // 101000 — Москва, Главпочтамт, Мясницкая 26

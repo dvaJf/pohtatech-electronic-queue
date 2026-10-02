@@ -280,13 +280,13 @@ ON CONFLICT (email) DO NOTHING;
 
 -- === 000009_ui_services.up.sql ===
 INSERT INTO services (id, code, name)
-VALUES 
+VALUES
   ('33333333-2222-2222-2222-222222222222', 'SEND', 'Отправка писем и посылок'),
   ('44444444-2222-2222-2222-222222222222', 'RETAIL', 'Почтовые товары')
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO branch_services (branch_id, service_id)
-VALUES 
+VALUES
   ('11111111-1111-1111-1111-111111111111', '33333333-2222-2222-2222-222222222222'),
   ('11111111-1111-1111-1111-111111111111', '44444444-2222-2222-2222-222222222222')
 ON CONFLICT (branch_id, service_id) DO NOTHING;
@@ -482,8 +482,8 @@ DECLARE
     b RECORD;
 BEGIN
     FOR b IN SELECT DISTINCT branch_id FROM windows LOOP
-        UPDATE windows 
-        SET number = number + 100000 
+        UPDATE windows
+        SET number = number + 100000
         WHERE branch_id = b.branch_id;
 
         WITH ordered AS (
@@ -575,11 +575,123 @@ CREATE INDEX IF NOT EXISTS idx_tickets_management_token_hash
   ON tickets(management_token_hash)
   WHERE management_token_hash IS NOT NULL;
 
+-- === 000020_branch_coordinates.up.sql ===
+ALTER TABLE branches
+  ADD COLUMN IF NOT EXISTS latitude double precision,
+  ADD COLUMN IF NOT EXISTS longitude double precision,
+  ADD COLUMN IF NOT EXISTS is_demo boolean NOT NULL DEFAULT false;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'branch_coordinate_pair') THEN
+    ALTER TABLE branches ADD CONSTRAINT branch_coordinate_pair CHECK ((latitude IS NULL) = (longitude IS NULL));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'branch_latitude_range') THEN
+    ALTER TABLE branches ADD CONSTRAINT branch_latitude_range CHECK (latitude BETWEEN -90 AND 90);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'branch_longitude_range') THEN
+    ALTER TABLE branches ADD CONSTRAINT branch_longitude_range CHECK (longitude BETWEEN -180 AND 180);
+  END IF;
+END $$;
+
+-- === 000021_user_phone_and_sms.up.sql ===
+ALTER TABLE users
+  ADD COLUMN IF NOT EXISTS phone text,
+  ADD COLUMN IF NOT EXISTS phone_verified boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS phone_code text,
+  ADD COLUMN IF NOT EXISTS phone_code_expires_at timestamptz;
+
+CREATE INDEX IF NOT EXISTS users_phone_idx ON users(phone) WHERE phone IS NOT NULL;
+
+ALTER TABLE tickets
+  ADD COLUMN IF NOT EXISTS sms_reminder_sent boolean NOT NULL DEFAULT false;
+
+CREATE INDEX IF NOT EXISTS tickets_sms_reminder_idx ON tickets(scheduled_at, sms_reminder_sent, status)
+  WHERE source = 'APPOINTMENT' AND status = 'SCHEDULED' AND sms_reminder_sent = false;
+
+-- === 000022_email_confirm_code.up.sql ===
+ALTER TABLE users
+  ADD COLUMN IF NOT EXISTS confirm_code VARCHAR(6),
+  ADD COLUMN IF NOT EXISTS confirm_code_expires_at TIMESTAMPTZ;
+
+CREATE INDEX IF NOT EXISTS idx_users_confirm_code ON users(email, confirm_code);
+
+-- === 000023_multichannel_notifications.up.sql ===
+CREATE TABLE IF NOT EXISTS notification_subscriptions (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    ticket_id uuid NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+    channel text NOT NULL CHECK (channel IN ('TELEGRAM','WEB_PUSH','SMS','EMAIL')),
+    destination text NOT NULL,
+    enabled boolean NOT NULL DEFAULT true,
+    created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+    updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+    UNIQUE (ticket_id, channel, destination)
+);
+CREATE INDEX IF NOT EXISTS notification_subscriptions_ticket_channel_idx ON notification_subscriptions(ticket_id, channel) WHERE enabled;
+
+CREATE TABLE IF NOT EXISTS telegram_link_tokens (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    ticket_id uuid NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+    token_hash text NOT NULL UNIQUE,
+    expires_at timestamptz NOT NULL,
+    consumed_at timestamptz,
+    created_at timestamptz NOT NULL DEFAULT clock_timestamp()
+);
+CREATE INDEX IF NOT EXISTS telegram_link_tokens_active_idx ON telegram_link_tokens(token_hash, expires_at) WHERE consumed_at IS NULL;
+
+ALTER TABLE notification_outbox ADD COLUMN IF NOT EXISTS channel text NOT NULL DEFAULT 'DEMO';
+ALTER TABLE notification_outbox ADD COLUMN IF NOT EXISTS subscription_id uuid REFERENCES notification_subscriptions(id) ON DELETE SET NULL;
+ALTER TABLE notification_outbox ADD COLUMN IF NOT EXISTS destination text;
+ALTER TABLE notification_outbox ADD COLUMN IF NOT EXISTS available_at timestamptz NOT NULL DEFAULT clock_timestamp();
+ALTER TABLE notification_outbox ADD COLUMN IF NOT EXISTS claimed_until timestamptz;
+CREATE INDEX IF NOT EXISTS notification_outbox_delivery_pending_idx ON notification_outbox(status, available_at, next_attempt_at) WHERE status = 'PENDING';
+CREATE UNIQUE INDEX IF NOT EXISTS notification_outbox_delivery_dedupe_idx ON notification_outbox(dedupe_key) WHERE dedupe_key IS NOT NULL;
+
+-- === 000024_ticket_feedback.up.sql ===
+CREATE TABLE IF NOT EXISTS ticket_feedback (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    ticket_id uuid NOT NULL UNIQUE REFERENCES tickets(id) ON DELETE RESTRICT,
+    rating smallint NOT NULL CHECK (rating BETWEEN 1 AND 5),
+    comment text NOT NULL DEFAULT '' CHECK (char_length(comment) <= 500),
+    created_at timestamptz NOT NULL DEFAULT clock_timestamp()
+);
+CREATE INDEX IF NOT EXISTS ticket_feedback_created_at_idx ON ticket_feedback(created_at DESC);
+
+-- === 000025_alice_external_accounts.up.sql ===
+CREATE TABLE IF NOT EXISTS external_accounts (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    provider varchar(50) NOT NULL,
+    external_user_id varchar(255) NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+    updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+    CONSTRAINT external_accounts_provider_external_id_unique UNIQUE (provider, external_user_id)
+);
+
+CREATE INDEX IF NOT EXISTS external_accounts_user_id_idx ON external_accounts(user_id);
+
+-- === 000026_alice_user_sync.up.sql ===
+DO $$
+DECLARE
+    oauth_uid uuid;
+BEGIN
+    SELECT id INTO oauth_uid FROM users
+    WHERE (email LIKE '%@yandex.ru' OR password_hash = 'OAUTH_ACCOUNT')
+      AND email NOT LIKE '%@alice.yandex.ru'
+    ORDER BY created_at DESC LIMIT 1;
+
+    IF oauth_uid IS NOT NULL THEN
+        UPDATE external_accounts SET user_id = oauth_uid WHERE provider = 'yandex_alice';
+        UPDATE tickets SET client_id = oauth_uid::text
+        WHERE client_id IN (SELECT id::text FROM users WHERE email LIKE 'yandex_alice_%');
+    END IF;
+END $$;
+
 -- === schema_migrations (golang-migrate compatibility) ===
 CREATE TABLE IF NOT EXISTS schema_migrations (
   version bigint NOT NULL PRIMARY KEY,
   dirty boolean NOT NULL
 );
 DELETE FROM schema_migrations;
-INSERT INTO schema_migrations (version, dirty) VALUES (19, false);
+INSERT INTO schema_migrations (version, dirty) VALUES (26, false);
 

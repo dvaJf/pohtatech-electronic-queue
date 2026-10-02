@@ -678,10 +678,11 @@ export function BranchMapModal({
       }, {
         iconLayout: pinLayout,
         iconShape: { type: 'Rectangle', coordinates: [[-70, -36], [70, 4]] },
-        cursor: 'pointer',
-        interactive: true,
+        cursor: isClosed ? 'default' : 'pointer',
+        interactive: !isClosed,
       });
       placemark.events.add('click', () => {
+        if (isClosed) return;
         focusBranchOnMap(b.id);
       });
       placemark.events.add('mouseenter', () => {
@@ -905,7 +906,7 @@ export function BranchMapModal({
           {/* ======================================================== */}
           {/* ЛЕВЫЙ САЙДБАР (DESKTOP 35%): Список и фильтры            */}
           {/* ======================================================== */}
-          <aside className="hidden md:flex md:w-[38%] lg:w-[35%] md:min-w-[360px] md:max-w-[460px] flex-col h-full bg-[#F8FAFC] border-r border-[#E2E8F0] z-20 overflow-hidden">
+          <aside className="hidden md:flex md:w-[35%] md:min-w-[360px] md:max-w-[460px] flex-col h-full bg-[#F8FAFC] border-r border-[#E2E8F0] z-20 overflow-hidden">
             {/* Поиск и быстрые фильтры */}
             <div className="p-4 bg-white border-b border-[#E2E8F0] space-y-3">
               {/* Поле поиска */}

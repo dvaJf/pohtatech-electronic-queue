@@ -29,15 +29,20 @@ func (p *Postgres) checkNotificationTicketAccess(ctx context.Context, ticketID s
 	if IsStaffBypass(ctx) {
 		return nil
 	}
-	token, ok := ManagementTokenFromContext(ctx)
-	if !ok {
-		return application.ErrForbidden
-	}
-	var expected string
-	if err := p.pool.QueryRow(ctx, `SELECT management_token_hash FROM tickets WHERE id=$1::uuid`, ticketID).Scan(&expected); err != nil {
+	ownerID, hasOwner := ClientOwnerFromContext(ctx)
+	var clientID *string
+	var expected *string
+	if err := p.pool.QueryRow(ctx, `SELECT client_id, management_token_hash FROM tickets WHERE id=$1::uuid`, ticketID).Scan(&clientID, &expected); err != nil {
 		return dbError(err)
 	}
-	if expected == "" || HashManagementToken(token) != expected {
+	if hasOwner && clientID != nil && *clientID == ownerID {
+		return nil
+	}
+	token, ok := ManagementTokenFromContext(ctx)
+	if !ok || token == "" {
+		return application.ErrForbidden
+	}
+	if expected == nil || *expected == "" || HashManagementToken(token) != *expected {
 		return application.ErrForbidden
 	}
 	return nil
@@ -119,7 +124,7 @@ func (p *Postgres) ConsumeTelegramLink(ctx context.Context, token, chatID string
 	if err != nil {
 		return empty, dbError(err)
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback(context.Background())
 	var ticketID string
 	err = tx.QueryRow(ctx, `UPDATE telegram_link_tokens SET consumed_at=clock_timestamp() WHERE token_hash=$1 AND consumed_at IS NULL AND expires_at>clock_timestamp() RETURNING ticket_id::text`, hash).Scan(&ticketID)
 	if err != nil {
@@ -153,7 +158,7 @@ func (p *Postgres) EnqueueAppointmentNotifications(ctx context.Context, ticketID
 	if err != nil {
 		return dbError(err)
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback(context.Background())
 	err = p.enqueueAppointmentNotificationsTx(ctx, tx, ticketID, scheduledAt, email, phone)
 	if err != nil {
 		return err

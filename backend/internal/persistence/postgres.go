@@ -36,13 +36,13 @@ func New(pool *pgxpool.Pool, policy ...domain.QueuePolicyConfig) *Postgres {
 func (p *Postgres) SetPolicy(cfg domain.QueuePolicyConfig) {
 	p.policyMu.Lock()
 	defer p.policyMu.Unlock()
-	p.policy = cfg
+	p.policy = cfg.Clone()
 }
 
 func (p *Postgres) GetPolicy() domain.QueuePolicyConfig {
 	p.policyMu.RLock()
 	defer p.policyMu.RUnlock()
-	return p.policy
+	return p.policy.Clone()
 }
 
 func (p *Postgres) SetETAPredictor(predictor application.ETAPredictor) { p.predictor = predictor }
@@ -262,6 +262,9 @@ func (p *Postgres) CreateQRTicket(ctx context.Context, cmd application.CreateQRT
 		return empty, dbError(err)
 	}
 	defer tx.Rollback(context.Background())
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, cmd.IdempotencyKey); err != nil {
+		return empty, dbError(err)
+	}
 	existing, err := scanTicket(tx.QueryRow(ctx, ticketSelect+`WHERE t.idempotency_key=$1`, cmd.IdempotencyKey))
 	if err == nil {
 		return replay(existing, b, s, cmd.IdempotencyKey)

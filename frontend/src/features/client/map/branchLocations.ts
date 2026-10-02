@@ -12,7 +12,6 @@
  * 7. Comprehensive network of authentic Russian Post branches across Moscow.
  */
 
-import { getBranchScheduleStatus } from './branchSchedule';
 
 export interface BranchService {
   id: string;
@@ -834,8 +833,7 @@ export function calculateSmartRouting(
   userLat: number,
   userLng: number,
   branches: BranchLocation[],
-  serviceCategory?: string,
-  referenceDate = new Date()
+  serviceCategory?: string
 ): SmartRoutingResult {
   if (!branches || branches.length === 0) {
     return { rankedBranches: [] };
@@ -845,39 +843,14 @@ export function calculateSmartRouting(
     return { rankedBranches: [] };
   }
 
-  const MoscowNowMinutes = () => {
-    const d = new Date(referenceDate.toLocaleString('en-US', { timeZone: 'Europe/Moscow' }));
-    return d.getHours() * 60 + d.getMinutes();
-  };
-
-  const currentMinutes = MoscowNowMinutes();
-
   const computedList: RankedBranch[] = branches.flatMap((b) => {
     if (!Number.isFinite(b.lat) || !Number.isFinite(b.lng)) return [];
-
-    // Check branch schedule & work hours
-    const status = getBranchScheduleStatus(b, undefined, referenceDate);
-
-    // If shift is closed or today is day off, branch cannot be recommended for immediate smart route
-    if (status.isClosed && status.reason === 'shift_closed') return [];
-    if (status.todaySchedule.isDayOff || !status.todaySchedule.isOpen) return [];
-
-    const closeTimeStr = status.todaySchedule.closeTime || '20:00';
-    const [cHour, cMin] = closeTimeStr.split(':').map(Number);
-    const closeMinutes = (cHour || 20) * 60 + (cMin || 0);
 
     const distanceKm = calculateHaversineDistance(userLat, userLng, b.lat, b.lng);
     const travelMinutes = calculateTravelTimeMinutes(distanceKm);
     const waitMinutes = calculateWaitTime(b, serviceCategory);
     const totalMinutes = calculateBranchTotalTime(travelMinutes, waitMinutes);
     if (totalMinutes === undefined) return [];
-
-    // Check if customer will arrive + finish service before branch closing time!
-    // (Arrival + expected service completion time = currentMinutes + totalMinutes)
-    if (currentMinutes + totalMinutes > closeMinutes) {
-      // Customer will not be able to finish service before branch closes!
-      return [];
-    }
 
     const projectedArrivalQueue = projectQueueAtArrival(b.activeQueueCount, travelMinutes, b.activeWindows);
     const workload = getBranchWorkload(b.activeQueueCount, b.activeWindows);

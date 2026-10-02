@@ -105,7 +105,7 @@ func (p *Postgres) UpdateQueuePolicy(ctx context.Context, c application.UpdateQu
 	if err != nil {
 		return empty, dbError(err)
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback(context.Background())
 
 	result, err := scanPolicy(tx.QueryRow(ctx, `UPDATE queue_policies SET
  appointment_due_priority=$2,qr_priority=$3,live_priority=$4,
@@ -171,6 +171,10 @@ func (p *Postgres) UpdateQueuePolicy(ctx context.Context, c application.UpdateQu
 		item.source = domain.TicketSource(srcStr)
 		item.status = domain.TicketStatus(statusStr)
 		candidates = append(candidates, item)
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return empty, dbError(err)
 	}
 	rows.Close()
 

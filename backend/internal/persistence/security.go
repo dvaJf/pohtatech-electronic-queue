@@ -73,3 +73,18 @@ func IsPublicClient(ctx context.Context) bool {
 	}
 	return false
 }
+
+const clientOwnerCtxKey contextKey = "postcode_client_owner"
+
+// WithClientOwner marks the context with the authenticated client user ID.
+func WithClientOwner(ctx context.Context, clientID string) context.Context {
+	return context.WithValue(ctx, clientOwnerCtxKey, strings.TrimSpace(clientID))
+}
+
+// ClientOwnerFromContext retrieves the authenticated client user ID from context.
+func ClientOwnerFromContext(ctx context.Context) (string, bool) {
+	if v, ok := ctx.Value(clientOwnerCtxKey).(string); ok && v != "" {
+		return v, true
+	}
+	return "", false
+}

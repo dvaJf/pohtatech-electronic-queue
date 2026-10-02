@@ -578,10 +578,13 @@ const tvStyles = `
 .tv-content {
   flex: 1;
   display: grid;
-  grid-template-columns: 1fr 30vw;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 30vw);
   gap: 1.5vw;
   padding: 2vh 2vw;
   min-height: 0;
+  min-width: 0;
+  max-width: 100vw;
+  box-sizing: border-box;
   overflow: hidden;
 }
 
@@ -620,6 +623,9 @@ const tvStyles = `
   display: flex;
   flex-direction: column;
   min-height: 0;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
   overflow: hidden;
 }
 .tv-calls-grid {
@@ -628,7 +634,12 @@ const tvStyles = `
   gap: 1.8vh;
   flex: 1;
   align-content: start;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
   overflow: hidden;
+  padding: 4px;
+  margin: -4px;
 }
 .tv-call-card {
   display: flex;
@@ -636,26 +647,33 @@ const tvStyles = `
   justify-content: space-between;
   padding: 1.5vh 2vw;
   min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
   container-type: inline-size;
   border-radius: 2.5vh;
   background: #FFFFFF;
   border: 2px solid #E2E8F0;
   box-shadow: 0 4px 16px rgba(0,0,0,0.04), 0 1px 4px rgba(0,0,0,0.03);
-  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
   animation: none;
 }
 .tv-call-card:hover {
-  transform: scale(1.01);
   box-shadow: 0 8px 24px rgba(0,59,115,0.08);
 }
 .tv-call-card--active {
   border-color: #F59E0B !important;
-  box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.3), 0 8px 32px rgba(245, 158, 11, 0.25) !important;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.4), 0 4px 20px rgba(245, 158, 11, 0.25) !important;
   animation: tv-card-pulse 1.2s ease-in-out infinite;
 }
 @keyframes tv-card-pulse {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.02); }
+  0%, 100% {
+    border-color: #F59E0B;
+    box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.35), 0 4px 16px rgba(245, 158, 11, 0.2);
+  }
+  50% {
+    border-color: #D97706;
+    box-shadow: 0 0 0 5px rgba(245, 158, 11, 0.6), 0 6px 24px rgba(245, 158, 11, 0.35);
+  }
 }
 .tv-call-ticket-col,
 .tv-call-window-col {
@@ -663,6 +681,7 @@ const tvStyles = `
   flex-direction: column;
   align-items: center;
   gap: 0.5vh;
+  min-width: 0;
 }
 .tv-call-label {
   font-size: 1.4vh;
@@ -672,7 +691,7 @@ const tvStyles = `
   color: #475569;
 }
 .tv-call-ticket {
-  font-size: min(6.5vh, 7cqi);
+  font-size: min(6.5vh, 6.5cqi);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
   font-weight: 900;
@@ -680,9 +699,12 @@ const tvStyles = `
   color: #003B73;
   line-height: 1;
   letter-spacing: 0.02em;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .tv-call-window {
-  font-size: min(6.5vh, 7cqi);
+  font-size: min(6.5vh, 6.5cqi);
   white-space: nowrap;
   font-weight: 900;
   font-family: 'Golos Text', monospace;
@@ -691,6 +713,7 @@ const tvStyles = `
   background: #003B73;
   border-radius: 1.5vh;
   padding: 0.8vh 1.5vw;
+  flex-shrink: 0;
 }
 
 /* ═══════════════════════ SBER-STYLE ANIMATED ARROW ═══════════════════════ */
@@ -699,9 +722,10 @@ const tvStyles = `
   align-items: center;
   justify-content: center;
   padding: 0 0.3vw;
+  flex-shrink: 0;
 }
 .tv-sber-arrow svg {
-  width: 5vw;
+  width: min(5vw, 64px);
   height: auto;
 }
 
@@ -737,6 +761,8 @@ const tvStyles = `
   border: 2px solid #E2E8F0;
   box-shadow: 0 4px 16px rgba(0,0,0,0.04);
   min-height: 0;
+  min-width: 0;
+  box-sizing: border-box;
   overflow: hidden;
 }
 .tv-waiting-count {
@@ -840,28 +866,40 @@ const tvStyles = `
   align-items: center;
   gap: 3vh;
   animation: tv-flash-scale 0.5s ease-out;
+  max-width: 90vw;
+  max-height: 90vh;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 .tv-flash-label {
-  font-size: 4vh;
+  font-size: min(4vh, 5vw);
   font-weight: 800;
   color: #16A34A;
   text-transform: uppercase;
   letter-spacing: 0.15em;
+  text-align: center;
+  max-width: 100%;
 }
 .tv-flash-ticket {
-  font-size: 18vh;
+  font-size: min(18vh, 12vw);
   font-weight: 900;
   font-family: 'Golos Text', monospace;
   color: #003B73;
   line-height: 1;
+  white-space: nowrap;
+  text-align: center;
+  max-width: 100%;
 }
 .tv-flash-window {
-  font-size: 10vh;
+  font-size: min(10vh, 8vw);
   font-weight: 900;
   color: #FFFFFF;
   background: #003B73;
   border-radius: 3vh;
   padding: 1vh 4vw;
+  white-space: nowrap;
+  text-align: center;
+  max-width: 100%;
 }
 
 /* ═══════════════════════ ANIMATIONS ═══════════════════════ */
@@ -894,7 +932,7 @@ const tvStyles = `
 }
 
 /* ═══════ RESPONSIVE: portrait/smaller screens fallback ═══════ */
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3), (max-width: 960px) {
   .tv-content {
     grid-template-columns: 1fr;
     grid-template-rows: 1fr auto;

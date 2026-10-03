@@ -304,12 +304,53 @@ SMS supports the configured Android Gateway, SMS Aero or SMS.ru adapters; withou
 
 [Исправления, демонстрационная сеть из 25 отделений, проверки и решение по Redis](docs/final-readiness.md).
 
-## Автоматический деплой (GitOps)
+## Deployment
 
-В репозитории настроен автоматический GitOps-пайплайн:
-- **GitLab CI** (`.gitlab-ci.yml`): сборка, тестирование, публикация Docker-образов с immutable SHA-тегами и атомарное обновление Helm-значений.
-- **ArgoCD** (Application `queue-system`): отслеживает `main` ветку, директорию `helm/queue-chart` и выполняет автоматический `Sync`.
-- **Kubernetes**: плавный `RollingUpdate` с проверками `livenessProbe` / `readinessProbe` без простоя.
+Docker Hub credentials разработчикам **не нужны**.
 
-Подробное руководство: [docs/GITOPS_DEPLOYMENT.md](docs/GITOPS_DEPLOYMENT.md).
+### Workflow разработчика
+
+```bash
+git checkout -b feature/my-feature
+git add .
+git commit -m "feat: ..."
+git push origin feature/my-feature
+# → Merge Request → merge в main
+```
+
+После merge в `main` production-сервер автоматически:
+
+```
+main
+ ↓ сервер обнаруживает новый коммит (каждые 30с)
+ ↓ git diff → определяет изменившийся сервис
+ ↓
+frontend изменился? → docker build → docker push → обновляет frontend image tag
+backend изменился?  → docker build → docker push → обновляет backend image tag
+ ↓
+GitOps commit в ветку gitops (только helm/queue-chart/values.yaml)
+ ↓ ArgoCD видит изменение
+ ↓ Kubernetes RollingUpdate
+ ↓ production обновлён
+```
+
+- Если изменился только **frontend** — backend не пересобирается.
+- Если изменился только **backend** — frontend не пересобирается.
+- Если изменились **оба** — собираются оба.
+- Если изменился только Helm/docs — Docker build не запускается.
+
+Image tags: `vacuumxvx/queue-frontend:v-<sha>` / `vacuumxvx/queue-backend:v-<sha>`
+
+### Инфраструктура
+
+| Компонент | Описание |
+|-----------|----------|
+| **ArgoCD** | Отслеживает ветку `gitops`, путь `helm/queue-chart`, `automated sync` включён |
+| **systemd timer** | `pointers-deploy.timer` — запускает watcher каждые 30 секунд |
+| **State file** | `/var/lib/pointers-deploy/last-deployed-sha` |
+| **Secrets** | `/etc/pointers-deploy.env` (chmod 600, не в Git) |
+| **Script** | `scripts/gitops-autodeploy.sh` |
+
+Логи: `journalctl -u pointers-deploy.service -n 100`
+
 

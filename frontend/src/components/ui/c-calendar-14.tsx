@@ -135,7 +135,7 @@ export function Pattern({
           </div>
 
           {/* Правая панель выбора времени в две колонки: Часы и Минуты (шаг 15 мин) */}
-          <div className="flex flex-col w-full sm:w-56 max-sm:h-[260px] max-sm:border-t sm:border-s border-slate-200/80 bg-slate-50/50 min-h-0">
+          <div className="flex flex-col w-full sm:w-56 max-sm:h-[300px] sm:h-auto max-sm:border-t sm:border-s border-slate-200/80 bg-slate-50/50 min-h-0">
             {/* Заголовок с датой — комфортный padding, шрифт не обрезается сверху в Safari/Yandex */}
             <div className="px-3 pt-2.5 pb-2 border-b border-slate-200/70 bg-white shrink-0">
               <p className="text-xs font-bold text-slate-900 capitalize leading-normal truncate" title={format(date, "EEEE, d MMMM", { locale: ru })}>
@@ -159,12 +159,15 @@ export function Pattern({
               </div>
             </div>
 
-            {/* Списки часов и минут с фиксированной высотой для 100% надёжного скролла */}
-            <div className="grid grid-cols-2 divide-x divide-slate-200/70 h-[235px]">
+            {/* Списки часов и минут с адаптивной высотой без обрезания слотов */}
+            <div className="grid grid-cols-2 divide-x divide-slate-200/70 flex-1 min-h-0">
               {/* Колонка 1: Часы (скроллится) */}
               <div
-                className="h-[235px] overflow-y-auto calendar-slots-scroll p-1.5 pb-4 space-y-1 overscroll-contain"
-                style={{ WebkitOverflowScrolling: 'touch' }}
+                className="h-full overflow-y-auto calendar-slots-scroll p-1.5 pb-6 space-y-1 overscroll-contain"
+                style={{
+                  WebkitOverflowScrolling: 'touch',
+                  scrollPaddingBottom: 'max(1.5rem, env(safe-area-inset-bottom, 16px))',
+                }}
               >
                 {hoursList.map(h => {
                   const isSelected = h === currentHour;
@@ -191,7 +194,13 @@ export function Pattern({
               </div>
 
               {/* Колонка 2: Минуты */}
-              <div className="h-[235px] overflow-y-auto p-1.5 space-y-1">
+              <div
+                className="h-full overflow-y-auto calendar-slots-scroll p-1.5 pb-6 space-y-1 overscroll-contain"
+                style={{
+                  WebkitOverflowScrolling: 'touch',
+                  scrollPaddingBottom: 'max(1.5rem, env(safe-area-inset-bottom, 16px))',
+                }}
+              >
                 {minutesList.map(m => {
                   const isSelected = m === currentMinute;
                   const isAvail = isMinuteAvailable(currentHour, m);

@@ -84,6 +84,7 @@ func (a *API) RegisterRoutes(r chi.Router) {
 		r.Get("/branches/{branchId}/tv", a.GetTVQueue)
 		r.Get("/branches/{branchId}/workload", a.GetBranchWorkload)
 		r.Get("/branches/{branchId}/reviews", a.GetBranchReviews)
+		r.Post("/branches/{branchId}/reviews", a.SubmitBranchReview)
 		r.Get("/client/tickets/active", a.ListMyActiveTickets)
 		r.With(requireRole(domain.RoleOPCChief)).Post("/branches/{branchId}/windows", a.CreateWindow)
 		r.With(requireRole(domain.RoleOPCChief)).Delete("/windows/{windowId}", a.DeleteWindow)
@@ -123,6 +124,7 @@ func (a *API) RegisterRoutes(r chi.Router) {
 			// Операции, доступные оператору окна (просмотр очереди отделения, чтение политики, статус окна, услуги окна)
 			r.Get("/branches/{branchId}/queue", a.GetOperatorQueue)
 			r.Get("/branches/{branchId}/queue-policy", a.GetQueuePolicy)
+			r.Get("/reviews", a.GetAdminReviews)
 			r.Put("/windows/{windowId}/status", a.ChangeWindowStatus)
 			r.Put("/windows/{windowId}/services", a.UpdateWindowServices)
 

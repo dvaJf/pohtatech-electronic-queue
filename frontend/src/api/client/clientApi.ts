@@ -234,6 +234,14 @@ export async function getBranchReviews(branchId: string): Promise<BranchReview[]
   }
 }
 
+export async function submitBranchReview(branchId: string, rating: number, comment = ''): Promise<{ id: string; branchId: string; rating: number; comment: string; createdAt: string }> {
+  return request(`/branches/${encodeURIComponent(branchId)}/reviews`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rating, comment }),
+  });
+}
+
 export async function submitFeedback(ticketId: string, rating: number, comment: string, token?: string): Promise<void> {
   await request(`/tickets/${encodeURIComponent(ticketId)}/feedback`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...managementHeaders(token) }, body: JSON.stringify({ rating, comment }) }, () => undefined);
 }

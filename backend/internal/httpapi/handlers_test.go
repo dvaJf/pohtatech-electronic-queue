@@ -49,6 +49,8 @@ type FakeUseCases struct {
 	GetBranchWorkloadFunc    func(ctx context.Context, branchID string) (domain.BranchWorkload, error)
 	CloseShiftFunc           func(ctx context.Context, branchID string) (domain.ShiftClosureResult, error)
 	UpdateBranchScheduleFunc func(ctx context.Context, branchID string, workHours string) (domain.Branch, error)
+	SubmitBranchReviewFunc   func(ctx context.Context, branchID string, rating int, comment string) (domain.CreatedReview, error)
+	GetAdminReviewsFunc      func(ctx context.Context, filter domain.AdminReviewsFilter) (domain.AdminReviewsResult, error)
 
 	RegisterFunc       func(ctx context.Context, email, password string) (domain.User, error)
 	ConfirmEmailFunc   func(ctx context.Context, token string) error
@@ -136,6 +138,32 @@ func (f *FakeUseCases) ListBranchReviews(ctx context.Context, branchID string) (
 		return f.ListBranchReviewsFunc(ctx, branchID)
 	}
 	return nil, nil
+}
+
+func (f *FakeUseCases) SubmitBranchReview(ctx context.Context, branchID string, rating int, comment string) (domain.CreatedReview, error) {
+	if f.SubmitBranchReviewFunc != nil {
+		return f.SubmitBranchReviewFunc(ctx, branchID, rating, comment)
+	}
+	return domain.CreatedReview{
+		ID:        "rev-test-1",
+		BranchID:  branchID,
+		Rating:    rating,
+		Comment:   comment,
+		CreatedAt: time.Now().UTC(),
+	}, nil
+}
+
+func (f *FakeUseCases) GetAdminReviews(ctx context.Context, filter domain.AdminReviewsFilter) (domain.AdminReviewsResult, error) {
+	if f.GetAdminReviewsFunc != nil {
+		return f.GetAdminReviewsFunc(ctx, filter)
+	}
+	return domain.AdminReviewsResult{
+		Items:      []domain.AdminReviewItem{},
+		Total:      0,
+		Page:       filter.Page,
+		PageSize:   filter.PageSize,
+		TotalPages: 0,
+	}, nil
 }
 
 func (f *FakeUseCases) ListBranchServices(ctx context.Context, branchID string) ([]domain.Service, error) {

@@ -151,7 +151,7 @@
 }
 
 .faq-flow span, .faq-scenarios span {
-  color: #52687b;
+  color: #334155;
   font-size: calc(13px * var(--client-text-scale, 1));
   line-height: 1.35;
 }
@@ -196,7 +196,7 @@
 }
 
 .faq-item small {
-  color: #54708c;
+  color: #334155;
   font-size: calc(12px * var(--client-text-scale, 1));
   font-weight: 600;
 }
@@ -212,7 +212,7 @@
 
 .faq-answer {
   padding: 0 16px 16px;
-  color: #40586f;
+  color: #334155;
   font-size: calc(15px * var(--client-text-scale, 1));
   line-height: 1.55;
 }
@@ -259,7 +259,7 @@
 }
 
 .faq-health span:not(.faq-status-dot) {
-  color: #5a6f82;
+  color: #334155;
   font-size: calc(13px * var(--client-text-scale, 1));
 }
 
@@ -301,7 +301,7 @@
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  color: #38536c;
+  color: #334155;
   font-size: calc(14px * var(--client-text-scale, 1));
   line-height: 1.35;
 }
@@ -319,7 +319,7 @@
 
 .faq-status-message {
   margin: 14px 0 0;
-  color: #5b6e80;
+  color: #334155;
   font-size: calc(14px * var(--client-text-scale, 1));
   line-height: 1.45;
 }
@@ -331,7 +331,7 @@
   padding: 40px 20px;
   border: 1px dashed #b7c8d9;
   border-radius: 14px;
-  color: #587086;
+  color: #334155;
   text-align: center;
 }
 

@@ -57,6 +57,31 @@ export function getUserDefaultBranchId(userId?: string | null): string {
 }
 
 /**
+ * Resolves the single, unambiguous default branch ID from a list of branches.
+ * Guarantees invariant: at most ONE branch can be marked as default.
+ */
+export function resolveSingleDefaultBranchId<T extends { id: string; address?: string; name?: string; code?: string }>(
+  branches: T[],
+  defaultBranchId: string | null | undefined
+): string | null {
+  if (!branches || branches.length === 0 || !defaultBranchId) return null;
+
+  // 1. Direct ID match first
+  const exact = branches.find(b => b.id === defaultBranchId);
+  if (exact) return exact.id;
+
+  // 2. Canonical default aliases (Kazan Glavpochtamt / legacy demo id)
+  if (defaultBranchId === DEFAULT_POST_OFFICE_ID || defaultBranchId === 'c1a06492-4d5b-6923-0d2b-3906a43b0001') {
+    const alias = branches.find(b => b.id === 'c1a06492-4d5b-6923-0d2b-3906a43b0001' || b.id === DEFAULT_POST_OFFICE_ID);
+    if (alias) return alias.id;
+  }
+
+  // 3. Strict match via matchesUserDefaultBranch (taking first match only)
+  const matched = branches.find(b => matchesUserDefaultBranch(b, defaultBranchId));
+  return matched ? matched.id : null;
+}
+
+/**
  * Universal matcher for user's default branch.
  * Seamlessly resolves matches between backend UUIDs and static catalog IDs by ID, address, and name.
  */
@@ -66,6 +91,10 @@ export function matchesUserDefaultBranch(
 ): boolean {
   if (!branch || !defaultBranchId) return false;
   if (branch.id === defaultBranchId) return true;
+  if ((branch.id === 'c1a06492-4d5b-6923-0d2b-3906a43b0001' && defaultBranchId === DEFAULT_POST_OFFICE_ID) ||
+      (branch.id === DEFAULT_POST_OFFICE_ID && defaultBranchId === 'c1a06492-4d5b-6923-0d2b-3906a43b0001')) {
+    return true;
+  }
   const branchCode = branch.code || branch.postalCode || branch.index || branch.loc?.code;
   if (branchCode && branchCode === defaultBranchId) return true;
 

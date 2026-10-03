@@ -176,4 +176,55 @@ export async function deleteWindow(windowId: string): Promise<void> {
   }
 }
 
+export interface AdminReviewItem {
+  id: string;
+  ticketId: string | null;
+  branchId: string;
+  branchName: string;
+  rating: number;
+  comment: string;
+  createdAt: string;
+}
+
+export interface AdminReviewSummary {
+  averageRating: number | null;
+  totalReviews: number;
+  distribution: Record<string, number>;
+}
+
+export interface AdminReviewsResult {
+  items: AdminReviewItem[];
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+  summary: AdminReviewSummary;
+}
+
+export interface GetAdminReviewsParams {
+  branchId?: string;
+  rating?: number;
+  sort?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export async function getAdminReviews(params: GetAdminReviewsParams = {}): Promise<AdminReviewsResult> {
+  const base = getApiBaseUrl();
+  const searchParams = new URLSearchParams();
+  if (params.branchId) searchParams.set('branchId', params.branchId);
+  if (params.rating) searchParams.set('rating', String(params.rating));
+  if (params.sort) searchParams.set('sort', params.sort);
+  if (params.page) searchParams.set('page', String(params.page));
+  if (params.pageSize) searchParams.set('pageSize', String(params.pageSize));
+
+  const qs = searchParams.toString();
+  const url = `${base}/admin/reviews${qs ? `?${qs}` : ''}`;
+  const res = await fetch(url, {
+    credentials: 'include',
+    headers: { Accept: 'application/json' },
+  });
+  return await handleResponse<AdminReviewsResult>(res);
+}
+
 

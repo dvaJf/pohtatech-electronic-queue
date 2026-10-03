@@ -27,9 +27,11 @@ import {
   ArrowRight,
   Plus,
   Trash2,
+  MessageSquare,
 } from 'lucide-react';
+import { AdminReviewsView } from './AdminReviewsView';
 
-type AdminTab = 'overview' | 'queue' | 'policy' | 'schedule' | 'anomalies' | 'users' | 'qr';
+type AdminTab = 'overview' | 'queue' | 'policy' | 'schedule' | 'anomalies' | 'reviews' | 'users' | 'qr';
 
 export const AdminWorkspace: React.FC = () => {
   const [branches, setBranches] = useState<Branch[]>([]);
@@ -265,6 +267,20 @@ export const AdminWorkspace: React.FC = () => {
                 {anomaliesTotal}
               </span>
             )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('reviews')}
+            aria-selected={activeTab === 'reviews'}
+            className={`px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 ${
+              activeTab === 'reviews'
+                ? 'bg-white text-[#003B73] shadow-sm'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <MessageSquare className="w-4 h-4" />
+            <span>Отзывы</span>
           </button>
 
           <button
@@ -568,6 +584,14 @@ export const AdminWorkspace: React.FC = () => {
                 disabled={anomaliesLoading} onPageChange={setAnomaliesPage}
                 onPageSizeChange={size => { setAnomaliesPageSize(size); setAnomaliesPage(1); }} itemLabel="аномалиям" />}
             </div>
+          )}
+
+          {/* TAB: REVIEWS */}
+          {activeTab === 'reviews' && (
+            <AdminReviewsView
+              branches={branches}
+              initialBranchId={selectedBranchId}
+            />
           )}
 
           {/* TAB 4: USERS (IAM) */}

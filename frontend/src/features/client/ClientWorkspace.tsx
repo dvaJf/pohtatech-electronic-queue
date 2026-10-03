@@ -264,13 +264,11 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
   const connected = (channel: NotificationChannel) => subscriptions.find(item => item.channel === channel && item.enabled);
   const unavailable = (channel: 'telegram' | 'webPush' | 'email') => capabilities ? !capabilities[channel].enabled : true;
 
-  // Auto-subscribe Browser Push by default on new ticket creation if profile enabled
+  // Auto-subscribe Browser Push by default on new ticket creation if browser permission is granted
   useEffect(() => {
-    if (typeof localStorage !== 'undefined' && localStorage.getItem('user_browser_push_enabled') !== 'false') {
-      const isTicketPushDisabled = localStorage.getItem(`ticket_webpush_disabled:${ticket.id}`) === 'true';
-      if (!isTicketPushDisabled && token && capabilities?.webPush?.enabled && !connected('WEB_PUSH') && busy !== 'WEB_PUSH' && typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
-        push();
-      }
+    const isTicketPushDisabled = typeof localStorage !== 'undefined' && localStorage.getItem(`ticket_webpush_disabled:${ticket.id}`) === 'true';
+    if (!isTicketPushDisabled && token && capabilities?.webPush?.enabled && !connected('WEB_PUSH') && busy !== 'WEB_PUSH' && typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+      push();
     }
   }, [ticket.id, token, capabilities?.webPush?.enabled, subscriptions.length, busy]);
 

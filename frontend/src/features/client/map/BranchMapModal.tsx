@@ -1017,10 +1017,19 @@ export function BranchMapModal({
                       }`}
                     >
                       <div className="flex items-start gap-2.5 min-w-0">
-                        {branch.photoUrl && (
-                          <img src={branch.photoUrl} alt="Иллюстрация почтового отделения" loading="lazy" decoding="async" onError={(event) => { event.currentTarget.style.display = 'none'; }}
-                            className="h-14 w-16 rounded-xl object-cover shrink-0 bg-slate-100" />
-                        )}
+                        <div className="w-16 h-12 rounded-xl overflow-hidden shrink-0 bg-slate-100 border border-slate-200/60 shadow-xs flex items-center justify-center relative">
+                          <Building2 size={18} className="text-slate-300 absolute" />
+                          {branch.photoUrl && (
+                            <img
+                              src={branch.photoUrl}
+                              alt="Иллюстрация почтового отделения"
+                              loading="lazy"
+                              decoding="async"
+                              onError={(event) => { event.currentTarget.style.display = 'none'; }}
+                              className="w-full h-full object-cover relative z-10"
+                            />
+                          )}
+                        </div>
                         <div className="min-w-0 flex-1">
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
@@ -1368,10 +1377,19 @@ export function BranchMapModal({
                             : 'bg-slate-50 hover:bg-blue-50/50 border-slate-200 hover:border-blue-200'
                         }`}
                       >
-                        {b.photoUrl && (
-                          <img src={b.photoUrl} alt="Иллюстрация почтового отделения" loading="lazy" decoding="async" onError={(event) => { event.currentTarget.style.display = 'none'; }}
-                            className="h-14 w-16 rounded-xl object-cover shrink-0 bg-slate-100" />
-                        )}
+                        <div className="w-16 h-12 rounded-xl overflow-hidden shrink-0 bg-slate-100 border border-slate-200/60 shadow-xs flex items-center justify-center relative">
+                          <Building2 size={18} className="text-slate-300 absolute" />
+                          {b.photoUrl && (
+                            <img
+                              src={b.photoUrl}
+                              alt="Иллюстрация почтового отделения"
+                              loading="lazy"
+                              decoding="async"
+                              onError={(event) => { event.currentTarget.style.display = 'none'; }}
+                              className="w-full h-full object-cover relative z-10"
+                            />
+                          )}
+                        </div>
                         <div className="min-w-0 flex-1">
                           <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0">

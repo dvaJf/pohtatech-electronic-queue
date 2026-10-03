@@ -726,16 +726,19 @@ function BranchCard({
       onClick={onSelect}
     >
       <div className="flex items-start gap-3 w-full min-w-0 text-left">
-        {photoUrl && !photoFailed && (
-          <img
-            src={photoUrl}
-            alt="Иллюстрация почтового отделения"
-            loading="lazy"
-            decoding="async"
-            onError={() => setPhotoFailed(true)}
-            className={`w-20 h-16 sm:w-24 sm:h-20 rounded-xl object-cover shrink-0 bg-slate-100 ${isClosed ? 'grayscale' : ''}`}
-          />
-        )}
+        <div className={`w-20 aspect-[4/3] sm:w-24 sm:aspect-[4/3] rounded-xl overflow-hidden shrink-0 bg-slate-100 border border-slate-200/60 shadow-xs flex items-center justify-center relative ${isClosed ? 'grayscale' : ''}`}>
+          <Building2 size={24} className="text-slate-300 absolute" />
+          {photoUrl && !photoFailed && (
+            <img
+              src={photoUrl}
+              alt="Иллюстрация почтового отделения"
+              loading="lazy"
+              decoding="async"
+              onError={() => setPhotoFailed(true)}
+              className="w-full h-full object-cover relative z-10"
+            />
+          )}
+        </div>
         <div className="min-w-0 flex-1">
           {/* Верхняя строка: Рейтинг и бейджи слева, статус закрытия в правом верхнем углу */}
           <div className="flex items-center justify-between gap-1.5 mb-1.5 w-full flex-wrap">

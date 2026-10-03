@@ -173,7 +173,7 @@ export function UserProfileModal({ isOpen, onClose, user, onUserUpdate }: UserPr
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-fade-in">
       <div
-        className="relative w-full max-w-md max-h-[90vh] bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col my-auto"
+        className="relative w-full max-w-md max-h-[90vh] bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col my-auto border-0 ring-1 ring-black/10"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -188,14 +188,19 @@ export function UserProfileModal({ isOpen, onClose, user, onUserUpdate }: UserPr
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="p-1.5 rounded-full hover:bg-white/10 text-white/80 hover:text-white transition-colors"
+            className="p-1.5 rounded-full hover:bg-white/15 active:bg-white/25 text-white/90 hover:text-white transition-all border-0 outline-none focus:outline-none focus-visible:ring-2 focus-visible:ring-white/40 cursor-pointer"
+            aria-label="Закрыть профиль"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="p-4 sm:p-6 space-y-5 sm:space-y-6 flex-1 min-h-0 overflow-y-auto overscroll-contain">
+        <div
+          className="p-4 sm:p-6 space-y-5 sm:space-y-6 flex-1 min-h-0 overflow-y-auto overscroll-contain scrollbar-none"
+          style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+        >
           {/* User Info Card */}
           <div className="p-4 bg-slate-50 border border-slate-200/80 rounded-2xl space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -280,12 +285,12 @@ export function UserProfileModal({ isOpen, onClose, user, onUserUpdate }: UserPr
               />
 
               {selectedDefaultBranch && (
-                <div className="p-3 bg-white border border-slate-200/80 rounded-xl flex items-start gap-2.5 text-xs shadow-xs">
+                <div className="p-3 bg-slate-100/60 border border-slate-200/60 rounded-xl flex items-start gap-2.5 text-xs">
                   <MapPin className="w-4 h-4 text-[#003B73] shrink-0 mt-0.5" />
                   <div className="min-w-0 flex-1">
                     <div className="font-bold text-slate-900 flex items-center gap-2">
                       <span>{selectedDefaultBranch.name}</span>
-                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">
+                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-200/70 text-slate-700">
                         {selectedDefaultBranch.code}
                       </span>
                     </div>
@@ -384,7 +389,7 @@ export function UserProfileModal({ isOpen, onClose, user, onUserUpdate }: UserPr
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-xl text-xs font-bold transition-colors"
+            className="px-5 py-2 bg-slate-200 hover:bg-slate-300 active:bg-slate-400 text-slate-800 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer"
           >
             Закрыть
           </button>

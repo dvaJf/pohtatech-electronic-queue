@@ -28,3 +28,35 @@ SET name = 'Главпочтамт г. Казань 420000',
     longitude = 49.112340,
     is_demo = false
 WHERE id = '11111111-1111-1111-1111-111111111111';
+
+-- Seed initial branch reviews for branches
+INSERT INTO ticket_feedback (id, branch_id, rating, comment, created_at)
+SELECT 
+    md5(b.id::text || ':seed_review:1')::uuid,
+    b.id,
+    5,
+    'Отличное обслуживание, оператор вежливый и компетентный. Электронная очередь работает без задержек.',
+    NOW() - INTERVAL '3 hours'
+FROM branches b
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO ticket_feedback (id, branch_id, rating, comment, created_at)
+SELECT 
+    md5(b.id::text || ':seed_review:2')::uuid,
+    b.id,
+    5,
+    'Записался заранее через приложение, пришел точно к назначенному времени — сразу вызвали к окну.',
+    NOW() - INTERVAL '1 day'
+FROM branches b
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO ticket_feedback (id, branch_id, rating, comment, created_at)
+SELECT 
+    md5(b.id::text || ':seed_review:3')::uuid,
+    b.id,
+    4,
+    'Чистое, светлое отделение, удобная зона ожидания. Посылку выдали за пару минут.',
+    NOW() - INTERVAL '3 days'
+FROM branches b
+ON CONFLICT (id) DO NOTHING;
+

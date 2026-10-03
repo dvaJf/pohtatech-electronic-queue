@@ -22,7 +22,8 @@ import {
   Layers,
   CheckCircle2
 } from 'lucide-react';
-import { matchBranchLocation, liveWaitMinutes, matchesUserDefaultBranch, getUserDefaultBranchId, resolveSingleDefaultBranchId } from './liveBranches';
+import { matchBranchLocation, liveWaitMinutes, matchesUserDefaultBranch, getUserDefaultBranchId, resolveSingleDefaultBranchId, getBranchPostalCode } from './liveBranches';
+export { getBranchPostalCode };
 import { decideUserLocationUpdate, decideLocationCenterRequest } from './mapViewportPolicy';
 import { useModalFocus } from '../../../hooks/useModalFocus';
 import { getBranchReviews, type BranchReview, type BranchWorkload } from '../../../api/client/clientApi';
@@ -44,6 +45,7 @@ import {
  */
 export interface MapBranch extends Branch {
   code?: string;
+  postalCode?: string;
   coordinates: [number, number]; // [широта (lat), долгота (lon)]
   metro?: string;
   metroColor?: string;
@@ -131,6 +133,7 @@ export function convertLocationToMapBranch(loc: BranchLocation): MapBranch {
     ratingAverage: null,
     ratingCount: 0,
     code: loc.code,
+    postalCode: loc.postalCode || getBranchPostalCode(loc),
     name: loc.name,
     address: loc.address,
     workHours: loc.workHours,
@@ -1034,6 +1037,12 @@ export function BranchMapModal({
                             <div className="text-[11px] text-slate-500 mt-0.5 line-clamp-1">
                               {branch.address}
                             </div>
+                            {getBranchPostalCode(branch) && (
+                              <div className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-1 font-medium">
+                                <span className="text-slate-400">Почтовый индекс:</span>
+                                <span className="font-bold text-[#052F85] tracking-wide">{getBranchPostalCode(branch)}</span>
+                              </div>
+                            )}
                           </div>
 
                           {!isClosed && (
@@ -1375,6 +1384,12 @@ export function BranchMapModal({
                                 )}
                               </div>
                               <div className="text-[11px] text-slate-500 mt-0.5 break-words">{b.address}</div>
+                              {getBranchPostalCode(b) && (
+                                <div className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-1 font-medium">
+                                  <span className="text-slate-400">Почтовый индекс:</span>
+                                  <span className="font-bold text-[#052F85] tracking-wide">{getBranchPostalCode(b)}</span>
+                                </div>
+                              )}
                             </div>
                             {!isClosed && (
                               <span
@@ -1622,6 +1637,12 @@ export function DetailedBranchCard({
             )}
           </div>
           <p className="text-xs text-slate-500 mt-0.5">{branch.address}</p>
+          {getBranchPostalCode(branch) && (
+            <p className="text-xs text-slate-500 mt-0.5 flex items-center gap-1 font-medium">
+              <span className="text-slate-400">Почтовый индекс:</span>
+              <span className="font-bold text-[#052F85] tracking-wide">{getBranchPostalCode(branch)}</span>
+            </p>
+          )}
         </div>
 
         {/* Метро, часы работы и текущая очередь */}

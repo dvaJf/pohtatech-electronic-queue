@@ -16,7 +16,7 @@ import { RouteOfferModal } from './RouteOfferModal';
 import { BranchMapModal } from './map/BranchMapModal';
 import { calculateBranchTotalTime, isUsableDurationMinutes, MAX_QUEUE_WAIT_MINUTES, MAX_ROUTE_TRAVEL_MINUTES, MOSCOW_BRANCHES, BranchLocation, RankedBranch } from './map/branchLocations';
 
-import { matchBranchLocation, matchesUserDefaultBranch, getUserDefaultBranchId, resolveSingleDefaultBranchId } from './map/liveBranches';
+import { matchBranchLocation, matchesUserDefaultBranch, getUserDefaultBranchId, resolveSingleDefaultBranchId, getBranchPostalCode } from './map/liveBranches';
 import { canShowNearbyBranchCard, updateNearbyVisits, dismissNearbyVisit, type NearbyVisitState } from './arrival/arrivalPolicy';
 import { VisitRatingSheet } from './rating/VisitRatingSheet';
 import { shouldOfferVisitRating } from './rating/visitRatingPolicy';
@@ -824,6 +824,13 @@ function BranchCard({
                 <span className="cx-choice-meta text-xs">
                   <MapPin size={13} aria-hidden className="shrink-0 text-slate-400" />
                   <span className="cx-message-text">{branch.address}</span>
+                </span>
+              ) : null}
+
+              {getBranchPostalCode(branch) ? (
+                <span className="cx-choice-meta text-xs">
+                  <span className="text-slate-400 font-normal">Почтовый индекс:</span>
+                  <span className="font-bold text-[#052F85] tracking-wide">{getBranchPostalCode(branch)}</span>
                 </span>
               ) : null}
 

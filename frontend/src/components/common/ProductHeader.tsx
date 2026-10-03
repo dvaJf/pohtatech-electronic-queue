@@ -760,7 +760,16 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
             ) : null}
 
             {/* Доступность быстрые опции */}
-            {!isStaffArea && <a href="/faq" onClick={() => setMobileMenuOpen(false)} className="flex h-11 w-full items-center gap-2 rounded-xl border border-white/15 bg-white/10 px-3 text-xs font-bold text-white hover:bg-white/15"><CheckCircleIcon className="h-4 w-4 text-[#86BBFF]" /><span>Помощь и FAQ</span></a>}
+            {!isStaffArea && (
+              <a
+                href="/faq"
+                onClick={() => setMobileMenuOpen(false)}
+                className="flex h-11 w-full items-center gap-2 rounded-xl border border-white/25 bg-white/10 px-3 text-xs font-bold !text-white hover:bg-white/20 transition-colors"
+              >
+                <CheckCircleIcon className="h-4 w-4 !text-white" />
+                <span className="!text-white font-bold">Помощь и FAQ</span>
+              </a>
+            )}
             <div className="pt-2 border-t border-white/15 space-y-2">
               <div className="flex items-center justify-between text-[11px] text-blue-200 font-bold">
                 <span>Размер шрифта</span>

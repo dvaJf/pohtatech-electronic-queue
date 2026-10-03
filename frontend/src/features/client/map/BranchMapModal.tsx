@@ -1236,6 +1236,7 @@ export function BranchMapModal({
                   branch={selectedBranch}
                   workload={workloads[selectedBranch.id]}
                   compact
+                  isDefault={effectiveDefaultBranchId ? selectedBranch.id === effectiveDefaultBranchId : false}
                   userLocation={userLocation}
                   onClose={clearBranchSelection}
                   onTakeTicket={() => handleTakeTicket(selectedBranch)}
@@ -1342,6 +1343,7 @@ export function BranchMapModal({
                     branch={selectedBranch}
                     workload={workloads[selectedBranch.id]}
                     compact
+                    isDefault={effectiveDefaultBranchId ? selectedBranch.id === effectiveDefaultBranchId : false}
                     informationalOnly
                     showCollapseLink
                     userLocation={userLocation}
@@ -1496,6 +1498,7 @@ export function DetailedBranchCard({
   compact = false,
   informationalOnly = false,
   showCollapseLink = false,
+  isDefault = false,
   userLocation,
 }: {
   branch: MapBranch;
@@ -1506,6 +1509,7 @@ export function DetailedBranchCard({
   compact?: boolean;
   informationalOnly?: boolean;
   showCollapseLink?: boolean;
+  isDefault?: boolean;
   userLocation?: [number, number] | null;
 }) {
   const [imgError, setImgError] = useState(false);
@@ -1619,7 +1623,7 @@ export function DetailedBranchCard({
             <h3 className="text-sm font-extrabold text-[#031E56] leading-snug">
               {branch.name}
             </h3>
-            {((branch as any).isDefault ?? (getUserDefaultBranchId() === branch.id)) && (
+            {isDefault && (
               <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-[#003B73] text-white shadow-xs">
                 <Building2 size={10} className="text-white" />
                 <span>Отделение по умолчанию</span>

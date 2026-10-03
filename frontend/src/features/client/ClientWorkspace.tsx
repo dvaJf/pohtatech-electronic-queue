@@ -264,19 +264,6 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
   const connected = (channel: NotificationChannel) => subscriptions.find(item => item.channel === channel && item.enabled);
   const unavailable = (channel: 'telegram' | 'webPush' | 'email') => capabilities ? !capabilities[channel].enabled : true;
 
-  // Auto-subscribe Telegram if user explicitly connected it in their profile
-  useEffect(() => {
-    if (typeof localStorage !== 'undefined' && localStorage.getItem('user_telegram_connected') === 'true') {
-      const isTicketTgDisabled = localStorage.getItem(`ticket_telegram_disabled:${ticket.id}`) === 'true';
-      const storedChatId = localStorage.getItem('user_telegram_chat_id');
-      if (!isTicketTgDisabled && token && capabilities?.telegram?.enabled && !connected('TELEGRAM') && busy !== 'TELEGRAM' && storedChatId) {
-        api.saveNotificationSubscription(ticket.id, 'TELEGRAM', storedChatId, token)
-          .then(() => refresh())
-          .catch(() => {});
-      }
-    }
-  }, [ticket.id, token, capabilities?.telegram?.enabled, subscriptions.length, busy]);
-
   // Auto-subscribe Browser Push by default on new ticket creation if profile enabled
   useEffect(() => {
     if (typeof localStorage !== 'undefined' && localStorage.getItem('user_browser_push_enabled') !== 'false') {
@@ -407,17 +394,6 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
   };
   const webPushAction = () => {
     if (!capabilities || unavailable('webPush')) return null;
-    if (!profilePushEnabled) {
-      return (
-        <span
-          className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200 select-none cursor-help"
-          title="Включить браузерные уведомления можно только в настройках вашего профиля"
-          onClick={() => setNotice('Уведомления браузера отключены в вашем профиле. Включить их можно только в профиле пользователя.')}
-        >
-          В профиле
-        </span>
-      );
-    }
     const isConn = Boolean(connected('WEB_PUSH') && !ticketPushDisabled);
     return (
       <div className="flex items-center gap-2 shrink-0">

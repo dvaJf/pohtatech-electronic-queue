@@ -1,20 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, ShieldCheck, X, AlertCircle, Loader2, User as UserIcon, Clock, Bell, ExternalLink, Building2, MapPin } from 'lucide-react';
+import { CheckCircle2, ShieldCheck, X, AlertCircle, Loader2, User as UserIcon, Clock, Bell, Building2, MapPin } from 'lucide-react';
 import { User } from '../../api/authApi';
 import { PochtaEmblem } from '../../components/common/PochtaBrand';
 import { ClientServiceRecord, getClientServiceHistory, MOCK_OPERATOR_NAMES, resolveOperatorName, STORAGE_SERVICE_HISTORY_KEY } from '../client/serviceHistory';
 import { MOSCOW_BRANCHES } from '../client/map/branchLocations';
 import { SearchableBranchSelect } from '../../components/common/SearchableBranchSelect';
 import { matchesUserDefaultBranch } from '../client/map/liveBranches';
-
-function TelegramIcon({ size = 18 }: { size?: number }) {
-  return (
-    <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="12" cy="12" r="12" fill="#229ED9" />
-      <path d="M17.67 6.99 5.93 11.52c-.8.32-.8.76-.15.96l3.01.94 1.16 3.55c.14.39.07.55.48.55.32 0 .46-.15.64-.32l1.46-1.42 3.04 2.24c.56.31.96.15 1.1-.52l2-9.42c.2-.82-.31-1.19-1-0.88Zm-8.41 6.15 6.79-4.28c.34-.2.65-.09.4.14l-5.5 4.97-.22 2.42-1.47-3.26Z" fill="white" />
-    </svg>
-  );
-}
 
 interface UserProfileModalProps {
   isOpen: boolean;
@@ -175,40 +166,6 @@ export function UserProfileModal({ isOpen, onClose, user, onUserUpdate }: UserPr
 
 
 
-  // Telegram state & preferences
-  const tgStorageKey = `user_telegram:${user.id || user.email}`;
-  const [telegramConnected, setTelegramConnected] = useState<boolean>(() => {
-    if (typeof localStorage !== 'undefined') {
-      const saved = localStorage.getItem(tgStorageKey);
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved);
-          return Boolean(parsed.connected);
-        } catch {
-          return saved === 'true';
-        }
-      }
-    }
-    return false;
-  });
-  const [telegramUsername, setTelegramUsername] = useState<string>(() => {
-    if (typeof localStorage !== 'undefined') {
-      const saved = localStorage.getItem(tgStorageKey);
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved);
-          return parsed.username || '';
-        } catch {
-          return '';
-        }
-      }
-    }
-    return '';
-  });
-  const [tgInputVal, setTgInputVal] = useState('');
-  const [showTgInput, setShowTgInput] = useState(false);
-  const [tgNotice, setTgNotice] = useState<string | null>(null);
-
   // Browser push notification state
   const pushStorageKey = `user_browser_push:${user.id || user.email}`;
   const [browserPermission, setBrowserPermission] = useState<string>(() => {
@@ -228,33 +185,6 @@ export function UserProfileModal({ isOpen, onClose, user, onUserUpdate }: UserPr
   });
   const [pushNotice, setPushNotice] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
 
-  const handleConnectTelegram = (username?: string) => {
-    const uname = (username || tgInputVal).trim().replace(/^@/, '');
-    const data = { connected: true, username: uname || undefined, connectedAt: new Date().toISOString() };
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(tgStorageKey, JSON.stringify(data));
-      localStorage.setItem('user_telegram_connected', 'true');
-    }
-    setTelegramConnected(true);
-    if (uname) setTelegramUsername(uname);
-    setShowTgInput(false);
-    setTgNotice('Telegram успешно подключен! Бот будет присылать уведомления.');
-    setTimeout(() => setTgNotice(null), 3500);
-
-    // Open Telegram bot link
-    window.open(`https://t.me/poiters_inno_bot?start=profile_${user.id || 'client'}`, '_blank', 'noopener,noreferrer');
-  };
-
-  const handleDisconnectTelegram = () => {
-    if (typeof localStorage !== 'undefined') {
-      localStorage.removeItem(tgStorageKey);
-      localStorage.removeItem('user_telegram_connected');
-    }
-    setTelegramConnected(false);
-    setTelegramUsername('');
-    setTgNotice('Telegram отключен.');
-    setTimeout(() => setTgNotice(null), 2500);
-  };
 
   const handleEnableBrowserPush = async () => {
     if (typeof window === 'undefined' || !('Notification' in window)) {
@@ -538,7 +468,7 @@ export function UserProfileModal({ isOpen, onClose, user, onUserUpdate }: UserPr
             </div>
           )}
 
-          {/* Каналы уведомлений: Telegram и Браузерные уведомления */}
+          {/* Каналы уведомлений: Браузерные уведомления */}
           <div className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-2 text-slate-900 font-bold text-sm">
               <div className="flex items-center gap-2 min-w-0">
@@ -546,20 +476,13 @@ export function UserProfileModal({ isOpen, onClose, user, onUserUpdate }: UserPr
                 <span className="leading-snug">Уведомления и оповещения</span>
               </div>
               <span className="px-2 py-0.5 rounded-full bg-blue-50 text-[#003B73] border border-blue-200/60 text-[11px] font-bold whitespace-nowrap shrink-0">
-                Telegram • Push • SMS
+                Браузерные оповещения
               </span>
             </div>
 
             <p className="text-xs text-slate-600 leading-relaxed">
-              Подключите удобные каналы, чтобы не пропустить вызов к окну и получать актуальный статус талонов.
+              Включите всплывающие уведомления в браузере, чтобы не пропустить вызов к окну. Каналы оповещений для каждого талона (Telegram, Push, Email) выбираются индивидуально на карточке талона.
             </p>
-
-            {tgNotice && (
-              <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-[#003B73] font-medium flex items-center gap-2 animate-fade-in">
-                <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
-                <span>{tgNotice}</span>
-              </div>
-            )}
 
             {pushNotice && (
               <div
@@ -581,95 +504,6 @@ export function UserProfileModal({ isOpen, onClose, user, onUserUpdate }: UserPr
                 <span>{pushNotice.text}</span>
               </div>
             )}
-
-            {/* Telegram Channel Card */}
-            <div className="p-4 bg-slate-50 border border-slate-200/90 rounded-2xl space-y-3">
-              <div className="flex items-start gap-3">
-                <div className="shrink-0 mt-0.5">
-                  <TelegramIcon size={28} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex flex-wrap items-center justify-between gap-1.5">
-                    <span className="text-xs font-bold text-slate-900">Telegram-уведомления</span>
-                    {telegramConnected ? (
-                      <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold whitespace-nowrap shrink-0">
-                        ✓ Подключено
-                      </span>
-                    ) : (
-                      <span className="px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 text-[10px] font-bold whitespace-nowrap shrink-0">
-                        Не подключено
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-[11px] text-slate-500 mt-1 leading-snug">
-                    Мгновенные сообщения о приближении очереди и вызове в Telegram.
-                  </p>
-                </div>
-              </div>
-
-              {telegramConnected ? (
-                <div className="pt-2 border-t border-slate-200/70 flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-xs text-emerald-700 font-semibold leading-tight">
-                    ✓ Telegram-уведомления активны
-                  </span>
-                  <button
-                    type="button"
-                    onClick={handleDisconnectTelegram}
-                    className="px-3 py-1.5 text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-lg font-bold transition-colors border border-rose-200/80 shrink-0"
-                  >
-                    Отключить
-                  </button>
-                </div>
-              ) : (
-                <div className="pt-2 border-t border-slate-200/70 space-y-2">
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handleConnectTelegram()}
-                      className="flex-1 px-3.5 py-2 bg-[#229ED9] hover:bg-[#1D8BC0] text-white text-xs font-bold rounded-xl transition-all shadow-sm flex items-center justify-center gap-1.5"
-                    >
-                      <span>Подключить Telegram</span>
-                      <ExternalLink className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setShowTgInput(!showTgInput)}
-                      className="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-semibold rounded-xl transition-colors whitespace-nowrap"
-                    >
-                      {showTgInput ? 'Отмена' : 'Указать @юзернейм'}
-                    </button>
-                  </div>
-
-                  {showTgInput && (
-                    <div className="p-3 bg-white border border-slate-200 rounded-xl space-y-2 animate-fade-in">
-                      <label className="text-[11px] font-bold text-slate-700 block">
-                        Ваш Telegram username (без @)
-                      </label>
-                      <div className="flex gap-2">
-                        <div className="relative flex-1">
-                          <span className="absolute left-3 top-2 text-slate-400 text-xs font-bold">@</span>
-                          <input
-                            type="text"
-                            value={tgInputVal}
-                            onChange={e => setTgInputVal(e.target.value)}
-                            placeholder="username"
-                            className="w-full pl-7 pr-3 py-1.5 text-xs rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-[#229ED9]"
-                          />
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => handleConnectTelegram(tgInputVal)}
-                          disabled={!tgInputVal.trim()}
-                          className="px-3 py-1.5 bg-[#003B73] hover:bg-[#054FA6] disabled:opacity-50 text-white text-xs font-bold rounded-lg transition-colors shrink-0"
-                        >
-                          Сохранить
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
 
             {/* Browser Push Channel Card */}
             <div className="p-4 bg-slate-50 border border-slate-200/90 rounded-2xl space-y-2">

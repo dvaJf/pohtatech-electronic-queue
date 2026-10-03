@@ -220,8 +220,8 @@ function loadYandexMaps(): Promise<any> {
  */
 export function getWaitBadgeInfo(waitMinutes: number | null) {
   if (waitMinutes === null || !Number.isFinite(waitMinutes)) return {
-    colorClass: 'bg-slate-500', textClass: 'text-slate-600', bgLightClass: 'bg-slate-100',
-    hex: '#64748b', label: 'Нет оценки', statusText: 'Ожидание пока неизвестно',
+    colorClass: 'bg-sky-600', textClass: 'text-sky-700', bgLightClass: 'bg-sky-50',
+    hex: '#0284C7', label: 'Открыто', statusText: 'Открыто (время ожидания уточняется)',
   };
   if (waitMinutes <= 5) {
     return {

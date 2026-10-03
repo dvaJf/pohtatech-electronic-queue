@@ -223,6 +223,12 @@ fi
 
 ok "GitOps commit pushed to ${GITOPS_BRANCH} → ArgoCD will sync"
 
+# Немедленный триггер ArgoCD (чтобы не ждать 3-минутный polling cycle)
+if command -v kubectl >/dev/null 2>&1; then
+  kubectl annotate app -n argocd queue-system argocd.argoproj.io/refresh=hard --overwrite >/dev/null 2>&1 || true
+  log "ArgoCD hard-refresh triggered via kubectl"
+fi
+
 # ─── Обновляем state ─────────────────────────────────────────────────────────
 echo "${REMOTE_SHA}" > "${STATE_FILE}"
 

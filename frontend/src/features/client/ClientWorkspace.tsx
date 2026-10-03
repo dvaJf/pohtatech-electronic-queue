@@ -36,12 +36,16 @@ function getTicketTimelineStep(status: TicketStatus, isArrived = false): number 
     return 2;
   }
   switch (status) {
-    case 'SCHEDULED': return 1;
-    case 'WAITING': return 2;
-    case 'CALLED': return 3;
-    case 'SERVING': return 4;
-    case 'COMPLETED': return 5;
-    default: return 2;
+    case 'SCHEDULED':
+    case 'WAITING':
+      return 1;
+    case 'CALLED':
+    case 'SERVING':
+      return 2;
+    case 'COMPLETED':
+      return 3;
+    default:
+      return 1;
   }
 }
 
@@ -396,7 +400,7 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
             className="sr-only peer"
             aria-label="Включить или отключить Telegram"
           />
-          <div className="w-10 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#003B73]" />
+          <div className="w-10 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-5 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#003B73]" />
         </label>
       </div>
     );
@@ -437,7 +441,7 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
             className="sr-only peer"
             aria-label="Включить или отключить уведомления браузера"
           />
-          <div className="w-10 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#003B73]" />
+          <div className="w-10 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-5 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#003B73]" />
         </label>
       </div>
     );
@@ -481,7 +485,28 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
       {channel === 'EMAIL' && !connected('EMAIL') && emailForm}
     </div>
   );
-  const emailForm = <div className="cx-notification-form mt-1 pt-2 border-t border-slate-100 flex items-center gap-2"><label className="sr-only" htmlFor={`email-${ticket.id}`}>Email для подтверждения записи</label><input id={`email-${ticket.id}`} type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="name@example.com" className="flex-1 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-[#003B73]" disabled={busy !== null || !canManage || unavailable('email')}/><button type="button" className="cx-btn cx-btn-secondary text-xs px-3 py-1.5" disabled={busy !== null || !canManage || unavailable('email')} onClick={() => save('EMAIL', email)}>{busy === 'EMAIL' ? <Loader2 className="w-3.5 h-3.5 animate-spin"/> : 'Получить подтверждение'}</button></div>;
+  const emailForm = (
+    <div className="cx-notification-form mt-2 pt-2 border-t border-slate-100 flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full">
+      <label className="sr-only" htmlFor={`email-${ticket.id}`}>Email для подтверждения записи</label>
+      <input
+        id={`email-${ticket.id}`}
+        type="email"
+        value={email}
+        onChange={e => setEmail(e.target.value)}
+        placeholder="name@example.com"
+        className="w-full min-w-0 flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-[#003B73]"
+        disabled={busy !== null || !canManage || unavailable('email')}
+      />
+      <button
+        type="button"
+        className="cx-btn cx-btn-secondary text-xs px-3 py-2 w-full sm:w-auto shrink-0 justify-center"
+        disabled={busy !== null || !canManage || unavailable('email')}
+        onClick={() => save('EMAIL', email)}
+      >
+        {busy === 'EMAIL' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Получить подтверждение'}
+      </button>
+    </div>
+  );
   const unavailableMessage = (provider: 'telegram' | 'webPush' | 'email', label: string) => {
     if (!capabilities) return 'Проверяем доступность канала…';
     if (!unavailable(provider)) return undefined;
@@ -512,7 +537,7 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
                   className="sr-only peer"
                   aria-label="Отключить Email"
                 />
-                <div className="w-10 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#003B73]" />
+                <div className="w-10 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-5 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#003B73]" />
               </label>
             </div>
           ) : subscriptionForm('email', null),
@@ -2944,11 +2969,9 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                           <Timeline8
                             currentStep={getTicketTimelineStep(ticket.status, isTicketArrived)}
                             items={[
-                              { id: 1, title: 'Получен', description: 'Талон выдан' },
-                              { id: 2, title: 'В очереди', description: position?.position ? `${position.position} в очереди` : (isTicketArrived ? 'В очереди' : 'Ожидание') },
-                              { id: 3, title: 'Вызов к окну', description: isCalledOrServing && ticket.window?.number ? `Окно №${ticket.window.number}` : 'Приглашение' },
-                              { id: 4, title: 'Обслуживание', description: 'У оператора' },
-                              { id: 5, title: 'Завершён', description: 'Готово' },
+                              { id: 1, title: 'Выдан', description: position?.position ? `${position.position} в очереди` : 'Талон выдан' },
+                              { id: 2, title: 'Приглашение к окну', description: isCalledOrServing && ticket.window?.number ? `Окно №${ticket.window.number}` : 'Приглашение' },
+                              { id: 3, title: 'Завершён', description: 'Готово' },
                             ]}
                             className="w-full max-w-full"
                           />

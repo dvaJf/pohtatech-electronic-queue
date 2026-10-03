@@ -26,6 +26,12 @@ export const AdminReviewsView: React.FC<AdminReviewsViewProps> = ({
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
 
+  useEffect(() => {
+    if (initialBranchId) {
+      setSelectedBranchId(initialBranchId);
+    }
+  }, [initialBranchId]);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<AdminReviewsResult | null>(null);
@@ -268,7 +274,7 @@ export const AdminReviewsView: React.FC<AdminReviewsViewProps> = ({
                   {/* Отделение */}
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-blue-50 border border-blue-200/60 text-[#003B73] font-bold text-[11px]">
                     <Building2 className="w-3 h-3 text-[#003B73]" />
-                    {item.branchName}
+                    {item.branchName || branches.find((b) => b.id === item.branchId)?.name || 'Отделение'}
                   </span>
                 </div>
 

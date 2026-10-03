@@ -191,6 +191,7 @@ export function Pattern({
                     </button>
                   );
                 })}
+                <div className="h-12 w-full shrink-0" aria-hidden="true" />
               </div>
 
               {/* Колонка 2: Минуты */}
@@ -223,6 +224,7 @@ export function Pattern({
                     </button>
                   );
                 })}
+                <div className="h-12 w-full shrink-0" aria-hidden="true" />
               </div>
             </div>
           </div>

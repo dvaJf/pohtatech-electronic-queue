@@ -98,22 +98,21 @@ export function matchesUserDefaultBranch(
   const branchCode = branch.code || branch.postalCode || branch.index || branch.loc?.code;
   if (branchCode && branchCode === defaultBranchId) return true;
 
+  // If defaultBranchId is a UUID, it uniquely identifies a specific branch. Do not loosely cross-match.
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(defaultBranchId);
+  if (isUuid) {
+    return false;
+  }
+
   const normalize = (value: string) => value.toLowerCase().replace(/ё/g, 'е').replace(/[.,\s]+/g, ' ').trim();
 
-  // Если defaultBranchId сохранён как статический ID из MOSCOW_BRANCHES или индекс
+  // Если defaultBranchId сохранён как статический ID из MOSCOW_BRANCHES или индекс (не UUID)
   const staticBranch = MOSCOW_BRANCHES.find(m => m.id === defaultBranchId || m.code === defaultBranchId);
   if (staticBranch) {
     if (staticBranch.id === branch.id) return true;
     if (branch.address && normalize(branch.address) === normalize(staticBranch.address)) return true;
-    const cleanBranchName = (branch.name || '').replace(/^Демо\s*•\s*/, '').replace(/^Отделение\s*/, '').trim().toLowerCase();
-    const cleanStaticName = staticBranch.name.replace(/^Отделение\s*/, '').trim().toLowerCase();
-    if (cleanBranchName && cleanStaticName && (cleanBranchName.includes(cleanStaticName) || cleanStaticName.includes(cleanBranchName))) return true;
     if (staticBranch.code && branchCode === staticBranch.code) return true;
   }
-
-  // Если defaultBranchId сохранён как серверный ID, сопоставляем через адрес
-  const branchLoc = matchBranchLocation(branch as any, MOSCOW_BRANCHES);
-  if (branchLoc && (branchLoc.id === defaultBranchId || branchLoc.code === defaultBranchId)) return true;
 
   return false;
 }

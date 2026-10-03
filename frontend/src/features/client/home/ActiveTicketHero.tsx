@@ -5,12 +5,16 @@ import { getActiveTicketPresentation } from './activeTicketPresentation';
 
 function getTicketTimelineStep(status: string): number {
   switch (status) {
-    case 'SCHEDULED': return 1;
-    case 'WAITING': return 2;
-    case 'CALLED': return 3;
-    case 'SERVING': return 4;
-    case 'COMPLETED': return 5;
-    default: return 2;
+    case 'SCHEDULED':
+    case 'WAITING':
+      return 1;
+    case 'CALLED':
+    case 'SERVING':
+      return 2;
+    case 'COMPLETED':
+      return 3;
+    default:
+      return 1;
   }
 }
 
@@ -65,11 +69,9 @@ export function ActiveTicketHero({
         <Timeline8
           currentStep={getTicketTimelineStep(ticket.status)}
           items={[
-            { id: 1, title: 'Получен', description: 'Талон выдан' },
-            { id: 2, title: 'В очереди', description: peopleAhead !== null && peopleAhead > 0 ? `${peopleAhead} перед вами` : 'Ожидание' },
-            { id: 3, title: 'Вызов к окну', description: isCalledOrServing && windowNumber ? `Окно №${windowNumber}` : 'Приглашение' },
-            { id: 4, title: 'Обслуживание', description: 'У оператора' },
-            { id: 5, title: 'Завершён', description: 'Готово' },
+            { id: 1, title: 'Выдан', description: peopleAhead !== null && peopleAhead > 0 ? `${peopleAhead} в очереди` : 'Талон выдан' },
+            { id: 2, title: 'Приглашение к окну', description: isCalledOrServing && windowNumber ? `Окно №${windowNumber}` : 'Приглашение' },
+            { id: 3, title: 'Завершён', description: 'Готово' },
           ]}
           className="w-full max-w-full"
         />

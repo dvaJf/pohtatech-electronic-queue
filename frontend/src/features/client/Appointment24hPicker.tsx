@@ -244,15 +244,12 @@ export const Appointment24hPicker: React.FC<Appointment24hPickerProps> = ({
 
   return (
     <div className="space-y-3.5 text-left w-full max-w-full min-w-0 font-['Manrope']">
-      {/* Заголовок выбора даты и времени */}
+      {/* Заголовок выбора даты и времени (24-часовой формат) */}
       <div className="flex items-center justify-between gap-2">
         <label className="flex items-center gap-1.5 text-xs font-bold text-slate-800">
           <Calendar className="w-4 h-4 text-[#003B73] shrink-0" />
           <span>Дата и время визита</span>
         </label>
-        <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-50 text-[#003B73] border border-blue-200/80">
-          24-часовой формат • МСК
-        </span>
       </div>
 
       {/* Уведомление, если отделение сегодня закрыто */}

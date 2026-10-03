@@ -6,7 +6,7 @@ CREATE TEMP TABLE regional_branches_catalog (
     work_hours text,
     latitude double precision,
     longitude double precision
-) ON COMMIT DROP;
+);
 
 INSERT INTO regional_branches_catalog (id, name, address, work_hours, latitude, longitude) VALUES
 -- Иннополис (ОПС 420500)
@@ -83,45 +83,5 @@ SELECT id, 100, 10, 1
 FROM regional_branches_catalog
 ON CONFLICT DO NOTHING;
 
--- Создание завершенных талонов и отзывов клиентов с комментариями для отделений
-DO $$
-DECLARE
-    rec RECORD;
-    v_ticket_id uuid;
-    v_service_id uuid;
-BEGIN
-    SELECT id INTO v_service_id FROM services LIMIT 1;
-    IF v_service_id IS NOT NULL THEN
-        FOR rec IN SELECT id, name FROM regional_branches_catalog LOOP
-            -- 1. Положительный отзыв 5 звезд
-            v_ticket_id := md5(rec.id::text || ':seed_review:1')::uuid;
-            INSERT INTO tickets (id, branch_id, service_id, source, public_number, status, queue_entered_at, called_at, served_at)
-            VALUES (v_ticket_id, rec.id, v_service_id, 'QR', 'А-01', 'COMPLETED', NOW() - INTERVAL '3 hours', NOW() - INTERVAL '175 minutes', NOW() - INTERVAL '165 minutes')
-            ON CONFLICT (id) DO NOTHING;
+DROP TABLE IF EXISTS regional_branches_catalog;
 
-            INSERT INTO ticket_feedback (ticket_id, rating, comment, created_at)
-            VALUES (v_ticket_id, 5, 'Отличное обслуживание, талон вызвали быстро. Оператор очень вежливый!', NOW() - INTERVAL '160 minutes')
-            ON CONFLICT (ticket_id) DO NOTHING;
-
-            -- 2. Отзыв 5 звезд
-            v_ticket_id := md5(rec.id::text || ':seed_review:2')::uuid;
-            INSERT INTO tickets (id, branch_id, service_id, source, public_number, status, queue_entered_at, called_at, served_at)
-            VALUES (v_ticket_id, rec.id, v_service_id, 'APPOINTMENT', 'П-05', 'COMPLETED', NOW() - INTERVAL '2 days', NOW() - INTERVAL '2 days', NOW() - INTERVAL '2 days')
-            ON CONFLICT (id) DO NOTHING;
-
-            INSERT INTO ticket_feedback (ticket_id, rating, comment, created_at)
-            VALUES (v_ticket_id, 5, 'Пришел по записи ко времени, сразу приняли без очереди. Очень удобно.', NOW() - INTERVAL '2 days')
-            ON CONFLICT (ticket_id) DO NOTHING;
-
-            -- 3. Отзыв 4 звезды
-            v_ticket_id := md5(rec.id::text || ':seed_review:3')::uuid;
-            INSERT INTO tickets (id, branch_id, service_id, source, public_number, status, queue_entered_at, called_at, served_at)
-            VALUES (v_ticket_id, rec.id, v_service_id, 'LIVE', 'Б-12', 'COMPLETED', NOW() - INTERVAL '5 days', NOW() - INTERVAL '5 days', NOW() - INTERVAL '5 days')
-            ON CONFLICT (id) DO NOTHING;
-
-            INSERT INTO ticket_feedback (ticket_id, rating, comment, created_at)
-            VALUES (v_ticket_id, 4, 'Удобное расположение и просторный зал. Быстро выдали посылку.', NOW() - INTERVAL '5 days')
-            ON CONFLICT (ticket_id) DO NOTHING;
-        END LOOP;
-    END IF;
-END $$;

@@ -3,6 +3,9 @@ import { calculateSmartRouting, isUsableDurationMinutes, MAX_QUEUE_WAIT_MINUTES,
 import type { BranchWorkload } from '../../../api/client/clientApi';
 
 // IDs in demo databases can refer to a different address. Never locate by ID alone.
+// IMPORTANT: When a catalog reference is found, ALWAYS prefer catalog lat/lng
+// because they are manually verified against Yandex Maps. Backend coordinates
+// are often inaccurate (geocoded from address text or demo defaults).
 export function matchBranchLocation(branch: Branch, catalog: BranchLocation[]): BranchLocation | undefined {
   const normalize = (value: string) => value.toLowerCase().replace(/ё/g, 'е').replace(/[.,\s]+/g, ' ').trim();
   if (!branch.address) return undefined;
@@ -11,14 +14,33 @@ export function matchBranchLocation(branch: Branch, catalog: BranchLocation[]): 
     normalize(location.address) === target ||
     location.legacyAddresses?.some(legacy => normalize(legacy) === target)
   );
+  // If we matched a catalog entry, always use its verified coordinates
+  if (reference) {
+    if (reference.id === branch.id && reference.address === branch.address
+        && (!branch.workHours || branch.workHours === reference.workHours)) {
+      return reference;
+    }
+    const matched: BranchLocation = {
+      ...reference,
+      id: branch.id,
+      address: branch.address,
+      lat: reference.lat,
+      lng: reference.lng,
+    };
+    if (branch.workHours || reference.workHours) {
+      matched.workHours = branch.workHours || reference.workHours;
+    }
+    return matched;
+  }
+  // No catalog match — fall back to backend coordinates if available
   if (typeof branch.latitude === 'number' && Number.isFinite(branch.latitude) && Math.abs(branch.latitude) <= 90
       && typeof branch.longitude === 'number' && Number.isFinite(branch.longitude) && Math.abs(branch.longitude) <= 180) {
     return { code: '', metro: '', metroColor: '', rating: 0, reviewCount: 0,
       services: [], activeQueueCount: 0, activeWindows: 0, amenities: [], photos: [], walkingMinutes: 0, distanceKm: 0,
-      ...reference, ...branch, id: branch.id, address: branch.address, workHours: branch.workHours || '',
-      lat: branch.latitude, lng: branch.longitude };
+      ...branch, id: branch.id, address: branch.address, workHours: branch.workHours || '',
+      lat: branch.latitude, lng: branch.longitude } as BranchLocation;
   }
-  return reference;
+  return undefined;
 }
 
 /**

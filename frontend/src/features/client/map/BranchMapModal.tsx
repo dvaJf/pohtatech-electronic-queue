@@ -90,17 +90,8 @@ export function yandexBranchSearchUrl(name: string, address: string): string {
 }
 
 export function getBranchPhoto(code?: string, name?: string): string {
-  if (code === '101000' || name?.includes('Мясницкая')) return '/images/branch_myasnitskaya.jpg';
-  if (code === '115280' || name?.includes('Автозаводская')) return '/images/branch_avtozavodskaya.jpg';
-  if (code === '125009' || name?.includes('Тверская')) return '/images/branch_tverskaya.jpg';
-  if (code === '119019' || name?.includes('Арбат')) return '/images/branch_arbat.jpg';
-  if (code === '101000-2' || name?.includes('Покровка')) return '/images/branch_pokrovka.jpg';
-  if (code === '107031' || name?.includes('Рождественка')) return '/images/branch_kuznetsky.jpg';
-  if (code === '109012' || name?.includes('Никольская')) return '/images/branch_lubyanka.jpg';
-  if (code === '107140' || name?.includes('Комсомольская')) return '/images/branch_komsomolskaya.jpg';
-  if (code === '127055' || name?.includes('Новослободская')) return '/images/branch_novoslobodskaya.jpg';
-  if (code?.startsWith('390') || name?.includes('Рязань')) return '/images/branch_ryazan.jpg';
-  return '/images/branch_city.jpg';
+  if (code) return `/images/branches/${code}.jpg`;
+  return '/images/branches/420000.jpg';
 }
 
 /**

@@ -22,7 +22,9 @@ import {
   Layers,
   CheckCircle2
 } from 'lucide-react';
-import { matchBranchLocation, liveWaitMinutes, matchesUserDefaultBranch, getUserDefaultBranchId, resolveSingleDefaultBranchId } from './liveBranches';
+import { matchBranchLocation, liveWaitMinutes, matchesUserDefaultBranch, getUserDefaultBranchId, resolveSingleDefaultBranchId, getBranchPostalCode } from './liveBranches';
+import { cleanBranchName } from '../../../utils/branchSlug';
+export { getBranchPostalCode, cleanBranchName };
 import { decideUserLocationUpdate, decideLocationCenterRequest } from './mapViewportPolicy';
 import { useModalFocus } from '../../../hooks/useModalFocus';
 import { getBranchReviews, type BranchReview, type BranchWorkload } from '../../../api/client/clientApi';
@@ -44,6 +46,7 @@ import {
  */
 export interface MapBranch extends Branch {
   code?: string;
+  postalCode?: string;
   coordinates: [number, number]; // [широта (lat), долгота (lon)]
   metro?: string;
   metroColor?: string;
@@ -90,17 +93,8 @@ export function yandexBranchSearchUrl(name: string, address: string): string {
 }
 
 export function getBranchPhoto(code?: string, name?: string): string {
-  if (code === '101000' || name?.includes('Мясницкая')) return '/images/branch_myasnitskaya.jpg';
-  if (code === '115280' || name?.includes('Автозаводская')) return '/images/branch_avtozavodskaya.jpg';
-  if (code === '125009' || name?.includes('Тверская')) return '/images/branch_tverskaya.jpg';
-  if (code === '119019' || name?.includes('Арбат')) return '/images/branch_arbat.jpg';
-  if (code === '101000-2' || name?.includes('Покровка')) return '/images/branch_pokrovka.jpg';
-  if (code === '107031' || name?.includes('Рождественка')) return '/images/branch_kuznetsky.jpg';
-  if (code === '109012' || name?.includes('Никольская')) return '/images/branch_lubyanka.jpg';
-  if (code === '107140' || name?.includes('Комсомольская')) return '/images/branch_komsomolskaya.jpg';
-  if (code === '127055' || name?.includes('Новослободская')) return '/images/branch_novoslobodskaya.jpg';
-  if (code?.startsWith('390') || name?.includes('Рязань')) return '/images/branch_ryazan.jpg';
-  return '/images/branch_city.jpg';
+  if (code) return `/images/branches/${code}.jpg`;
+  return '/images/branches/420000.jpg';
 }
 
 /**
@@ -140,7 +134,8 @@ export function convertLocationToMapBranch(loc: BranchLocation): MapBranch {
     ratingAverage: null,
     ratingCount: 0,
     code: loc.code,
-    name: loc.name,
+    postalCode: loc.postalCode || getBranchPostalCode(loc),
+    name: cleanBranchName(loc.name),
     address: loc.address,
     workHours: loc.workHours,
     coordinates: [loc.lat, loc.lng],
@@ -226,8 +221,8 @@ function loadYandexMaps(): Promise<any> {
  */
 export function getWaitBadgeInfo(waitMinutes: number | null) {
   if (waitMinutes === null || !Number.isFinite(waitMinutes)) return {
-    colorClass: 'bg-slate-500', textClass: 'text-slate-600', bgLightClass: 'bg-slate-100',
-    hex: '#64748b', label: 'Нет оценки', statusText: 'Ожидание пока неизвестно',
+    colorClass: 'bg-sky-600', textClass: 'text-sky-700', bgLightClass: 'bg-sky-50',
+    hex: '#0284C7', label: 'Открыто', statusText: 'Открыто (время ожидания уточняется)',
   };
   if (waitMinutes <= 5) {
     return {
@@ -325,19 +320,40 @@ export function BranchMapModal({
   }, []);
 
   // Only server branches with an address-matched location are eligible for map pins.
-  const allBranches = useMemo<MapBranch[]>(() => incomingBranches.flatMap(b => {
-    const loc = matchBranchLocation(b, MOSCOW_BRANCHES);
-    if (!loc) return [];
-    const workload = workloads[b.id];
-    const yRating = loc.rating > 0 ? loc.rating : null;
-    return [{ ...convertLocationToMapBranch(loc), ...b, id: b.id,
-      address: b.address || loc.address, workHours: b.workHours || loc.workHours,
-      rating: b.ratingAverage,
-      yandexRating: yRating,
-      reviewsCount: b.ratingCount,
-      liveWaitMinutes: liveWaitMinutes(workload) ?? null,
-      waitingCount: workload?.currentWaiting ?? null }];
-  }), [incomingBranches, workloads]);
+  const allBranches = useMemo<MapBranch[]>(() => {
+    const list: MapBranch[] = [];
+    const seenIds = new Set<string>();
+    const seenAddresses = new Set<string>();
+
+    for (const b of incomingBranches) {
+      if (!b || seenIds.has(b.id)) continue;
+      const loc = matchBranchLocation(b, MOSCOW_BRANCHES);
+      if (!loc) continue;
+
+      const normAddr = (b.address || loc.address).toLowerCase().replace(/^(г\.|город|ул\.|улица)\s*/g, '').trim();
+      if (seenAddresses.has(normAddr)) continue;
+
+      seenIds.add(b.id);
+      seenAddresses.add(normAddr);
+
+      const workload = workloads[b.id];
+      const yRating = loc.rating > 0 ? loc.rating : null;
+      list.push({
+        ...convertLocationToMapBranch(loc),
+        ...b,
+        id: b.id,
+        name: cleanBranchName(b.name || loc.name),
+        address: b.address || loc.address,
+        workHours: b.workHours || loc.workHours,
+        rating: b.ratingAverage,
+        yandexRating: yRating,
+        reviewsCount: b.ratingCount,
+        liveWaitMinutes: liveWaitMinutes(workload) ?? null,
+        waitingCount: workload?.currentWaiting ?? null,
+      });
+    }
+    return list;
+  }, [incomingBranches, workloads]);
   const allBranchesRef = useRef(allBranches);
   const targetBranchIdRef = useRef(targetBranchId);
   allBranchesRef.current = allBranches;
@@ -636,7 +652,7 @@ export function BranchMapModal({
         }
       }
 
-      const streetName = b.name
+      const streetName = cleanBranchName(b.name)
         .replace(/^Демо\s*[·•-]\s*/i, '')
         .replace(/^Почтовое отделение\s+/i, '')
         .replace(/^Отделение\s+/i, '')
@@ -1023,10 +1039,19 @@ export function BranchMapModal({
                       }`}
                     >
                       <div className="flex items-start gap-2.5 min-w-0">
-                        {branch.photoUrl && (
-                          <img src={branch.photoUrl} alt="Иллюстрация почтового отделения" loading="lazy" decoding="async" onError={(event) => { event.currentTarget.style.display = 'none'; }}
-                            className="h-14 w-16 rounded-xl object-cover shrink-0 bg-slate-100" />
-                        )}
+                        <div className="w-16 h-12 rounded-xl overflow-hidden shrink-0 bg-slate-100 border border-slate-200/60 shadow-xs flex items-center justify-center relative">
+                          <Building2 size={18} className="text-slate-300 absolute" />
+                          {branch.photoUrl && (
+                            <img
+                              src={branch.photoUrl}
+                              alt="Иллюстрация почтового отделения"
+                              loading="lazy"
+                              decoding="async"
+                              onError={(event) => { event.currentTarget.style.display = 'none'; }}
+                              className="w-full h-full object-cover relative z-10"
+                            />
+                          )}
+                        </div>
                         <div className="min-w-0 flex-1">
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
@@ -1043,6 +1068,12 @@ export function BranchMapModal({
                             <div className="text-[11px] text-slate-500 mt-0.5 line-clamp-1">
                               {branch.address}
                             </div>
+                            {getBranchPostalCode(branch) && (
+                              <div className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-1 font-medium">
+                                <span className="text-slate-400">Почтовый индекс:</span>
+                                <span className="font-bold text-[#052F85] tracking-wide">{getBranchPostalCode(branch)}</span>
+                              </div>
+                            )}
                           </div>
 
                           {!isClosed && (
@@ -1368,10 +1399,19 @@ export function BranchMapModal({
                             : 'bg-slate-50 hover:bg-blue-50/50 border-slate-200 hover:border-blue-200'
                         }`}
                       >
-                        {b.photoUrl && (
-                          <img src={b.photoUrl} alt="Иллюстрация почтового отделения" loading="lazy" decoding="async" onError={(event) => { event.currentTarget.style.display = 'none'; }}
-                            className="h-14 w-16 rounded-xl object-cover shrink-0 bg-slate-100" />
-                        )}
+                        <div className="w-16 h-12 rounded-xl overflow-hidden shrink-0 bg-slate-100 border border-slate-200/60 shadow-xs flex items-center justify-center relative">
+                          <Building2 size={18} className="text-slate-300 absolute" />
+                          {b.photoUrl && (
+                            <img
+                              src={b.photoUrl}
+                              alt="Иллюстрация почтового отделения"
+                              loading="lazy"
+                              decoding="async"
+                              onError={(event) => { event.currentTarget.style.display = 'none'; }}
+                              className="w-full h-full object-cover relative z-10"
+                            />
+                          )}
+                        </div>
                         <div className="min-w-0 flex-1">
                           <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0">
@@ -1384,6 +1424,12 @@ export function BranchMapModal({
                                 )}
                               </div>
                               <div className="text-[11px] text-slate-500 mt-0.5 break-words">{b.address}</div>
+                              {getBranchPostalCode(b) && (
+                                <div className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-1 font-medium">
+                                  <span className="text-slate-400">Почтовый индекс:</span>
+                                  <span className="font-bold text-[#052F85] tracking-wide">{getBranchPostalCode(b)}</span>
+                                </div>
+                              )}
                             </div>
                             {!isClosed && (
                               <span
@@ -1631,6 +1677,12 @@ export function DetailedBranchCard({
             )}
           </div>
           <p className="text-xs text-slate-500 mt-0.5">{branch.address}</p>
+          {getBranchPostalCode(branch) && (
+            <p className="text-xs text-slate-500 mt-0.5 flex items-center gap-1 font-medium">
+              <span className="text-slate-400">Почтовый индекс:</span>
+              <span className="font-bold text-[#052F85] tracking-wide">{getBranchPostalCode(branch)}</span>
+            </p>
+          )}
         </div>
 
         {/* Метро, часы работы и текущая очередь */}

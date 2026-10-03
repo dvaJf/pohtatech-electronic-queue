@@ -3,18 +3,80 @@ import { calculateSmartRouting, isUsableDurationMinutes, MAX_QUEUE_WAIT_MINUTES,
 import type { BranchWorkload } from '../../../api/client/clientApi';
 
 // IDs in demo databases can refer to a different address. Never locate by ID alone.
+// IMPORTANT: When a catalog reference is found, ALWAYS prefer catalog lat/lng
+// because they are manually verified against Yandex Maps. Backend coordinates
+// are often inaccurate (geocoded from address text or demo defaults).
 export function matchBranchLocation(branch: Branch, catalog: BranchLocation[]): BranchLocation | undefined {
   const normalize = (value: string) => value.toLowerCase().replace(/ё/g, 'е').replace(/[.,\s]+/g, ' ').trim();
   if (!branch.address) return undefined;
-  const reference = catalog.find(location => normalize(location.address) === normalize(branch.address!));
+  const target = normalize(branch.address);
+  const reference = catalog.find(location => 
+    normalize(location.address) === target ||
+    location.legacyAddresses?.some(legacy => normalize(legacy) === target)
+  );
+  // If we matched a catalog entry, always use its verified coordinates
+  if (reference) {
+    if (reference.id === branch.id && reference.address === branch.address
+        && (!branch.workHours || branch.workHours === reference.workHours)) {
+      return reference;
+    }
+    const matched: BranchLocation = {
+      ...reference,
+      id: branch.id,
+      address: branch.address,
+      lat: reference.lat,
+      lng: reference.lng,
+    };
+    if (branch.workHours || reference.workHours) {
+      matched.workHours = branch.workHours || reference.workHours;
+    }
+    return matched;
+  }
+  // No catalog match — fall back to backend coordinates if available
   if (typeof branch.latitude === 'number' && Number.isFinite(branch.latitude) && Math.abs(branch.latitude) <= 90
       && typeof branch.longitude === 'number' && Number.isFinite(branch.longitude) && Math.abs(branch.longitude) <= 180) {
     return { code: '', metro: '', metroColor: '', rating: 0, reviewCount: 0,
       services: [], activeQueueCount: 0, activeWindows: 0, amenities: [], photos: [], walkingMinutes: 0, distanceKm: 0,
-      ...reference, ...branch, id: branch.id, address: branch.address, workHours: branch.workHours || '',
-      lat: branch.latitude, lng: branch.longitude };
+      ...branch, id: branch.id, address: branch.address, workHours: branch.workHours || '',
+      lat: branch.latitude, lng: branch.longitude } as BranchLocation;
   }
-  return reference;
+  return undefined;
+}
+
+/**
+ * Извлечение 6-значного индекса отделения для раздельного отображения под адресом
+ */
+export function getBranchPostalCode(branch?: {
+  code?: string;
+  postalCode?: string;
+  name?: string;
+  address?: string;
+  rawLocation?: { code?: string; postalCode?: string };
+} | null): string {
+  if (!branch) return '';
+  if (branch.postalCode && /^\d{6}/.test(branch.postalCode)) {
+    return branch.postalCode.slice(0, 6);
+  }
+  if (branch.rawLocation?.postalCode && /^\d{6}/.test(branch.rawLocation.postalCode)) {
+    return branch.rawLocation.postalCode.slice(0, 6);
+  }
+  if (branch.code) {
+    const m = branch.code.match(/^\d{6}/);
+    if (m) return m[0];
+  }
+  if (branch.rawLocation?.code) {
+    const m = branch.rawLocation.code.match(/^\d{6}/);
+    if (m) return m[0];
+  }
+  if (branch.name) {
+    const m = branch.name.match(/\b\d{6}\b/);
+    if (m) return m[0];
+  }
+  if (branch.address) {
+    const m = branch.address.match(/\b\d{6}\b/);
+    if (m) return m[0];
+  }
+  return '';
 }
 
 export function liveWaitMinutes(workload: BranchWorkload | undefined, now = Date.now()): number | undefined {

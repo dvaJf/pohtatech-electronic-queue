@@ -16,7 +16,8 @@ import { RouteOfferModal } from './RouteOfferModal';
 import { BranchMapModal } from './map/BranchMapModal';
 import { calculateBranchTotalTime, isUsableDurationMinutes, MAX_QUEUE_WAIT_MINUTES, MAX_ROUTE_TRAVEL_MINUTES, MOSCOW_BRANCHES, BranchLocation, RankedBranch } from './map/branchLocations';
 
-import { matchBranchLocation, matchesUserDefaultBranch, getUserDefaultBranchId, resolveSingleDefaultBranchId } from './map/liveBranches';
+import { matchBranchLocation, matchesUserDefaultBranch, getUserDefaultBranchId, resolveSingleDefaultBranchId, getBranchPostalCode } from './map/liveBranches';
+import { cleanBranchName } from '../../utils/branchSlug';
 import { canShowNearbyBranchCard, updateNearbyVisits, dismissNearbyVisit, type NearbyVisitState } from './arrival/arrivalPolicy';
 import { VisitRatingSheet } from './rating/VisitRatingSheet';
 import { shouldOfferVisitRating } from './rating/visitRatingPolicy';
@@ -726,16 +727,19 @@ function BranchCard({
       onClick={onSelect}
     >
       <div className="flex items-start gap-3 w-full min-w-0 text-left">
-        {photoUrl && !photoFailed && (
-          <img
-            src={photoUrl}
-            alt="Иллюстрация почтового отделения"
-            loading="lazy"
-            decoding="async"
-            onError={() => setPhotoFailed(true)}
-            className={`w-20 h-16 sm:w-24 sm:h-20 rounded-xl object-cover shrink-0 bg-slate-100 ${isClosed ? 'grayscale' : ''}`}
-          />
-        )}
+        <div className={`w-20 aspect-[4/3] sm:w-24 sm:aspect-[4/3] rounded-xl overflow-hidden shrink-0 bg-slate-100 border border-slate-200/60 shadow-xs flex items-center justify-center relative ${isClosed ? 'grayscale' : ''}`}>
+          <Building2 size={24} className="text-slate-300 absolute" />
+          {photoUrl && !photoFailed && (
+            <img
+              src={photoUrl}
+              alt="Иллюстрация почтового отделения"
+              loading="lazy"
+              decoding="async"
+              onError={() => setPhotoFailed(true)}
+              className="w-full h-full object-cover relative z-10"
+            />
+          )}
+        </div>
         <div className="min-w-0 flex-1">
           {/* Верхняя строка: Рейтинг и бейджи слева, статус закрытия в правом верхнем углу */}
           <div className="flex items-center justify-between gap-1.5 mb-1.5 w-full flex-wrap">
@@ -785,7 +789,7 @@ function BranchCard({
 
           <div className="flex items-start justify-between gap-2 w-full">
             <div className="flex-1 min-w-0">
-              <span className="cx-choice-title text-sm sm:text-base font-extrabold">{branch.name}</span>
+              <span className="cx-choice-title text-sm sm:text-base font-extrabold">{cleanBranchName(branch.name)}</span>
 
               {/* Расстояние, время в пути и общее расчетное время T = T_travel + T_wait */}
               {(distText || typeof totalMinutes === 'number') && (
@@ -824,6 +828,13 @@ function BranchCard({
                 <span className="cx-choice-meta text-xs">
                   <MapPin size={13} aria-hidden className="shrink-0 text-slate-400" />
                   <span className="cx-message-text">{branch.address}</span>
+                </span>
+              ) : null}
+
+              {getBranchPostalCode(branch) ? (
+                <span className="cx-choice-meta text-xs">
+                  <span className="text-slate-400 font-normal">Почтовый индекс:</span>
+                  <span className="font-bold text-[#052F85] tracking-wide">{getBranchPostalCode(branch)}</span>
                 </span>
               ) : null}
 
@@ -1426,16 +1437,32 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
       setLoading(true);
       setError(null);
       const loaded = await api.listBranches();
-      setBranches(loaded);
+      const seenIds = new Set<string>();
+      const seenAddresses = new Set<string>();
+      const deduped: Branch[] = [];
+      for (const b of loaded) {
+        if (!b || seenIds.has(b.id)) continue;
+        const normAddr = (b.address || '').toLowerCase().replace(/^(г\.|город|ул\.|улица)\s*/g, '').trim();
+        if (normAddr && seenAddresses.has(normAddr)) continue;
+
+        seenIds.add(b.id);
+        if (normAddr) seenAddresses.add(normAddr);
+
+        deduped.push({
+          ...b,
+          name: cleanBranchName(b.name),
+        });
+      }
+      setBranches(deduped);
       setBranchId(current => {
         if (current) return current;
         const userDefault = (typeof localStorage !== 'undefined')
           ? (localStorage.getItem('user_default_branch_id') || localStorage.getItem(STORAGE_BRANCH_KEY))
           : null;
-        if (userDefault && loaded.some(b => b.id === userDefault)) {
+        if (userDefault && deduped.some(b => b.id === userDefault)) {
           return userDefault;
         }
-        return loaded[0]?.id || '';
+        return deduped[0]?.id || '';
       });
     } catch (err: any) {
       setError(friendlyError(err, 'Не удалось загрузить данные отделений'));

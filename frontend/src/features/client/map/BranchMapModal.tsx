@@ -23,7 +23,8 @@ import {
   CheckCircle2
 } from 'lucide-react';
 import { matchBranchLocation, liveWaitMinutes, matchesUserDefaultBranch, getUserDefaultBranchId, resolveSingleDefaultBranchId, getBranchPostalCode } from './liveBranches';
-export { getBranchPostalCode };
+import { cleanBranchName } from '../../../utils/branchSlug';
+export { getBranchPostalCode, cleanBranchName };
 import { decideUserLocationUpdate, decideLocationCenterRequest } from './mapViewportPolicy';
 import { useModalFocus } from '../../../hooks/useModalFocus';
 import { getBranchReviews, type BranchReview, type BranchWorkload } from '../../../api/client/clientApi';
@@ -134,7 +135,7 @@ export function convertLocationToMapBranch(loc: BranchLocation): MapBranch {
     ratingCount: 0,
     code: loc.code,
     postalCode: loc.postalCode || getBranchPostalCode(loc),
-    name: loc.name,
+    name: cleanBranchName(loc.name),
     address: loc.address,
     workHours: loc.workHours,
     coordinates: [loc.lat, loc.lng],
@@ -319,19 +320,40 @@ export function BranchMapModal({
   }, []);
 
   // Only server branches with an address-matched location are eligible for map pins.
-  const allBranches = useMemo<MapBranch[]>(() => incomingBranches.flatMap(b => {
-    const loc = matchBranchLocation(b, MOSCOW_BRANCHES);
-    if (!loc) return [];
-    const workload = workloads[b.id];
-    const yRating = loc.rating > 0 ? loc.rating : null;
-    return [{ ...convertLocationToMapBranch(loc), ...b, id: b.id,
-      address: b.address || loc.address, workHours: b.workHours || loc.workHours,
-      rating: b.ratingAverage,
-      yandexRating: yRating,
-      reviewsCount: b.ratingCount,
-      liveWaitMinutes: liveWaitMinutes(workload) ?? null,
-      waitingCount: workload?.currentWaiting ?? null }];
-  }), [incomingBranches, workloads]);
+  const allBranches = useMemo<MapBranch[]>(() => {
+    const list: MapBranch[] = [];
+    const seenIds = new Set<string>();
+    const seenAddresses = new Set<string>();
+
+    for (const b of incomingBranches) {
+      if (!b || seenIds.has(b.id)) continue;
+      const loc = matchBranchLocation(b, MOSCOW_BRANCHES);
+      if (!loc) continue;
+
+      const normAddr = (b.address || loc.address).toLowerCase().replace(/^(г\.|город|ул\.|улица)\s*/g, '').trim();
+      if (seenAddresses.has(normAddr)) continue;
+
+      seenIds.add(b.id);
+      seenAddresses.add(normAddr);
+
+      const workload = workloads[b.id];
+      const yRating = loc.rating > 0 ? loc.rating : null;
+      list.push({
+        ...convertLocationToMapBranch(loc),
+        ...b,
+        id: b.id,
+        name: cleanBranchName(b.name || loc.name),
+        address: b.address || loc.address,
+        workHours: b.workHours || loc.workHours,
+        rating: b.ratingAverage,
+        yandexRating: yRating,
+        reviewsCount: b.ratingCount,
+        liveWaitMinutes: liveWaitMinutes(workload) ?? null,
+        waitingCount: workload?.currentWaiting ?? null,
+      });
+    }
+    return list;
+  }, [incomingBranches, workloads]);
   const allBranchesRef = useRef(allBranches);
   const targetBranchIdRef = useRef(targetBranchId);
   allBranchesRef.current = allBranches;
@@ -630,7 +652,7 @@ export function BranchMapModal({
         }
       }
 
-      const streetName = b.name
+      const streetName = cleanBranchName(b.name)
         .replace(/^Демо\s*[·•-]\s*/i, '')
         .replace(/^Почтовое отделение\s+/i, '')
         .replace(/^Отделение\s+/i, '')

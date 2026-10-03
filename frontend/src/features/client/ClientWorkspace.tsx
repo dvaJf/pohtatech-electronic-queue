@@ -17,6 +17,7 @@ import { BranchMapModal } from './map/BranchMapModal';
 import { calculateBranchTotalTime, isUsableDurationMinutes, MAX_QUEUE_WAIT_MINUTES, MAX_ROUTE_TRAVEL_MINUTES, MOSCOW_BRANCHES, BranchLocation, RankedBranch } from './map/branchLocations';
 
 import { matchBranchLocation, matchesUserDefaultBranch, getUserDefaultBranchId, resolveSingleDefaultBranchId, getBranchPostalCode } from './map/liveBranches';
+import { cleanBranchName } from '../../utils/branchSlug';
 import { canShowNearbyBranchCard, updateNearbyVisits, dismissNearbyVisit, type NearbyVisitState } from './arrival/arrivalPolicy';
 import { VisitRatingSheet } from './rating/VisitRatingSheet';
 import { shouldOfferVisitRating } from './rating/visitRatingPolicy';
@@ -788,7 +789,7 @@ function BranchCard({
 
           <div className="flex items-start justify-between gap-2 w-full">
             <div className="flex-1 min-w-0">
-              <span className="cx-choice-title text-sm sm:text-base font-extrabold">{branch.name}</span>
+              <span className="cx-choice-title text-sm sm:text-base font-extrabold">{cleanBranchName(branch.name)}</span>
 
               {/* Расстояние, время в пути и общее расчетное время T = T_travel + T_wait */}
               {(distText || typeof totalMinutes === 'number') && (
@@ -1436,16 +1437,32 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
       setLoading(true);
       setError(null);
       const loaded = await api.listBranches();
-      setBranches(loaded);
+      const seenIds = new Set<string>();
+      const seenAddresses = new Set<string>();
+      const deduped: Branch[] = [];
+      for (const b of loaded) {
+        if (!b || seenIds.has(b.id)) continue;
+        const normAddr = (b.address || '').toLowerCase().replace(/^(г\.|город|ул\.|улица)\s*/g, '').trim();
+        if (normAddr && seenAddresses.has(normAddr)) continue;
+
+        seenIds.add(b.id);
+        if (normAddr) seenAddresses.add(normAddr);
+
+        deduped.push({
+          ...b,
+          name: cleanBranchName(b.name),
+        });
+      }
+      setBranches(deduped);
       setBranchId(current => {
         if (current) return current;
         const userDefault = (typeof localStorage !== 'undefined')
           ? (localStorage.getItem('user_default_branch_id') || localStorage.getItem(STORAGE_BRANCH_KEY))
           : null;
-        if (userDefault && loaded.some(b => b.id === userDefault)) {
+        if (userDefault && deduped.some(b => b.id === userDefault)) {
           return userDefault;
         }
-        return loaded[0]?.id || '';
+        return deduped[0]?.id || '';
       });
     } catch (err: any) {
       setError(friendlyError(err, 'Не удалось загрузить данные отделений'));

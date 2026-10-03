@@ -22,7 +22,7 @@ import {
   Layers,
   CheckCircle2
 } from 'lucide-react';
-import { matchBranchLocation, liveWaitMinutes, matchesUserDefaultBranch, getUserDefaultBranchId } from './liveBranches';
+import { matchBranchLocation, liveWaitMinutes, matchesUserDefaultBranch, getUserDefaultBranchId, resolveSingleDefaultBranchId } from './liveBranches';
 import { decideUserLocationUpdate, decideLocationCenterRequest } from './mapViewportPolicy';
 import { useModalFocus } from '../../../hooks/useModalFocus';
 import { getBranchReviews, type BranchReview, type BranchWorkload } from '../../../api/client/clientApi';
@@ -310,8 +310,9 @@ export function BranchMapModal({
   const clustererRef = useRef<any>(null);
   const mapMarginAreaRef = useRef<any>(null);
   const focusSequenceRef = useRef(0);
+  const KAZAN_DEFAULT_CENTER: [number, number] = [55.7951, 49.1123];
   const [focusRequest, setFocusRequest] = useState<{ branchId: string; sequence: number } | null>(null);
-  const [fallbackCenter, setFallbackCenter] = useState<[number, number]>([55.7618, 37.6385]);
+  const [fallbackCenter, setFallbackCenter] = useState<[number, number]>(KAZAN_DEFAULT_CENTER);
   const isOpenRef = useRef(isOpen);
   isOpenRef.current = isOpen;
   const consumedCenterRequestRef = useRef(locationCenterRequest);
@@ -346,11 +347,15 @@ export function BranchMapModal({
     ? getUserDefaultBranchId()
     : '11111111-1111-1111-1111-111111111111';
 
+  const effectiveDefaultBranchId = useMemo(() => {
+    return resolveSingleDefaultBranchId(allBranches, defaultBranchId);
+  }, [allBranches, defaultBranchId]);
+
   // Фильтрация списка отделений
   const filteredBranches = useMemo(() => {
     return allBranches.filter((b) => {
       // Отделение по умолчанию всегда остаётся в результатах поиска
-      if (matchesUserDefaultBranch(b, defaultBranchId)) return true;
+      if (effectiveDefaultBranchId && b.id === effectiveDefaultBranchId) return true;
 
       // Фильтр-чипы: «Все», «Посылки», «Письма», «Пенсии», «Доступная среда»
       if (selectedFilter !== 'all') {
@@ -371,14 +376,14 @@ export function BranchMapModal({
       }
       return true;
     });
-  }, [allBranches, selectedFilter, searchQuery, defaultBranchId]);
+  }, [allBranches, selectedFilter, searchQuery, effectiveDefaultBranchId]);
 
   // Сортировка: отделение по умолчанию всегда первое, открытые отделения сверху, закрытые снизу
   const sortedFilteredBranches = useMemo(() => {
     return [...filteredBranches].sort((a, b) => {
-      if (defaultBranchId) {
-        const aIsDefault = matchesUserDefaultBranch(a, defaultBranchId);
-        const bIsDefault = matchesUserDefaultBranch(b, defaultBranchId);
+      if (effectiveDefaultBranchId) {
+        const aIsDefault = a.id === effectiveDefaultBranchId;
+        const bIsDefault = b.id === effectiveDefaultBranchId;
         if (aIsDefault && !bIsDefault) return -1;
         if (bIsDefault && !aIsDefault) return 1;
       }
@@ -389,7 +394,7 @@ export function BranchMapModal({
       if (!aClosed && bClosed) return -1;
       return 0;
     });
-  }, [filteredBranches, workloads, defaultBranchId]);
+  }, [filteredBranches, workloads, effectiveDefaultBranchId]);
 
   // Выбранное активное отделение (null если ничего не выбрано или свернуто)
   const selectedBranch = useMemo(() => {
@@ -425,7 +430,7 @@ export function BranchMapModal({
       setBottomSheetState('half');
       hasAutoCenteredRef.current = Boolean(targetBranchId);
       const target = allBranchesRef.current.find(branch => branch.id === targetBranchId);
-      setFallbackCenter(target?.coordinates ?? userLocationRef.current ?? [55.7618, 37.6385]);
+      setFallbackCenter(target?.coordinates ?? userLocationRef.current ?? KAZAN_DEFAULT_CENTER);
     }
     return cancelViewportWork;
   }, [isOpen, cancelViewportWork]);
@@ -727,7 +732,7 @@ export function BranchMapModal({
         const targetBranch = initialTargetBranchId
           ? allBranchesRef.current.find((branch) => branch.id === initialTargetBranchId)
           : null;
-        const centerCoords = targetBranch?.coordinates || initialUserLocation || [55.7618, 37.6385];
+        const centerCoords = targetBranch?.coordinates || initialUserLocation || KAZAN_DEFAULT_CENTER;
         if (targetBranch || initialUserLocation) hasAutoCenteredRef.current = true;
 
         const map = new ymaps.Map(
@@ -1029,7 +1034,7 @@ export function BranchMapModal({
                               <span className="text-xs font-extrabold text-[#031E56] leading-snug">
                                 {branch.name}
                               </span>
-                              {matchesUserDefaultBranch(branch, defaultBranchId) && (
+                              {effectiveDefaultBranchId && branch.id === effectiveDefaultBranchId && (
                                 <span className="shrink-0 px-2 py-0.5 rounded-full text-[10px] font-black bg-[#003B73] text-white shadow-xs">
                                   По умолчанию
                                 </span>
@@ -1370,7 +1375,7 @@ export function BranchMapModal({
                             <div className="min-w-0">
                               <div className="flex items-center gap-1.5 flex-wrap">
                                 <span className="text-xs font-bold text-[#031E56] break-words">{b.name}</span>
-                                {matchesUserDefaultBranch(b, defaultBranchId) && (
+                                {effectiveDefaultBranchId && b.id === effectiveDefaultBranchId && (
                                   <span className="shrink-0 px-2 py-0.5 rounded-full text-[10px] font-black bg-[#003B73] text-white shadow-xs">
                                     По умолчанию
                                   </span>
@@ -1614,7 +1619,7 @@ export function DetailedBranchCard({
             <h3 className="text-sm font-extrabold text-[#031E56] leading-snug">
               {branch.name}
             </h3>
-            {matchesUserDefaultBranch(branch, getUserDefaultBranchId()) && (
+            {((branch as any).isDefault ?? (getUserDefaultBranchId() === branch.id)) && (
               <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-[#003B73] text-white shadow-xs">
                 <Building2 size={10} className="text-white" />
                 <span>Отделение по умолчанию</span>
@@ -1846,8 +1851,8 @@ export function LeafletCartoOsmFallbackMap({
   const [zoomLevel, setZoomLevel] = useState(13);
 
   // Вычисление относительных координат на резервной карте (Carto / OSM)
-  const centerLat = mapCenter?.[0] ?? selectedBranch?.coordinates[0] ?? userLocation?.[0] ?? 55.7618;
-  const centerLon = mapCenter?.[1] ?? selectedBranch?.coordinates[1] ?? userLocation?.[1] ?? 37.6385;
+  const centerLat = mapCenter?.[0] ?? selectedBranch?.coordinates[0] ?? userLocation?.[0] ?? 55.7951;
+  const centerLon = mapCenter?.[1] ?? selectedBranch?.coordinates[1] ?? userLocation?.[1] ?? 49.1123;
   const scale = 2600 * (zoomLevel / 13);
 
   return (

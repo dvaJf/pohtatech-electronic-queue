@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -89,22 +90,38 @@ func (a *API) GetTicket(w http.ResponseWriter, r *http.Request) {
 type SubmitFeedbackRequest struct {
 	Rating  int    `json:"rating"`
 	Comment string `json:"comment"`
+	Text    string `json:"text"`
 }
 
 // SubmitFeedback accepts no branch id: a protected completed ticket determines it.
 func (a *API) SubmitFeedback(w http.ResponseWriter, r *http.Request) {
 	var req SubmitFeedbackRequest
-	if err := decodeRequest(r, &req); err != nil || req.Rating < 1 || req.Rating > 5 || len([]rune(req.Comment)) > 500 {
-		writeJSONError(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "rating must be from 1 to 5; comment is at most 500 characters")
+	if err := decodeRequest(r, &req); err != nil {
+		writeJSONError(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "invalid request body")
+		return
+	}
+	comment := strings.TrimSpace(req.Comment)
+	if comment == "" {
+		comment = strings.TrimSpace(req.Text)
+	}
+	if req.Rating < 1 || req.Rating > 5 || len([]rune(comment)) > 2000 {
+		writeJSONError(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "rating must be from 1 to 5; comment is at most 2000 characters")
 		return
 	}
 	ctx := persistence.WithManagementToken(r.Context(), r.Header.Get("X-Ticket-Manage-Token"))
-	if err := a.usecases.SubmitFeedback(ctx, chi.URLParam(r, "ticketId"), req.Rating, strings.TrimSpace(req.Comment)); err != nil {
+	ticketID := chi.URLParam(r, "ticketId")
+	if err := a.usecases.SubmitFeedback(ctx, ticketID, req.Rating, comment); err != nil {
 		a.respondError(w, r, err)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	writeJSONResponse(w, http.StatusOK, map[string]any{
+		"ok":       true,
+		"ticketId": ticketID,
+		"rating":   req.Rating,
+		"comment":  comment,
+	})
 }
+
 
 type CreateLiveTicketRequest struct {
 	ServiceID string `json:"serviceId"`
@@ -342,4 +359,58 @@ func (a *API) GetBranchReviews(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSONResponse(w, http.StatusOK, map[string]any{"items": reviews})
 }
+
+type SubmitBranchReviewRequest struct {
+	Rating  int    `json:"rating"`
+	Comment string `json:"comment"`
+	Text    string `json:"text"`
+}
+
+func (a *API) SubmitBranchReview(w http.ResponseWriter, r *http.Request) {
+	branchID := chi.URLParam(r, "branchId")
+	var req SubmitBranchReviewRequest
+	if err := decodeRequest(r, &req); err != nil {
+		writeJSONError(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "invalid request body")
+		return
+	}
+	comment := strings.TrimSpace(req.Comment)
+	if comment == "" {
+		comment = strings.TrimSpace(req.Text)
+	}
+	if req.Rating < 1 || req.Rating > 5 || len([]rune(comment)) > 2000 {
+		writeJSONError(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "rating must be between 1 and 5; comment max 2000 characters")
+		return
+	}
+	review, err := a.usecases.SubmitBranchReview(r.Context(), branchID, req.Rating, comment)
+	if err != nil {
+		a.respondError(w, r, err)
+		return
+	}
+	writeJSONResponse(w, http.StatusCreated, review)
+}
+
+func (a *API) GetAdminReviews(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	branchID := strings.TrimSpace(q.Get("branchId"))
+	rating, _ := strconv.Atoi(q.Get("rating"))
+	page, _ := strconv.Atoi(q.Get("page"))
+	pageSize, _ := strconv.Atoi(q.Get("pageSize"))
+	sort := strings.TrimSpace(q.Get("sort"))
+
+	filter := domain.AdminReviewsFilter{
+		BranchID: branchID,
+		Rating:   rating,
+		Sort:     sort,
+		Page:     page,
+		PageSize: pageSize,
+	}
+
+	result, err := a.usecases.GetAdminReviews(r.Context(), filter)
+	if err != nil {
+		a.respondError(w, r, err)
+		return
+	}
+	writeJSONResponse(w, http.StatusOK, result)
+}
+
 

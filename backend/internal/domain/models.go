@@ -60,6 +60,47 @@ type RecentFeedback struct {
 	Comment   string    `json:"comment"`
 	CreatedAt time.Time `json:"createdAt"`
 }
+
+type CreatedReview struct {
+	ID        string    `json:"id"`
+	BranchID  string    `json:"branchId"`
+	Rating    int       `json:"rating"`
+	Comment   string    `json:"comment"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+type AdminReviewItem struct {
+	ID         string    `json:"id"`
+	BranchID   string    `json:"branchId"`
+	BranchName string    `json:"branchName"`
+	Rating     int       `json:"rating"`
+	Comment    string    `json:"comment"`
+	CreatedAt  time.Time `json:"createdAt"`
+}
+
+type AdminReviewsFilter struct {
+	BranchID string
+	Rating   int
+	Sort     string
+	Page     int
+	PageSize int
+}
+
+type AdminReviewSummary struct {
+	AverageRating *float64       `json:"averageRating"`
+	TotalReviews  int            `json:"totalReviews"`
+	Distribution  map[string]int `json:"distribution"`
+}
+
+type AdminReviewsResult struct {
+	Items      []AdminReviewItem  `json:"items"`
+	Page       int                `json:"page"`
+	PageSize   int                `json:"pageSize"`
+	Total      int                `json:"total"`
+	TotalPages int                `json:"totalPages"`
+	Summary    AdminReviewSummary `json:"summary"`
+}
+
 type Service struct {
 	ID   string `json:"id"`
 	Code string `json:"code"`

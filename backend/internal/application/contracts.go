@@ -74,7 +74,10 @@ type UseCases interface {
 	GetQueuePosition(ctx context.Context, ticketID string) (domain.QueuePosition, error)
 	ListBranches(ctx context.Context) ([]domain.Branch, error)
 	SubmitFeedback(ctx context.Context, ticketID string, rating int, comment string) error
+	SubmitBranchReview(ctx context.Context, branchID string, rating int, comment string) (domain.CreatedReview, error)
 	ListBranchReviews(ctx context.Context, branchID string) ([]domain.RecentFeedback, error)
+	GetAdminReviews(ctx context.Context, filter domain.AdminReviewsFilter) (domain.AdminReviewsResult, error)
+
 	ListBranchServices(ctx context.Context, branchID string) ([]domain.Service, error)
 	ListBranchWindows(ctx context.Context, branchID string) ([]domain.Window, error)
 	CreateQRTicket(ctx context.Context, cmd CreateQRTicketCommand) (CreateQRTicketResult, error)

@@ -59,6 +59,48 @@ function SberArrow() {
   );
 }
 
+/* ──────────────── 3-people queue illustration icon ──────────────── */
+function PeopleGroupIcon({
+  className = '',
+  width = 96,
+  height = 64,
+}: {
+  className?: string;
+  width?: number | string;
+  height?: number | string;
+}) {
+  return (
+    <svg
+      width={width}
+      height={height}
+      viewBox="0 0 96 64"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      aria-hidden="true"
+    >
+      {/* Left person */}
+      <circle cx="25" cy="24" r="10" fill="#B0BEC5" />
+      <path
+        d="M7 54C7 43.5 15.5 37 25 37C29.2 37 33 38.3 36 40.5C32.4 43.8 30 48.5 29.5 54H7Z"
+        fill="#B0BEC5"
+      />
+      {/* Right person */}
+      <circle cx="71" cy="24" r="10" fill="#B0BEC5" />
+      <path
+        d="M89 54C89 43.5 80.5 37 71 37C66.8 37 63 38.3 60 40.5C63.6 43.8 66 48.5 66.5 54H89Z"
+        fill="#B0BEC5"
+      />
+      {/* Center person (front, larger) */}
+      <circle cx="48" cy="18" r="13" fill="#94A3B8" />
+      <path
+        d="M26 56C26 43 36 34 48 34C60 34 70 43 70 56H26Z"
+        fill="#94A3B8"
+      />
+    </svg>
+  );
+}
+
 /* ────────────── flash overlay for new call ──────────── */
 function FlashOverlay({
   ticket,
@@ -308,11 +350,53 @@ export function TVBoard({ branchId: propBranchId }: TVBoardProps = {}) {
     return list;
   }, [tvData]);
 
+  /* ── network online & sync tracking ── */
+  const [isOnline, setIsOnline] = useState<boolean>(() =>
+    typeof navigator !== 'undefined' ? navigator.onLine : true
+  );
+  const [lastSyncTs, setLastSyncTs] = useState<number>(() => Date.now());
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (tvData && !error) {
+      setLastSyncTs(Date.now());
+    }
+  }, [tvData, error]);
+
+  const isSynchronized = isOnline && !error && Boolean(tvData) && !isLoading;
+  const hasData = isSynchronized;
+
+  const activeWindowsCount = useMemo(() => {
+    if (tvData?.windows && Array.isArray(tvData.windows) && tvData.windows.length > 0) {
+      const active = (tvData.windows as Array<{ status: string }>).filter(
+        w => w.status !== 'CLOSED' && w.status !== 'INACTIVE'
+      ).length;
+      if (active > 0) return active;
+      return tvData.windows.length;
+    }
+    const found = MOSCOW_BRANCHES.find(b => b.id === selectedBranchId);
+    return found?.activeWindows ?? 3;
+  }, [tvData, selectedBranchId]);
+
   const branchName = useMemo(() => {
     return getBranchDisplayName(rawBranchParam || selectedBranchId, branches);
   }, [rawBranchParam, selectedBranchId, branches]);
 
-  const hasData = !error && !isLoading && !!tvData;
+  const branchSubtitle = useMemo(() => {
+    let name = branchName;
+    name = name.replace(/^ОПС\s+\d+\s*·\s*/i, '');
+    return name.toUpperCase().startsWith('ДЕМО') ? name.toUpperCase() : `ДЕМО · ${name.toUpperCase()}`;
+  }, [branchName]);
 
   const timeString = now.toLocaleTimeString('ru-RU', {
     timeZone: 'Europe/Moscow',
@@ -347,11 +431,11 @@ export function TVBoard({ branchId: propBranchId }: TVBoardProps = {}) {
           <PochtaEmblem className="tv-emblem" bg="#003B73" fg="#FFFFFF" />
           <div className="tv-brand-block">
             <PochtaWordmark className="tv-wordmark" color="#003B73" />
-            <span className="tv-branch-name">{branchName}</span>
+            <span className="tv-branch-name">{branchSubtitle}</span>
           </div>
         </div>
         <div className="tv-topbar-right">
-          {!audioUnlocked ? (
+          {!audioUnlocked && (
             <button
               type="button"
               className="tv-audio-btn"
@@ -360,18 +444,25 @@ export function TVBoard({ branchId: propBranchId }: TVBoardProps = {}) {
             >
               Включить звук
             </button>
-          ) : (
-            <span className="tv-audio-badge" title="Голосовые оповещения активны">
-              Звук включён
-            </span>
           )}
+          {/* Примечание: надпись "Звук включён" убрана с экрана по запросу, голосовые оповещения активны */}
+          <div className="tv-active-windows" title="Количество работающих окон в отделении">
+            <span className="tv-active-windows-label">Окон активно:</span>
+            <span className="tv-active-windows-count">{activeWindowsCount}</span>
+          </div>
           <div
             className="tv-clock-wrapper"
-            title={hasData ? 'Связь с сервером активна (данные получены)' : error ? 'Нет связи с сервером очереди' : 'Подключение к системе очереди…'}
+            title={
+              isSynchronized
+                ? 'Синхронизация с сервером активна'
+                : !isOnline
+                ? 'Нет подключения к интернету'
+                : 'Рассинхронизация с сервером'
+            }
           >
             <span
-              className={`tv-status-dot ${hasData ? 'tv-status-dot--online' : 'tv-status-dot--offline'}`}
-              aria-label={hasData ? 'Онлайн' : 'Офлайн'}
+              className={`tv-status-dot ${isSynchronized ? 'tv-status-dot--synced' : 'tv-status-dot--desynced'}`}
+              aria-label={isSynchronized ? 'Синхронизировано' : 'Рассинхрон'}
               role="status"
             />
             <div className="tv-clock">{timeString}</div>
@@ -419,7 +510,10 @@ export function TVBoard({ branchId: propBranchId }: TVBoardProps = {}) {
 
             {calls.length === 0 && (
               <div className="tv-empty">
-                {isLoading ? 'Подключаем табло…' : error ? 'Нет связи с системой очереди' : 'Сейчас никто не вызывается'}
+                <PeopleGroupIcon width={120} height={80} className="tv-empty-icon" />
+                <span className="tv-empty-text">
+                  {isLoading ? 'Подключаем табло…' : error ? 'Нет связи с системой очереди' : 'Сейчас никто не вызывается'}
+                </span>
               </div>
             )}
           </div>
@@ -441,20 +535,15 @@ export function TVBoard({ branchId: propBranchId }: TVBoardProps = {}) {
             ))}
             {waiting.length === 0 && (
               <div className="tv-empty-small">
-                {isLoading ? 'Загрузка очереди…' : error ? 'Данные временно недоступны' : 'Ожидающих нет'}
+                <PeopleGroupIcon width={96} height={64} className="tv-empty-icon" />
+                <span className="tv-empty-text">
+                  {isLoading ? 'Загрузка очереди…' : error ? 'Данные временно недоступны' : 'Ожидающих нет'}
+                </span>
               </div>
             )}
           </div>
         </section>
       </div>
-
-      {/* ── BOTTOM BAR ── */}
-      <footer className="tv-bottombar">
-        <div className="tv-bottombar-inner">
-          <span>Электронная очередь • Почта России</span>
-          <span>Пожалуйста, дождитесь вызова вашего талона</span>
-        </div>
-      </footer>
 
       {/* ── STYLES (scoped) ── */}
       <style>{tvStyles}</style>
@@ -520,7 +609,7 @@ const tvStyles = `
 .tv-topbar-right {
   display: flex;
   align-items: center;
-  gap: 2vw;
+  gap: 1.8vw;
 }
 .tv-audio-btn {
   font-family: inherit;
@@ -539,46 +628,52 @@ const tvStyles = `
   background: #FDE68A;
   transform: scale(1.02);
 }
-.tv-audio-badge {
-  font-size: 1.4vh;
+.tv-active-windows {
+  display: flex;
+  align-items: center;
+  gap: 0.6vw;
+  font-size: 2vh;
   font-weight: 700;
-  padding: 0.6vh 1.2vw;
+  color: #475569;
+  padding: 0.7vh 1.4vw;
+  background: #F8FAFC;
+  border: 1.5px solid #E2E8F0;
   border-radius: 9999px;
-  border: 1px solid #BBF7D0;
-  background: #F0FDF4;
-  color: #166534;
   white-space: nowrap;
+}
+.tv-active-windows-label {
+  color: #64748B;
+}
+.tv-active-windows-count {
+  color: #003B73;
+  font-weight: 900;
+  font-size: 2.3vh;
 }
 .tv-clock-wrapper {
   display: flex;
   align-items: center;
-  gap: 0.8vw;
+  gap: 1.2vw;
 }
 .tv-status-dot {
-  width: 9px;
-  height: 9px;
+  width: 1.8vh;
+  height: 1.8vh;
   border-radius: 50%;
   flex-shrink: 0;
   transition: background-color 0.3s ease, box-shadow 0.3s ease;
 }
-.tv-status-dot--online {
-  background: #16A34A;
-  box-shadow: 0 0 6px rgba(22, 163, 74, 0.45);
-  animation: tv-dot-pulse 2s ease-in-out infinite;
+.tv-status-dot--synced {
+  background: #10B981;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.45);
 }
-.tv-status-dot--offline {
-  background: #DC2626;
-  box-shadow: 0 0 6px rgba(220, 38, 38, 0.45);
-}
-@keyframes tv-dot-pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.7; transform: scale(0.85); }
+.tv-status-dot--desynced {
+  background: #EF4444;
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.45);
 }
 .tv-clock {
-  font-size: 4.5vh;
+  font-size: 5vh;
   font-weight: 900;
   font-variant-numeric: tabular-nums;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.02em;
   color: #003B73;
 }
 
@@ -586,9 +681,9 @@ const tvStyles = `
 .tv-content {
   flex: 1;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(260px, 30vw);
-  gap: 1.5vw;
-  padding: 2vh 2vw;
+  grid-template-columns: minmax(0, 2.2fr) minmax(320px, 1fr);
+  gap: 2vw;
+  padding: 2.5vh 2.5vw;
   min-height: 0;
   min-width: 0;
   max-width: 100vw;
@@ -601,35 +696,36 @@ const tvStyles = `
   display: flex;
   align-items: center;
   gap: 0.8vw;
-  font-size: 2.4vh;
-  font-weight: 800;
+  font-size: 2.6vh;
+  font-weight: 900;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: #334155;
-  margin-bottom: 1.8vh;
-  padding-bottom: 1vh;
-  border-bottom: 2px solid #E2E8F0;
+  letter-spacing: 0.04em;
+  color: #031E56;
+  margin-bottom: 2vh;
+  padding-bottom: 1.5vh;
+  border-bottom: 2px solid #F1F5F9;
 }
 .tv-section-dot {
-  width: 1.2vh;
-  height: 1.2vh;
+  width: 1.4vh;
+  height: 1.4vh;
   border-radius: 50%;
 }
 .tv-section-dot--green {
-  background: #22C55E;
-  box-shadow: 0 0 10px rgba(34,197,94,0.4);
-  animation: tv-pulse 2s ease-in-out infinite;
+  background: #10B981;
 }
 .tv-section-dot--amber {
   background: #F59E0B;
-  box-shadow: 0 0 10px rgba(245,158,11,0.4);
-  animation: tv-pulse 2s ease-in-out infinite 0.5s;
 }
 
 /* ═══════════════════════ CALL CARDS ═══════════════════════ */
 .tv-calls-section {
   display: flex;
   flex-direction: column;
+  background: #FFFFFF;
+  border-radius: 2.5vh;
+  padding: 2.5vh 2vw;
+  border: 2px solid #E2E8F0;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.03);
   min-height: 0;
   min-width: 0;
   width: 100%;
@@ -765,9 +861,9 @@ const tvStyles = `
   flex-direction: column;
   background: #FFFFFF;
   border-radius: 2.5vh;
-  padding: 2vh 1.2vw;
+  padding: 2.5vh 1.8vw;
   border: 2px solid #E2E8F0;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.04);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.03);
   min-height: 0;
   min-width: 0;
   box-sizing: border-box;
@@ -775,12 +871,12 @@ const tvStyles = `
 }
 .tv-waiting-count {
   background: #FEF3C7;
-  color: #B45309;
+  color: #D97706;
   border-radius: 1vh;
-  padding: 0.3vh 1vw;
+  padding: 0.3vh 1.2vw;
   font-variant-numeric: tabular-nums;
-  font-size: 1.8vh;
-  font-weight: 700;
+  font-size: 2vh;
+  font-weight: 800;
   margin-left: auto;
 }
 .tv-waiting-grid {
@@ -818,42 +914,46 @@ const tvStyles = `
   text-overflow: ellipsis;
 }
 
-/* ═══════════════════════ BOTTOM BAR ═══════════════════════ */
-.tv-bottombar {
-  flex-shrink: 0;
-  background: #FFFFFF;
-  border-top: 2px solid #E2E8F0;
-  padding: 1vh 2.5vw;
-}
-.tv-bottombar-inner {
-  display: flex;
-  justify-content: space-between;
-  font-size: 1.4vh;
-  color: #94A3B8;
-  font-weight: 600;
-  letter-spacing: 0.05em;
-}
-
 /* ═══════════════════════ EMPTY STATES ═══════════════════════ */
 .tv-empty {
   grid-column: 1 / -1;
+  flex: 1;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  font-size: 3vh;
-  color: #94A3B8;
-  font-weight: 600;
+  gap: 2.5vh;
+  min-height: 45vh;
+  padding: 4vh 0;
 }
 .tv-empty-small {
   grid-column: 1 / -1;
+  flex: 1;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  width: 100%;
+  gap: 2vh;
+  min-height: 45vh;
   padding: 4vh 0;
-  font-size: 2vh;
-  color: #94A3B8;
+  width: 100%;
+}
+.tv-empty-icon {
+  color: #B8C5D6;
+  opacity: 0.85;
+}
+.tv-empty-text {
+  font-size: 3vh;
+  font-weight: 700;
+  color: #475569;
+  text-align: center;
+  letter-spacing: 0.01em;
+}
+.tv-empty-small .tv-empty-text {
+  font-size: 2.2vh;
   font-weight: 600;
+  color: #64748B;
+  text-align: center;
 }
 
 /* ═══════════════════════ FLASH OVERLAY ═══════════════════════ */

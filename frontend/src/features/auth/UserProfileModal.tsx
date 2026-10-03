@@ -333,11 +333,11 @@ export function UserProfileModal({ isOpen, onClose, user, onUserUpdate }: UserPr
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-fade-in">
       <div
-        className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden"
+        className="relative w-full max-w-md max-h-[90vh] bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col my-auto"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="bg-[#003B73] px-4 sm:px-6 py-4 sm:py-5 text-white flex items-center justify-between">
+        <div className="bg-[#003B73] px-4 sm:px-6 py-4 sm:py-5 text-white flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
             <PochtaEmblem className="w-8 h-8 shrink-0" bg="#FFFFFF" fg="#003B73" />
             <div>
@@ -355,7 +355,7 @@ export function UserProfileModal({ isOpen, onClose, user, onUserUpdate }: UserPr
           </button>
         </div>
 
-        <div className="p-4 sm:p-6 space-y-5 sm:space-y-6 max-h-[82vh] overflow-y-auto scrollbar-none" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+        <div className="p-4 sm:p-6 space-y-5 sm:space-y-6 flex-1 min-h-0 overflow-y-auto overscroll-contain">
           {/* User Info Card */}
           <div className="p-4 bg-slate-50 border border-slate-200/80 rounded-2xl space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -706,7 +706,7 @@ export function UserProfileModal({ isOpen, onClose, user, onUserUpdate }: UserPr
                       className="sr-only peer"
                       aria-label="Включить или отключить уведомления в браузере"
                     />
-                    <div className="w-10 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#003B73]" />
+                    <div className="w-10 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-5 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#003B73]" />
                   </label>
                 )}
               </div>
@@ -729,7 +729,7 @@ export function UserProfileModal({ isOpen, onClose, user, onUserUpdate }: UserPr
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end">
+        <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end shrink-0">
           <button
             type="button"
             onClick={onClose}

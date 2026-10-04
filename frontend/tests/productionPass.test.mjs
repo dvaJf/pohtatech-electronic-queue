@@ -178,3 +178,24 @@ test('Production Pass 6: Map button displays dynamic branch count with authentic
   assert.equal(getBranchPlural(28), 'отделений');
 });
 
+test('Production Pass 7: Smart route timeline nodes preserve true circular geometry without SVG ellipse squishing on mobile', async () => {
+  const smartRouteSource = await readFile(new URL('../src/features/client/home/SmartRouteHero.tsx', import.meta.url), 'utf8');
+  const clientCss = await readFile(new URL('../src/features/client/client.css', import.meta.url), 'utf8');
+  const timelineComponent = await readFile(new URL('../src/components/ui/c-timeline-8-utils/timeline.tsx', import.meta.url), 'utf8');
+
+  // SVG preserveAspectRatio="none" must NOT be used for timeline nodes
+  assert.ok(!smartRouteSource.includes('preserveAspectRatio="none"'), 'SVG preserveAspectRatio="none" must be eliminated to prevent squished nodes');
+
+  // Timeline must use responsive node containers
+  assert.match(smartRouteSource, /cx-route-node cx-route-node-start/);
+  assert.match(smartRouteSource, /cx-route-node cx-route-node-middle/);
+  assert.match(smartRouteSource, /cx-route-node cx-route-node-end/);
+
+  // CSS must enforce circular geometry (border-radius: 50%) and square aspect ratio
+  assert.match(clientCss, /\.cx-route-node\s*\{[^}]*border-radius:\s*50%/);
+  assert.match(clientCss, /\.cx-route-node-end\s*\{[^}]*border-radius:\s*50%/);
+
+  // TimelineIndicator in c-timeline-8 must prevent shrinking with shrink-0 aspect-square
+  assert.match(timelineComponent, /shrink-0\s+aspect-square/);
+});
+

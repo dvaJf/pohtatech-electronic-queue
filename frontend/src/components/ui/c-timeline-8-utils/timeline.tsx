@@ -170,7 +170,7 @@ export function TimelineIndicator({
   return (
     <div
       className={cn(
-        "relative z-10 flex h-6 w-6 sm:h-7 sm:w-7 items-center justify-center rounded-full border-2 transition-all duration-300",
+        "relative z-10 flex h-6 w-6 sm:h-7 sm:w-7 shrink-0 aspect-square items-center justify-center rounded-full border-2 transition-all duration-300",
         "group-data-[state=completed]:bg-[#003B73] group-data-[state=completed]:border-[#003B73] group-data-[state=completed]:text-white shadow-xs",
         "group-data-[state=current]:bg-blue-50 group-data-[state=current]:border-[#003B73] group-data-[state=current]:text-[#003B73] group-data-[state=current]:scale-110 shadow-md ring-4 ring-blue-100/70",
         "group-data-[state=pending]:bg-white group-data-[state=pending]:border-slate-300 group-data-[state=pending]:text-slate-400",

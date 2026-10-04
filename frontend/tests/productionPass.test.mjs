@@ -219,3 +219,19 @@ test('Production Pass 8: Ticket timeline steps on Home and My Tickets are synchr
   assert.match(clientWorkspaceSource, /isTicketArrived\s*&&\s*ticket\.status\s*===\s*'SCHEDULED'\s*\?\s*'Ожидание вызова'\s*:\s*'Приглашение'/);
 });
 
+test('Production Pass 9: Timeline stripe reaches active step and visit rating supports token lookup with review fallback', async () => {
+  const timelineSource = await readFile(new URL('../src/components/ui/c-timeline-8-utils/timeline.tsx', import.meta.url), 'utf8');
+  const ratingSheetSource = await readFile(new URL('../src/features/client/rating/VisitRatingSheet.tsx', import.meta.url), 'utf8');
+  const clientWorkspaceSource = await readFile(new URL('../src/features/client/ClientWorkspace.tsx', import.meta.url), 'utf8');
+
+  // TimelineSeparator incoming line is colored for current step, bringing stripe to active circle
+  assert.match(timelineSource, /group-data-\[state=current\]:bg-\[#003B73\]/);
+
+  // VisitRatingSheet has isSubmitting handling
+  assert.match(ratingSheetSource, /isSubmitting/);
+  assert.match(ratingSheetSource, /Отправка\.\.\./);
+
+  // ClientWorkspace has findMgmtToken and fallback to submitBranchReview
+  assert.match(clientWorkspaceSource, /function findMgmtToken/);
+  assert.match(clientWorkspaceSource, /api\.submitBranchReview/);
+});

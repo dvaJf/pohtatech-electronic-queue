@@ -1073,6 +1073,35 @@ function removeMgmtToken(id: string, scope: string) {
   try { localStorage.setItem(mgmtTokensKeyFor(scope), updated); } catch {}
 }
 
+function findMgmtToken(id: string, scope: string): string | undefined {
+  if (!id) return undefined;
+  const currentTokens = getSavedMgmtTokens(scope);
+  if (currentTokens[id]) return currentTokens[id];
+  if (scope !== ANON_SCOPE) {
+    const anonTokens = getSavedMgmtTokens(ANON_SCOPE);
+    if (anonTokens[id]) return anonTokens[id];
+  }
+  try {
+    for (const storage of [sessionStorage, localStorage]) {
+      for (let i = 0; i < storage.length; i++) {
+        const key = storage.key(i);
+        if (key && key.includes('mgmt_tokens')) {
+          const val = storage.getItem(key);
+          if (val) {
+            try {
+              const parsed = JSON.parse(val);
+              if (parsed && typeof parsed === 'object' && parsed[id]) {
+                return parsed[id];
+              }
+            } catch {}
+          }
+        }
+      }
+    }
+  } catch {}
+  return undefined;
+}
+
 function getStoredIdempotencyKey(identity: string): string {
   try {
     const val = sessionStorage.getItem(STORAGE_PENDING_IDEMPOTENCY_KEY) || localStorage.getItem(STORAGE_PENDING_IDEMPOTENCY_KEY);
@@ -2223,12 +2252,33 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
     history.pending = history.pending.filter(item => item.id !== ticket.id);
     if (kind === 'reviewed' && typeof rating === 'number') {
       try {
-        await api.submitFeedback(ticket.id, rating, comment, ticket.managementToken || getSavedMgmtTokens(ownerScope)[ticket.id]);
-      } catch (err) {
-        setError(friendlyError(err, 'Не удалось отправить оценку'));
-        return;
+        const token = findMgmtToken(ticket.id, ownerScope) || ticket.managementToken;
+        let submitted = false;
+        if (token) {
+          try {
+            await api.submitFeedback(ticket.id, rating, comment, token);
+            submitted = true;
+          } catch (feedErr: any) {
+            if (feedErr?.status === 409 || feedErr?.message?.includes('conflict') || feedErr?.message?.includes('already')) {
+              submitted = true;
+            }
+          }
+        }
+        if (!submitted) {
+          if (ticket.branchId) {
+            await api.submitBranchReview(ticket.branchId, rating, comment);
+          } else {
+            await api.submitFeedback(ticket.id, rating, comment);
+          }
+        }
+      } catch (err: any) {
+        if (err?.status !== 409) {
+          setError(friendlyError(err, 'Не удалось отправить оценку'));
+          return;
+        }
       }
-    } else if (!history.dismissed.includes(ticket.id)) history.dismissed.push(ticket.id);
+    }
+    if (!history.dismissed.includes(ticket.id)) history.dismissed.push(ticket.id);
     saveVisitRatingHistory(ownerScope, history);
     setVisitRatingQueue(history.pending);
   };

@@ -109,6 +109,9 @@ func (a *API) SubmitFeedback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := persistence.WithManagementToken(r.Context(), r.Header.Get("X-Ticket-Manage-Token"))
+	if user, ok := userFromContext(r.Context()); ok && user.ID != "" {
+		ctx = persistence.WithClientOwner(ctx, user.ID)
+	}
 	ticketID := chi.URLParam(r, "ticketId")
 	if err := a.usecases.SubmitFeedback(ctx, ticketID, req.Rating, comment); err != nil {
 		a.respondError(w, r, err)

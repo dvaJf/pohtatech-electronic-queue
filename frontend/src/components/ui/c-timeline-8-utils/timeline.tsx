@@ -112,15 +112,58 @@ export function TimelineSeparator({
   className,
   ...props
 }: React.HTMLAttributes<HTMLDivElement>) {
+  const { orientation } = React.useContext(TimelineContext);
+
+  if (orientation === "vertical") {
+    return (
+      <div
+        className={cn(
+          "absolute left-1/2 -translate-x-1/2 top-0 bottom-0 w-[2px] z-0 flex flex-col",
+          className
+        )}
+        {...props}
+      >
+        <div
+          className={cn(
+            "w-full h-1/2 transition-colors duration-300 bg-slate-200",
+            "group-first:opacity-0",
+            "group-data-[state=completed]:bg-[#003B73] group-data-[state=current]:bg-[#003B73]"
+          )}
+        />
+        <div
+          className={cn(
+            "w-full h-1/2 transition-colors duration-300 bg-slate-200",
+            "group-last:opacity-0",
+            "group-data-[state=completed]:bg-[#003B73]"
+          )}
+        />
+      </div>
+    );
+  }
+
   return (
     <div
       className={cn(
-        "absolute top-1/2 -translate-y-1/2 left-0 right-0 h-[2px] bg-slate-200 -z-0 group-first:left-1/2 group-last:right-1/2",
-        "group-data-[state=completed]:bg-[#003B73] transition-colors duration-300",
+        "absolute top-1/2 -translate-y-1/2 left-0 right-0 h-[2px] z-0 flex",
         className
       )}
       {...props}
-    />
+    >
+      <div
+        className={cn(
+          "h-full w-1/2 transition-colors duration-300 bg-slate-200",
+          "group-first:opacity-0",
+          "group-data-[state=completed]:bg-[#003B73] group-data-[state=current]:bg-[#003B73]"
+        )}
+      />
+      <div
+        className={cn(
+          "h-full w-1/2 transition-colors duration-300 bg-slate-200",
+          "group-last:opacity-0",
+          "group-data-[state=completed]:bg-[#003B73]"
+        )}
+      />
+    </div>
   );
 }
 

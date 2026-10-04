@@ -14,7 +14,7 @@ import { useGeofencing, GeofenceSimulationMode, calculateHaversineDistanceMeters
 import { NearbyBranchCard } from './arrival/NearbyBranchCard';
 import { RouteOfferModal } from './RouteOfferModal';
 import { BranchMapModal } from './map/BranchMapModal';
-import { calculateBranchTotalTime, isUsableDurationMinutes, MAX_QUEUE_WAIT_MINUTES, MAX_ROUTE_TRAVEL_MINUTES, MOSCOW_BRANCHES, BranchLocation, RankedBranch } from './map/branchLocations';
+import { calculateBranchTotalTime, isUsableDurationMinutes, MAX_QUEUE_WAIT_MINUTES, MAX_ROUTE_TRAVEL_MINUTES, MOSCOW_BRANCHES, BranchLocation, RankedBranch, getBranchPlural } from './map/branchLocations';
 
 import { matchBranchLocation, matchesUserDefaultBranch, getUserDefaultBranchId, resolveSingleDefaultBranchId, getBranchPostalCode } from './map/liveBranches';
 import { cleanBranchName } from '../../utils/branchSlug';
@@ -78,6 +78,8 @@ export const DEFAULT_OPERATOR_NAMES: Record<number, string> = {
 function getTicketOperatorName(ticket: Ticket): string {
   return resolveOperatorName(ticket, DEFAULT_OPERATOR_NAMES);
 }
+
+export { getBranchPlural };
 
 function getCompletedTicketMetadata(ticket: Ticket) {
   const windowText = ticket.window?.number ? `Окно №${ticket.window.number}` : 'Окно №1';
@@ -2497,7 +2499,10 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                 Карта отделений
               </h3>
               <p className="text-xs text-slate-500 leading-snug">
-                26 отделений и маршруты
+                {(() => {
+                  const count = branches.length > 0 ? branches.length : MOSCOW_BRANCHES.length;
+                  return `${count} ${getBranchPlural(count)} и маршруты`;
+                })()}
               </p>
             </div>
           </button>

@@ -155,3 +155,26 @@ test('Production Pass 5: Admin reviews view and API integration', async () => {
   assert.match(adminReviewsView, /selectedBranchId/);
   assert.match(adminReviewsView, /selectedRating/);
 });
+
+test('Production Pass 6: Map button displays dynamic branch count with authentic Russian pluralization', async () => {
+  const clientWorkspaceSource = await readFile(new URL('../src/features/client/ClientWorkspace.tsx', import.meta.url), 'utf8');
+
+  // Verify that static '26 отделений' is removed
+  assert.ok(!clientWorkspaceSource.includes('26 отделений и маршруты'), 'Static 26 branches text must be eliminated');
+
+  // Verify dynamic branch count expression is present
+  assert.match(clientWorkspaceSource, /getBranchPlural/);
+
+  // Load getBranchPlural from branchLocations
+  const { getBranchPlural } = await loadTS('../src/features/client/map/branchLocations.ts');
+  assert.equal(typeof getBranchPlural, 'function', 'getBranchPlural must be exported');
+  assert.equal(getBranchPlural(1), 'отделение');
+  assert.equal(getBranchPlural(2), 'отделения');
+  assert.equal(getBranchPlural(4), 'отделения');
+  assert.equal(getBranchPlural(5), 'отделений');
+  assert.equal(getBranchPlural(11), 'отделений');
+  assert.equal(getBranchPlural(21), 'отделение');
+  assert.equal(getBranchPlural(22), 'отделения');
+  assert.equal(getBranchPlural(28), 'отделений');
+});
+

@@ -128,3 +128,69 @@ func TestClassifyIntent_YandexDateTimeEntity(t *testing.T) {
 		t.Errorf("got %02d:%02d, want 17:45", inMSK.Hour(), inMSK.Minute())
 	}
 }
+
+func TestClassifyIntent_NaturalConversationalPhrases(t *testing.T) {
+	msk := time.FixedZone("MSK", 3*3600)
+
+	// 1. Direct hour: "запиши на 15"
+	intent1, sched1, _ := ClassifyIntent(AliceReqBody{Command: "запиши на 15"}, false)
+	if intent1 != voice.IntentBookAppointment || sched1 == nil {
+		t.Fatalf("expected IntentBookAppointment with time for 'запиши на 15', got %v, %v", intent1, sched1)
+	}
+	if sched1.In(msk).Hour() != 15 {
+		t.Errorf("expected hour 15, got %d", sched1.In(msk).Hour())
+	}
+
+	// 2. Word numbers: "на завтра в два"
+	intent2, sched2, slots2 := ClassifyIntent(AliceReqBody{Command: "на завтра в два"}, false)
+	if intent2 != voice.IntentBookAppointment || sched2 == nil {
+		t.Fatalf("expected IntentBookAppointment with time for 'на завтра в два', got %v, %v", intent2, sched2)
+	}
+	if sched2.In(msk).Hour() != 14 {
+		t.Errorf("expected hour 14 for 'в два', got %d", sched2.In(msk).Hour())
+	}
+	if slots2["target_date"] != "tomorrow" {
+		t.Errorf("expected target_date tomorrow, got %s", slots2["target_date"])
+	}
+
+	// 3. Time of day: "вечером"
+	intent3, sched3, _ := ClassifyIntent(AliceReqBody{Command: "запиши вечером"}, false)
+	if intent3 != voice.IntentBookAppointment || sched3 == nil {
+		t.Fatalf("expected IntentBookAppointment with time for 'запиши вечером', got %v, %v", intent3, sched3)
+	}
+	if sched3.In(msk).Hour() != 18 {
+		t.Errorf("expected hour 18 for 'вечером', got %d", sched3.In(msk).Hour())
+	}
+
+	// 4. Postal services: "отправить посылку"
+	intent4, _, slots4 := ClassifyIntent(AliceReqBody{Command: "хочу отправить посылку"}, false)
+	if intent4 != voice.IntentTakeTicket {
+		t.Fatalf("expected IntentTakeTicket for 'хочу отправить посылку', got %v", intent4)
+	}
+	if slots4["service"] != "parcel" {
+		t.Errorf("expected service parcel, got %s", slots4["service"])
+	}
+
+	// 5. Date only: "запиши на завтра"
+	intent5, sched5, slots5 := ClassifyIntent(AliceReqBody{Command: "запиши на завтра"}, false)
+	if intent5 != voice.IntentTakeTicket {
+		t.Fatalf("expected IntentTakeTicket for date-only 'запиши на завтра', got %v", intent5)
+	}
+	if sched5 != nil {
+		t.Errorf("expected nil scheduled time when no hour specified, got %v", sched5)
+	}
+	if slots5["target_date"] != "tomorrow" {
+		t.Errorf("expected target_date tomorrow, got %s", slots5["target_date"])
+	}
+
+	// 6. Branch hotspots: Kazan & Moscow
+	_, _, slotsKazan := ClassifyIntent(AliceReqBody{Command: "запиши на кремлевской"}, false)
+	if slotsKazan["street"] != "кремлевская" {
+		t.Errorf("expected street кремлевская, got %s", slotsKazan["street"])
+	}
+
+	_, _, slotsMsk := ClassifyIntent(AliceReqBody{Command: "запиши на лубянке"}, false)
+	if slotsMsk["street"] != "лубянка" {
+		t.Errorf("expected street лубянка, got %s", slotsMsk["street"])
+	}
+}

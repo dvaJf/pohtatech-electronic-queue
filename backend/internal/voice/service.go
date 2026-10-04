@@ -218,19 +218,41 @@ func (s *VoiceService) handleTakeTicket(ctx context.Context, req VoiceRequest, u
 		}, nil
 	}
 
+	msk := time.FixedZone("MSK", 3*3600)
+	nowMSK := time.Now().In(msk)
+	isTomorrow := req.Slots["target_date"] == "tomorrow"
+	timeButtons := generateSuggestedTimeButtons(nowMSK, isTomorrow)
+
 	candidates, err := s.rankBranches(ctx, req.Location, req.Slots["street"])
 	if err != nil || len(candidates) == 0 {
 		return VoiceResponse{
-			Text: "Через Алису доступна предварительная онлайн-запись на выбранное время. На какую дату и время вас записать? Например, на сегодня в 16:30 или завтра в 11:00.",
-			Buttons: []string{"На сегодня в 16:30", "На сегодня в 17:00", "На завтра в 11:00", "Где меньше очередь?"},
+			Text: "Для вас доступна предварительная онлайн-запись на выбранное время. На какую дату и время вас записать? Могу предложить сегодня в 17:00 или завтра в 11:00.",
+			Buttons: timeButtons,
 		}, nil
 	}
 
 	best := candidates[0]
+
+	if isTomorrow {
+		return VoiceResponse{
+			Text: fmt.Sprintf("Для вас доступна предварительная онлайн-запись на завтра в отделение %s (%s). На какое время вас записать? Например, на 10:00, 14:00 или 17:00.",
+				best.Branch.Name, best.Branch.Address),
+			Buttons: timeButtons,
+		}, nil
+	}
+
+	if req.Slots["street"] != "" {
+		return VoiceResponse{
+			Text: fmt.Sprintf("Отделение %s (%s). Дорога пешком займет ~%d минут, в очереди %d %s (всего ~%d минут). Для вас доступна предварительная онлайн-запись ко времени. На какое время вас записать?",
+				best.Branch.Name, best.Branch.Address, best.TravelMinutes, best.WaitingCount, pluralPeople(best.WaitingCount), best.TotalMinutes),
+			Buttons: timeButtons,
+		}, nil
+	}
+
 	return VoiceResponse{
-		Text: fmt.Sprintf("Через Алису доступна только предварительная онлайн-запись ко времени. В ближайшем отделении %s (%s) дорога займет ~%d минут, в очереди %d %s (всего ~%d минут). На какую дату и время вас записать?",
+		Text: fmt.Sprintf("Для вас доступна предварительная онлайн-запись ко времени в отделение %s (%s). Дорога займет ~%d минут, в очереди %d %s (всего ~%d минут). На какую дату и время вас записать?",
 			best.Branch.Name, best.Branch.Address, best.TravelMinutes, best.WaitingCount, pluralPeople(best.WaitingCount), best.TotalMinutes),
-		Buttons: []string{"На сегодня в 16:30", "На сегодня в 17:00", "На завтра в 11:00", "Где меньше очередь?"},
+		Buttons: timeButtons,
 	}, nil
 }
 
@@ -241,9 +263,12 @@ func (s *VoiceService) handleTakeTicket(ctx context.Context, req VoiceRequest, u
 func (s *VoiceService) handleBookAppointment(ctx context.Context, req VoiceRequest, user domain.User) (VoiceResponse, error) {
 	scheduledAt := req.ScheduledAt
 	if scheduledAt == nil {
+		msk := time.FixedZone("MSK", 3*3600)
+		nowMSK := time.Now().In(msk)
+		isTomorrow := req.Slots["target_date"] == "tomorrow"
 		return VoiceResponse{
 			Text: "На какую дату и время вас записать? Например: «на сегодня в 16:30» или «на завтра в 11:00».",
-			Buttons: []string{"На 14:00", "На 15:30", "На завтра в 10:00"},
+			Buttons: generateSuggestedTimeButtons(nowMSK, isTomorrow),
 		}, nil
 	}
 
@@ -383,11 +408,15 @@ func (s *VoiceService) handleFastestBranch(ctx context.Context, req VoiceRequest
 		return VoiceResponse{Text: "Не удалось найти доступные отделения."}, nil
 	}
 
+	msk := time.FixedZone("MSK", 3*3600)
+	nowMSK := time.Now().In(msk)
+	timeButtons := generateSuggestedTimeButtons(nowMSK, false)
+
 	best := candidates[0]
 	return VoiceResponse{
 		Text: fmt.Sprintf("Быстрее всего сейчас отделение %s (%s): в очереди %d %s, ожидание около %d минут. Дорога пешком займет около %d минут. Всего с дорогой: около %d минут. На какое время вас записать онлайн?",
 			best.Branch.Name, best.Branch.Address, best.WaitingCount, pluralPeople(best.WaitingCount), best.QueueMinutes, best.TravelMinutes, best.TotalMinutes),
-		Buttons: []string{"Запиши на сегодня в 16:30", "Запиши на 17:00", "Запиши на завтра в 11:00", "Где ближайшая?"},
+		Buttons: timeButtons,
 	}, nil
 }
 
@@ -396,6 +425,10 @@ func (s *VoiceService) handleNearestBranch(ctx context.Context, req VoiceRequest
 	if err != nil || len(candidates) == 0 {
 		return VoiceResponse{Text: "Не удалось найти доступные отделения."}, nil
 	}
+
+	msk := time.FixedZone("MSK", 3*3600)
+	nowMSK := time.Now().In(msk)
+	timeButtons := generateSuggestedTimeButtons(nowMSK, false)
 
 	// Sort by physical distance
 	sort.Slice(candidates, func(i, j int) bool {
@@ -406,14 +439,18 @@ func (s *VoiceService) handleNearestBranch(ctx context.Context, req VoiceRequest
 	return VoiceResponse{
 		Text: fmt.Sprintf("Ближайшее отделение — %s (%s). До него %.1f км (пешком около %d минут). В очереди сейчас %d %s, ожидание ~%d минут (всего ~%d минут с дорогой). На какое время вас записать онлайн?",
 			nearest.Branch.Name, nearest.Branch.Address, nearest.DistanceKm, nearest.TravelMinutes, nearest.WaitingCount, pluralPeople(nearest.WaitingCount), nearest.QueueMinutes, nearest.TotalMinutes),
-		Buttons: []string{"Запиши на сегодня в 16:30", "Запиши на 17:00", "Запиши на завтра в 11:00", "Где быстрее?"},
+		Buttons: timeButtons,
 	}, nil
 }
 
 func (s *VoiceService) handleHelp() (VoiceResponse, error) {
+	msk := time.FixedZone("MSK", 3*3600)
+	nowMSK := time.Now().In(msk)
+	timeButtons := generateSuggestedTimeButtons(nowMSK, false)
+
 	return VoiceResponse{
 		Text: "Я помогу записаться на почту онлайн на удобное время. Вы можете сказать:\n— «Запиши на сегодня в 16:30»\n— «Запиши на завтра в 14:00»\n— «Где меньше очередь?»\n— «Сколько мне осталось ждать?»\n— «Отмени запись»",
-		Buttons: []string{"Запиши на 16:30", "Запиши на завтра в 11:00", "Где меньше очередь?", "Сколько мне ждать?"},
+		Buttons: timeButtons,
 	}, nil
 }
 
@@ -543,6 +580,38 @@ func formatRussianTime(t time.Time) string {
 		m = 1
 	}
 	return fmt.Sprintf("%d %s в %s", tMSK.Day(), months[m], timePart)
+}
+
+func generateSuggestedTimeButtons(now time.Time, isTomorrow bool) []string {
+	if isTomorrow {
+		return []string{"Завтра в 10:00", "Завтра в 14:00", "Завтра в 17:00", "Где меньше очередь?"}
+	}
+
+	h := now.Hour()
+	if h >= 19 {
+		return []string{"На завтра в 10:00", "На завтра в 14:00", "На завтра в 17:00", "Где быстрее?"}
+	}
+
+	slot1 := now.Add(45 * time.Minute)
+	slot2 := now.Add(105 * time.Minute)
+
+	roundSlot := func(t time.Time) string {
+		mn := t.Minute()
+		if mn < 15 {
+			mn = 0
+		} else if mn < 45 {
+			mn = 30
+		} else {
+			t = t.Add(1 * time.Hour)
+			mn = 0
+		}
+		return fmt.Sprintf("Сегодня в %02d:%02d", t.Hour(), mn)
+	}
+
+	btn1 := roundSlot(slot1)
+	btn2 := roundSlot(slot2)
+	btn3 := "На завтра в 11:00"
+	return []string{btn1, btn2, btn3, "Где меньше очередь?"}
 }
 
 func pluralPeople(n int) string {

@@ -27,7 +27,10 @@ export function useBranchWorkloads(branchIds: string[]) {
       }));
       clearTimeout(timeout);
       if (!stopped) {
-        setWorkloads(next);
+        // Keep the last successful value for branches whose refresh failed.
+        // liveWaitMinutes applies the freshness limit, so transient API errors
+        // no longer collapse an already visible recommendation into empty UI.
+        setWorkloads(previous => ({ ...previous, ...next }));
         timer = setTimeout(poll, 15000);
       }
     };

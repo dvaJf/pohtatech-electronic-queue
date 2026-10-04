@@ -1832,6 +1832,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
     if (kiosk) return;
     const params = new URLSearchParams(window.location.search);
     const action = params.get('action');
+    const linkedTicketId = params.get('ticketId');
     if (!action) return;
 
     window.history.replaceState({}, '', window.location.pathname);
@@ -1844,6 +1845,21 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
       setScreen('walkin');
     } else if (action === 'my') {
       setScreen('my');
+      if (linkedTicketId) {
+        void api.getTicket(linkedTicketId)
+          .then((linkedTicket) => {
+            if (linkedTicket.status === 'PENDING_CONFIRMATION') return;
+            addSavedTicketId(linkedTicket.id, ownerScope);
+            clearPendingAppointmentFlow(ownerScope);
+            setTickets((previous) => [
+              linkedTicket,
+              ...previous.filter((item) => item.id !== linkedTicket.id),
+            ]);
+          })
+          .catch(() => {
+            setPollError('Не удалось загрузить подтверждённую запись. Попробуйте ещё раз.');
+          });
+      }
     }
   }, []);
 

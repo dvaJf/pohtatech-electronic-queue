@@ -39,6 +39,19 @@ export function AppointmentConfirmationDialog({
   const [expiresAt, setExpiresAt] = useState<string | null>(ticket?.confirmationExpiresAt || null);
 
   const submittingRef = useRef(false);
+  const successHandledRef = useRef(false);
+  const successTimeoutRef = useRef<number | null>(null);
+  const onSuccessRef = useRef(onSuccess);
+
+  useEffect(() => {
+    onSuccessRef.current = onSuccess;
+  }, [onSuccess]);
+
+  useEffect(() => () => {
+    if (successTimeoutRef.current !== null) {
+      window.clearTimeout(successTimeoutRef.current);
+    }
+  }, []);
 
   // Sync ticket expiration if ticket changes
   useEffect(() => {
@@ -82,14 +95,71 @@ export function AppointmentConfirmationDialog({
   // Reset state when opening a new ticket
   useEffect(() => {
     if (open) {
+      if (successTimeoutRef.current !== null) {
+        window.clearTimeout(successTimeoutRef.current);
+        successTimeoutRef.current = null;
+      }
       setCode('');
       setError(null);
       setResendNotice(null);
       setIsConfirmedSuccess(false);
       setShowAbortPrompt(false);
       submittingRef.current = false;
+      successHandledRef.current = false;
     }
   }, [open, ticket?.id]);
+
+  const finishConfirmation = useCallback((confirmedTicket: Ticket) => {
+    if (successHandledRef.current) return;
+    successHandledRef.current = true;
+    submittingRef.current = true;
+    setSubmitting(true);
+    setError(null);
+    setIsConfirmedSuccess(true);
+    successTimeoutRef.current = window.setTimeout(() => {
+      onSuccessRef.current(confirmedTicket);
+    }, 500);
+  }, []);
+
+  // A one-click email link may confirm this appointment in another tab or
+  // browser surface. While the dialog is open, reconcile with the backend so
+  // the OTP UI cannot remain stuck after the authoritative status changed.
+  useEffect(() => {
+    if (!open || !ticket || isConfirmedSuccess) return;
+
+    let active = true;
+    let inFlight = false;
+
+    const checkStatus = async () => {
+      if (!active || inFlight) return;
+      inFlight = true;
+      try {
+        const fresh = await api.getTicket(ticket.id);
+        if (active && fresh.status === 'SCHEDULED') {
+          finishConfirmation(fresh);
+        }
+      } catch {
+        // A transient status-check failure must not replace the OTP error state.
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    void checkStatus();
+    const interval = window.setInterval(checkStatus, 2500);
+    const checkWhenVisible = () => {
+      if (document.visibilityState === 'visible') void checkStatus();
+    };
+    window.addEventListener('focus', checkWhenVisible);
+    document.addEventListener('visibilitychange', checkWhenVisible);
+
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+      window.removeEventListener('focus', checkWhenVisible);
+      document.removeEventListener('visibilitychange', checkWhenVisible);
+    };
+  }, [open, ticket?.id, isConfirmedSuccess, finishConfirmation]);
 
   const isExpired = remainingSec <= 0;
 
@@ -116,18 +186,14 @@ export function AppointmentConfirmationDialog({
 
     try {
       const res = await api.confirmAppointment(ticket.id, codeToSubmit);
-      setIsConfirmedSuccess(true);
-      // Wait 500ms for user feedback then notify parent to invalidate and navigate
-      setTimeout(() => {
-        onSuccess(res);
-      }, 500);
+      finishConfirmation(res);
     } catch (err: unknown) {
       submittingRef.current = false;
       setSubmitting(false);
       const e = err as ConfirmationErrorLike;
       setError(appointmentConfirmationErrorMessage(e));
     }
-  }, [ticket, code, isExpired, onSuccess]);
+  }, [ticket, code, isExpired, finishConfirmation]);
 
   const handleResend = async () => {
     if (!ticket || resending || resendCooldown > 0 || isExpired) return;
@@ -161,10 +227,7 @@ export function AppointmentConfirmationDialog({
 
     try {
       const res = await api.testConfirmAppointment(ticket.id);
-      setIsConfirmedSuccess(true);
-      setTimeout(() => {
-        onSuccess(res);
-      }, 500);
+      finishConfirmation(res);
     } catch (err: unknown) {
       submittingRef.current = false;
       setSubmitting(false);

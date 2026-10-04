@@ -29,7 +29,10 @@ export function SmartRouteHero({
   onBook: (branchId: string) => void;
 }) {
   const workloads = useBranchWorkloads(branches.map(branch => branch.id));
-  const isWorkloadLoading = branches.length > 0 && Object.keys(workloads).length === 0;
+  const operationallyEligibleBranches = useMemo(
+    () => branches.filter(branch => isBranchEligibleForWalkIn(branch, workloads[branch.id]).eligible),
+    [branches, workloads],
+  );
 
   const routingBranches = useMemo(() => branches.flatMap(branch => {
     // 1. Walk-in eligibility check: branch must be open and able to serve client before closing
@@ -48,6 +51,9 @@ export function SmartRouteHero({
   );
   const fastest = smartRouting.recommendation?.fastestBranch;
   const actions = fastest ? recommendationActions(fastest.id, confirmedServicesByBranch) : [];
+  const isRouteDataPending = hasReliableGpsFix
+    && !fastest
+    && (branches.length === 0 || operationallyEligibleBranches.length > 0);
 
   useEffect(() => {
     if (fastest && confirmedServicesByBranch[fastest.id] === undefined) onNeedServices(fastest.id);
@@ -99,7 +105,35 @@ export function SmartRouteHero({
         </section>
       )}
 
-      {hasReliableGpsFix && !fastest && !isWorkloadLoading && routingBranches.length === 0 && (
+      {isRouteDataPending && (
+        <section
+          role="status"
+          aria-live="polite"
+          aria-label="Подбираем умный маршрут"
+          className="min-h-[220px] rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_4px_14px_rgb(13_37_61_/_5%)] sm:p-5"
+        >
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-[#003B73]">
+              <Loader2 size={20} className="animate-spin" aria-hidden="true" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-[#003B73]">Умный маршрут</p>
+              <h2 className="mt-1 text-base font-semibold text-slate-950">Подбираем лучшее отделение…</h2>
+              <p className="mt-1 text-sm text-slate-600">Проверяем дорогу и актуальную очередь. Рекомендация появится здесь.</p>
+            </div>
+          </div>
+          <div className="mt-7 grid grid-cols-3 gap-3" aria-hidden="true">
+            {[0, 1, 2].map(item => (
+              <div key={item} className="space-y-2 text-center">
+                <div className="mx-auto h-7 w-16 animate-pulse rounded-md bg-slate-200" />
+                <div className="mx-auto h-3 w-12 animate-pulse rounded bg-slate-100" />
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {hasReliableGpsFix && !fastest && !isRouteDataPending && routingBranches.length === 0 && (
         <section role="region" aria-label="Ближайшие отделения закрыты" className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_4px_14px_rgb(13_37_61_/_5%)] sm:p-5">
           <div className="flex items-start gap-3.5">
             <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-blue-50 text-[#003B73]">

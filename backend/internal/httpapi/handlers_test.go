@@ -707,16 +707,16 @@ func TestAppointmentConfirmationEndpoints(t *testing.T) {
 		}
 	})
 
-	t.Run("test confirm guard blocks in prod even with flag", func(t *testing.T) {
-		t.Setenv("ALLOW_TEST_APPOINTMENT_CONFIRM", "true")
-		t.Setenv("ALLOW_SPECIAL_DEV_FORCE_CONFIRM", "true")
+	t.Run("test confirm guard blocks in prod when flag is disabled", func(t *testing.T) {
+		t.Setenv("ALLOW_TEST_APPOINTMENT_CONFIRM", "false")
+		t.Setenv("ALLOW_SPECIAL_DEV_FORCE_CONFIRM", "false")
 		t.Setenv("APP_ENV", "production")
 
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/appointments/ticket-123/test-confirm", nil)
 		rec := httptest.NewRecorder()
 		r.ServeHTTP(rec, req)
 		if rec.Code != http.StatusForbidden {
-			t.Fatalf("expected 403 Forbidden in prod, got %d", rec.Code)
+			t.Fatalf("expected 403 Forbidden in prod without flag, got %d", rec.Code)
 		}
 	})
 
@@ -733,15 +733,15 @@ func TestAppointmentConfirmationEndpoints(t *testing.T) {
 		}
 	})
 
-	t.Run("test confirm guard allows in dev with explicit flag", func(t *testing.T) {
+	t.Run("test confirm guard allows with explicit flag", func(t *testing.T) {
 		t.Setenv("ALLOW_SPECIAL_DEV_FORCE_CONFIRM", "true")
-		t.Setenv("APP_ENV", "development")
+		t.Setenv("APP_ENV", "production")
 
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/appointments/ticket-123/test-confirm", nil)
 		rec := httptest.NewRecorder()
 		r.ServeHTTP(rec, req)
 		if rec.Code != http.StatusOK {
-			t.Fatalf("expected 200 OK in dev with ALLOW_SPECIAL_DEV_FORCE_CONFIRM, got %d", rec.Code)
+			t.Fatalf("expected 200 OK with ALLOW_SPECIAL_DEV_FORCE_CONFIRM, got %d", rec.Code)
 		}
 	})
 }

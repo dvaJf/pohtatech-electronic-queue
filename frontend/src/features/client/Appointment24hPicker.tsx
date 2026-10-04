@@ -104,16 +104,37 @@ export const Appointment24hPicker: React.FC<Appointment24hPickerProps> = ({
     return addMoscowDays(new Date(), firstAvailableOffset);
   }, [firstAvailableOffset]);
 
+  // Разбор текущего значения YYYY-MM-DD
+  const parsedDatePart = useMemo(() => {
+    if (value && value.includes('T')) {
+      return value.split('T')[0];
+    }
+    return canBookToday ? todayDateStr : firstAvailableDateStr;
+  }, [value, canBookToday, todayDateStr, firstAvailableDateStr]);
+
+  // Вычисляем первый доступный час и минуту (для сегодня — строго в будущем, не менее 15 мин)
+  const firstAvailableTimeSlot = useMemo(() => {
+    if (!canBookToday || parsedDatePart !== todayDateStr) {
+      return '10:00';
+    }
+    const futureMinutes = currentMinutes + 15;
+    const nextQuarter = Math.ceil(futureMinutes / 15) * 15;
+    const h = Math.floor(nextQuarter / 60);
+    const m = nextQuarter % 60;
+    if (h * 60 + m < todayCloseMinutes) {
+      return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+    }
+    return '10:00';
+  }, [canBookToday, parsedDatePart, todayDateStr, currentMinutes, todayCloseMinutes]);
+
   // Разбор текущего значения YYYY-MM-DDTHH:mm
   const [datePart, timePart] = useMemo(() => {
     if (value && value.includes('T')) {
       const [d, t] = value.split('T');
       return [d, t.slice(0, 5)];
     }
-    // По умолчанию: первый доступный день в 10:00
-    const defaultDate = canBookToday ? todayDateStr : firstAvailableDateStr;
-    return [defaultDate, '10:00'];
-  }, [value, canBookToday, todayDateStr, firstAvailableDateStr]);
+    return [parsedDatePart, firstAvailableTimeSlot];
+  }, [value, parsedDatePart, firstAvailableTimeSlot]);
 
   const [selectedHour, selectedMinute] = useMemo(() => {
     if (timePart && timePart.includes(':')) {
@@ -144,12 +165,19 @@ export const Appointment24hPicker: React.FC<Appointment24hPickerProps> = ({
   useEffect(() => {
     if (!value) {
       const defaultDate = canBookToday ? todayDateStr : firstAvailableDateStr;
-      onChange(`${defaultDate}T10:00`);
+      const defaultTime = canBookToday ? firstAvailableTimeSlot : '10:00';
+      onChange(`${defaultDate}T${defaultTime}`);
     } else if (!canBookToday && datePart === todayDateStr) {
       // Отделение сегодня закрыто, а дата была выставлена на сегодня — переключаем на ближайший доступный день
       onChange(`${firstAvailableDateStr}T10:00`);
+    } else if (datePart === todayDateStr) {
+      // Если на сегодня выбрано прошедшее время, переключаем на ближайший будущий слот
+      const [h, m] = (timePart || '10:00').split(':').map(Number);
+      if (h * 60 + m <= currentMinutes + 5) {
+        onChange(`${todayDateStr}T${firstAvailableTimeSlot}`);
+      }
     }
-  }, [value, canBookToday, datePart, todayDateStr, firstAvailableDateStr, onChange]);
+  }, [value, canBookToday, datePart, todayDateStr, firstAvailableDateStr, timePart, currentMinutes, firstAvailableTimeSlot, onChange]);
 
   // Допустимый диапазон часов работы отделения (строго 24ч: 08..20)
   const allowedHours = useMemo(() => {
@@ -166,13 +194,13 @@ export const Appointment24hPicker: React.FC<Appointment24hPickerProps> = ({
 
     for (let h = start; h <= end; h++) {
       // Если выбрано «сегодня», исключаем уже прошедшие часы
-      if (datePart === todayDateStr && h <= moscowNow.hour) {
+      if (datePart === todayDateStr && h * 60 + 45 <= currentMinutes + 15) {
         continue;
       }
       hours.push(String(h).padStart(2, '0'));
     }
     return hours.length > 0 ? hours : ['10', '11', '12', '13', '14', '15', '16', '17', '18'];
-  }, [selectedDaySchedule, parsedWorkHours, datePart, todayDateStr, moscowNow.hour]);
+  }, [selectedDaySchedule, parsedWorkHours, datePart, todayDateStr, currentMinutes]);
 
   const allowedMinutes = ['00', '15', '30', '45'];
 

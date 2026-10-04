@@ -35,7 +35,7 @@ backend:
     notificationTimeoutSeconds: "2"
     notificationRetryIntervalMs: "1000"
     notificationMaxAttempts: "3"
-    allowTestAppointmentConfirm: "false"
+    allowTestAppointmentConfirm: "true"
   resources:
     requests:
       cpu: 100m

@@ -2258,6 +2258,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
           ticketsLoading={ticketsLoading}
           error={pollError}
           activeTicket={activeTicket}
+          isTicketArrived={activeTicket ? Boolean(activeTicket.arrivedAt || arrivalAcknowledgedTicketIds.has(activeTicket.id)) : false}
           position={activeTicket ? positions[activeTicket.id] : undefined}
           eta={activeTicket ? etas[activeTicket.id] : undefined}
           branch={activeTicket ? branches.find(branch => branch.id === activeTicket.branchId) : undefined}
@@ -3002,7 +3003,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                             currentStep={getTicketTimelineStep(ticket.status, isTicketArrived)}
                             items={[
                               { id: 1, title: 'Выдан', description: position?.position ? `${position.position} в очереди` : 'Талон выдан' },
-                              { id: 2, title: 'Приглашение к окну', description: isCalledOrServing && ticket.window?.number ? `Окно №${ticket.window.number}` : 'Приглашение' },
+                              { id: 2, title: 'Приглашение к окну', description: isCalledOrServing && ticket.window?.number ? `Окно №${ticket.window.number}` : (isTicketArrived && ticket.status === 'SCHEDULED' ? 'Ожидание вызова' : 'Приглашение') },
                               { id: 3, title: 'Завершён', description: 'Готово' },
                             ]}
                             className="w-full max-w-full"

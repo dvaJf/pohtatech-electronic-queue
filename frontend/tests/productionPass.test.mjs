@@ -199,3 +199,23 @@ test('Production Pass 7: Smart route timeline nodes preserve true circular geome
   assert.match(timelineComponent, /shrink-0\s+aspect-square/);
 });
 
+test('Production Pass 8: Ticket timeline steps on Home and My Tickets are synchronized without discrepancy', async () => {
+  const activeTicketHeroSource = await readFile(new URL('../src/features/client/home/ActiveTicketHero.tsx', import.meta.url), 'utf8');
+  const homeHeroSource = await readFile(new URL('../src/features/client/home/HomeHero.tsx', import.meta.url), 'utf8');
+  const clientWorkspaceSource = await readFile(new URL('../src/features/client/ClientWorkspace.tsx', import.meta.url), 'utf8');
+
+  // HomeHero and ActiveTicketHero accept isTicketArrived / isArrived
+  assert.match(homeHeroSource, /isTicketArrived\s*=\s*false/);
+  assert.match(homeHeroSource, /isArrived=\{isTicketArrived\}/);
+  assert.match(activeTicketHeroSource, /function getTicketTimelineStep\(status:\s*string,\s*isArrived\s*=\s*false\)/);
+  assert.match(activeTicketHeroSource, /if\s*\(isArrived\s*&&\s*status\s*===\s*'SCHEDULED'\)\s*\{\s*return\s*2;\s*\}/);
+  assert.match(activeTicketHeroSource, /currentStep=\{getTicketTimelineStep\(ticket\.status,\s*isArrived\)\}/);
+
+  // ClientWorkspace passes isTicketArrived to HomeHero
+  assert.match(clientWorkspaceSource, /isTicketArrived=\{activeTicket\s*\?\s*Boolean\(activeTicket\.arrivedAt\s*\|\|\s*arrivalAcknowledgedTicketIds\.has\(activeTicket\.id\)\)\s*:\s*false\}/);
+
+  // Both match step 2 description
+  assert.match(activeTicketHeroSource, /isArrived\s*&&\s*ticket\.status\s*===\s*'SCHEDULED'\s*\?\s*'Ожидание вызова'\s*:\s*'Приглашение'/);
+  assert.match(clientWorkspaceSource, /isTicketArrived\s*&&\s*ticket\.status\s*===\s*'SCHEDULED'\s*\?\s*'Ожидание вызова'\s*:\s*'Приглашение'/);
+});
+

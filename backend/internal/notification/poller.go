@@ -16,6 +16,8 @@ import (
 type TelegramLinkConsumer interface {
 	ConsumeTelegramLink(ctx context.Context, token, chatID string) (domain.NotificationSubscription, error)
 	DisableTelegramForChat(ctx context.Context, chatID string) error
+	FindActiveTicketByTelegramChat(ctx context.Context, chatID string) (*domain.Ticket, error)
+	CancelTicketByTelegram(ctx context.Context, chatID string) (*domain.Ticket, error)
 }
 
 type Logger interface {
@@ -99,14 +101,42 @@ func StartTelegramPoller(ctx context.Context, store TelegramLinkConsumer, logger
 						sub, err := store.ConsumeTelegramLink(ctx, linkToken, chatID)
 						if err == nil {
 							logger.Info("Telegram link consumed", "ticket_id", sub.TicketID, "chat_id", chatID)
-							sendTelegramBotText(ctx, client, token, chatID, "🔔 Вы успешно подключили уведомления по талону! Мы сообщим вам, когда ваша очередь приблизится и когда вас вызовут к окну.")
+							if strings.HasPrefix(sub.ID, "user-link-") {
+								sendTelegramBotText(ctx, client, token, chatID, "✅ <b>Аккаунт успешно привязан</b>\n\nТеперь все ваши талоны и предварительные записи будут автоматически присылать уведомления в этот чат.\n\nКоманды:\n/ticket — статус активного талона\n/cancel — отменить активный талон\n/help — помощь")
+							} else {
+								sendTelegramBotText(ctx, client, token, chatID, "🔔 <b>Уведомления подключены</b>\n\nМы пришлем сообщение, когда ваша очередь приблизится или вас вызовут к окну.\n\n/ticket — проверить статус\n/cancel — отменить талон")
+							}
 							continue
 						}
 					}
-					sendTelegramBotText(ctx, client, token, chatID, "👋 Здравствуйте! Бот электронной очереди Почты России готов к работе. При взятии талона нажмите «Подключить Telegram», чтобы получать уведомления о вызове.")
+					sendTelegramBotText(ctx, client, token, chatID, "👋 <b>Цифровая очередь Почты России</b>\n\nЭтот бот оперативно информирует о статусе ваших талонов и записей.\n\nУже есть талон или аккаунт? Нажмите <b>«Подключить Telegram»</b> в веб-приложении для быстрой привязки.\n\nКоманды:\n/ticket — проверить активный талон\n/cancel — отменить текущий талон\n/help — список возможностей")
+				} else if strings.HasPrefix(text, "/ticket") {
+					ticket, err := store.FindActiveTicketByTelegramChat(ctx, chatID)
+					if err != nil || ticket == nil {
+						sendTelegramBotText(ctx, client, token, chatID, "ℹ️ <b>У вас нет активных талонов</b>\n\nВы можете взять талон или записаться онлайн на сайте сервиса.")
+					} else {
+						winStr := ""
+						if ticket.Window != nil {
+							winStr = fmt.Sprintf("\nОкно: <b>№%d</b>", ticket.Window.Number)
+						}
+						serviceStr := ""
+						if ticket.ServiceName != "" {
+							serviceStr = fmt.Sprintf("\nУслуга: <b>%s</b>", ticket.ServiceName)
+						}
+						sendTelegramBotText(ctx, client, token, chatID, fmt.Sprintf("🎫 <b>Активный талон %s</b>%s\nСтатус: <b>%s</b>%s\n\nДля отмены талона отправьте /cancel", ticket.PublicNumber, serviceStr, ticket.Status, winStr))
+					}
+				} else if strings.HasPrefix(text, "/cancel") {
+					cancelled, err := store.CancelTicketByTelegram(ctx, chatID)
+					if err != nil || cancelled == nil {
+						sendTelegramBotText(ctx, client, token, chatID, "ℹ️ <b>У вас нет активного талона для отмены</b>")
+					} else {
+						sendTelegramBotText(ctx, client, token, chatID, fmt.Sprintf("❌ Талон <b>%s</b> успешно отменён.", cancelled.PublicNumber))
+					}
+				} else if strings.HasPrefix(text, "/help") {
+					sendTelegramBotText(ctx, client, token, chatID, "ℹ️ <b>Справка бота Почты России</b>\n\n/ticket — проверить статус активного талона\n/cancel — отменить активный талон\n/stop — отключить уведомления для этого чата\n/start — информация о сервисе")
 				} else if strings.HasPrefix(text, "/stop") {
 					_ = store.DisableTelegramForChat(ctx, chatID)
-					sendTelegramBotText(ctx, client, token, chatID, "🔕 Уведомления для этого чата отключены.")
+					sendTelegramBotText(ctx, client, token, chatID, "🔕 <b>Уведомления отключены</b>\n\nДля этого чата уведомления деактивированы. Чтобы включить заново, воспользуйтесь кнопкой «Подключить Telegram» на сайте.")
 				}
 			}
 		}
@@ -115,8 +145,9 @@ func StartTelegramPoller(ctx context.Context, store TelegramLinkConsumer, logger
 
 func sendTelegramBotText(ctx context.Context, client *http.Client, token, chatID, text string) {
 	body, _ := json.Marshal(map[string]string{
-		"chat_id": chatID,
-		"text":    text,
+		"chat_id":    chatID,
+		"text":       text,
+		"parse_mode": "HTML",
 	})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.telegram.org/bot"+token+"/sendMessage", bytes.NewReader(body))
 	if err != nil {

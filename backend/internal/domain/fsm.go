@@ -10,6 +10,10 @@ var ErrInvalidTransition = errors.New("invalid state transition")
 
 // AllowedTransitions defines valid ticket status transitions in the FSM.
 var AllowedTransitions = map[TicketStatus]map[TicketStatus]bool{
+	TicketStatusPendingConfirmation: {
+		TicketStatusScheduled: true, // confirmed via email/code
+		TicketStatusCancelled: true, // expired or cancelled
+	},
 	TicketStatusScheduled: {
 		TicketStatusScheduled: true, // check-in/arrived before slot
 		TicketStatusWaiting:   true, // checked in and waiting for call
@@ -40,7 +44,7 @@ var AllowedTransitions = map[TicketStatus]map[TicketStatus]bool{
 func ValidateTransition(from, to TicketStatus) error {
 	if from == "" {
 		// Ticket creation (initial state)
-		if to == TicketStatusScheduled || to == TicketStatusWaiting {
+		if to == TicketStatusScheduled || to == TicketStatusWaiting || to == TicketStatusPendingConfirmation {
 			return nil
 		}
 		return fmt.Errorf("initial state cannot be %s: %w", to, ErrInvalidTransition)

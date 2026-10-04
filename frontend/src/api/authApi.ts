@@ -195,3 +195,15 @@ export async function verifyPhoneCode(code: string): Promise<User> {
   });
 }
 
+export interface TelegramLinkResponse {
+  token: string;
+  deepLink: string;
+  expiresAt: string;
+}
+
+export async function createTelegramLink(): Promise<TelegramLinkResponse> {
+  return await request<TelegramLinkResponse>('/auth/telegram/link', {
+    method: 'POST',
+  });
+}
+

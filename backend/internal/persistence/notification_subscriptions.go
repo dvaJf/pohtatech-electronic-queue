@@ -79,6 +79,9 @@ func (p *Postgres) UpsertNotificationSubscription(ctx context.Context, ticketID 
 	if destination == "" {
 		return empty, fmt.Errorf("destination is required")
 	}
+	if strings.Contains(destination, "*") {
+		return empty, fmt.Errorf("invalid masked destination: %s", destination)
+	}
 	var s domain.NotificationSubscription
 	var ch string
 	err := p.pool.QueryRow(ctx, `INSERT INTO notification_subscriptions(ticket_id,channel,destination,enabled,updated_at) VALUES($1::uuid,$2,$3,true,clock_timestamp()) ON CONFLICT(ticket_id,channel,destination) DO UPDATE SET enabled=true,updated_at=clock_timestamp() RETURNING id::text,ticket_id::text,channel,destination,enabled`, ticketID, string(channel), destination).Scan(&s.ID, &s.TicketID, &ch, &s.Destination, &s.Enabled)
@@ -115,9 +118,30 @@ func (p *Postgres) CreateTelegramLink(ctx context.Context, ticketID string) (str
 	return token, dbError(err)
 }
 
+func (p *Postgres) CreateUserTelegramLink(ctx context.Context, userID string) (string, time.Time, error) {
+	u, err := uuid(userID)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	token, hash, err := notificationToken()
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	expiresAt := time.Now().UTC().Add(15 * time.Minute)
+	_, err = p.pool.Exec(ctx, `INSERT INTO telegram_link_tokens(user_id,token_hash,expires_at) VALUES($1,$2,$3)`, u, hash, expiresAt)
+	if err != nil {
+		return "", time.Time{}, dbError(err)
+	}
+	return token, expiresAt, nil
+}
+
 // ConsumeTelegramLink consumes the token in one UPDATE, so concurrent /start calls can bind only once.
 func (p *Postgres) ConsumeTelegramLink(ctx context.Context, token, chatID string) (domain.NotificationSubscription, error) {
 	var empty domain.NotificationSubscription
+	cleanChatID := strings.TrimSpace(chatID)
+	if cleanChatID == "" {
+		return empty, fmt.Errorf("chat_id is required")
+	}
 	sum := sha256.Sum256([]byte(strings.TrimSpace(token)))
 	hash := hex.EncodeToString(sum[:])
 	tx, err := p.pool.Begin(ctx)
@@ -125,22 +149,84 @@ func (p *Postgres) ConsumeTelegramLink(ctx context.Context, token, chatID string
 		return empty, dbError(err)
 	}
 	defer tx.Rollback(context.Background())
-	var ticketID string
-	err = tx.QueryRow(ctx, `UPDATE telegram_link_tokens SET consumed_at=clock_timestamp() WHERE token_hash=$1 AND consumed_at IS NULL AND expires_at>clock_timestamp() RETURNING ticket_id::text`, hash).Scan(&ticketID)
+	var ticketID, userID *string
+	err = tx.QueryRow(ctx, `UPDATE telegram_link_tokens SET consumed_at=clock_timestamp() WHERE token_hash=$1 AND consumed_at IS NULL AND expires_at>clock_timestamp() RETURNING ticket_id::text, user_id::text`, hash).Scan(&ticketID, &userID)
 	if err != nil {
 		return empty, application.ErrNotFound
 	}
-	var s domain.NotificationSubscription
-	var ch string
-	err = tx.QueryRow(ctx, `INSERT INTO notification_subscriptions(ticket_id,channel,destination,enabled,updated_at) VALUES($1::uuid,'TELEGRAM',$2,true,clock_timestamp()) ON CONFLICT(ticket_id,channel,destination) DO UPDATE SET enabled=true,updated_at=clock_timestamp() RETURNING id::text,ticket_id::text,channel,destination,enabled`, ticketID, strings.TrimSpace(chatID)).Scan(&s.ID, &s.TicketID, &ch, &s.Destination, &s.Enabled)
-	if err != nil {
-		return empty, dbError(err)
+
+	if userID != nil && *userID != "" {
+		// Link account in external_accounts
+		_, err = tx.Exec(ctx, `
+			INSERT INTO external_accounts(user_id, provider, external_user_id, created_at, updated_at)
+			VALUES($1::uuid, 'telegram', $2, clock_timestamp(), clock_timestamp())
+			ON CONFLICT(provider, external_user_id)
+			DO UPDATE SET user_id=$1::uuid, updated_at=clock_timestamp()
+		`, *userID, cleanChatID)
+		if err != nil {
+			return empty, dbError(err)
+		}
+
+		// Auto-subscribe user's active tickets
+		rows, err := tx.Query(ctx, `SELECT id::text FROM tickets WHERE client_id=$1 AND status IN ('PENDING_CONFIRMATION', 'SCHEDULED', 'WAITING', 'CALLED', 'SERVING')`, *userID)
+		if err == nil {
+			var activeIDs []string
+			for rows.Next() {
+				var aid string
+				if rows.Scan(&aid) == nil {
+					activeIDs = append(activeIDs, aid)
+				}
+			}
+			rows.Close()
+			for _, aid := range activeIDs {
+				_, _ = tx.Exec(ctx, `
+					INSERT INTO notification_subscriptions(ticket_id,channel,destination,enabled,updated_at)
+					VALUES($1::uuid,'TELEGRAM',$2,true,clock_timestamp())
+					ON CONFLICT(ticket_id,channel,destination) DO UPDATE SET enabled=true,updated_at=clock_timestamp()
+				`, aid, cleanChatID)
+			}
+		}
+
+		if err = tx.Commit(ctx); err != nil {
+			return empty, dbError(err)
+		}
+		return domain.NotificationSubscription{
+			ID:          "user-link-" + *userID,
+			TicketID:    "",
+			Channel:     domain.NotificationChannelTelegram,
+			Destination: cleanChatID,
+			Enabled:     true,
+		}, nil
 	}
-	s.Channel = domain.NotificationChannel(ch)
-	if err = tx.Commit(ctx); err != nil {
-		return empty, dbError(err)
+
+	if ticketID != nil && *ticketID != "" {
+		var s domain.NotificationSubscription
+		var ch string
+		err = tx.QueryRow(ctx, `INSERT INTO notification_subscriptions(ticket_id,channel,destination,enabled,updated_at) VALUES($1::uuid,'TELEGRAM',$2,true,clock_timestamp()) ON CONFLICT(ticket_id,channel,destination) DO UPDATE SET enabled=true,updated_at=clock_timestamp() RETURNING id::text,ticket_id::text,channel,destination,enabled`, *ticketID, cleanChatID).Scan(&s.ID, &s.TicketID, &ch, &s.Destination, &s.Enabled)
+		if err != nil {
+			return empty, dbError(err)
+		}
+		s.Channel = domain.NotificationChannel(ch)
+
+		// If ticket has a client_id that is a valid uuid, link external account as well
+		var ownerClientID *string
+		_ = tx.QueryRow(ctx, `SELECT client_id FROM tickets WHERE id=$1::uuid`, *ticketID).Scan(&ownerClientID)
+		if ownerClientID != nil && *ownerClientID != "" {
+			_, _ = tx.Exec(ctx, `
+				INSERT INTO external_accounts(user_id, provider, external_user_id, created_at, updated_at)
+				VALUES($1::uuid, 'telegram', $2, clock_timestamp(), clock_timestamp())
+				ON CONFLICT(provider, external_user_id)
+				DO UPDATE SET user_id=$1::uuid, updated_at=clock_timestamp()
+			`, *ownerClientID, cleanChatID)
+		}
+
+		if err = tx.Commit(ctx); err != nil {
+			return empty, dbError(err)
+		}
+		return s, nil
 	}
-	return s, nil
+
+	return empty, application.ErrNotFound
 }
 
 func (p *Postgres) DisableTelegramForChat(ctx context.Context, chatID string) error {

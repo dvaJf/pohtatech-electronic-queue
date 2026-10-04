@@ -31,6 +31,7 @@ import { SmartRouteHero } from './home/SmartRouteHero';
 import { AppointmentCalendarMenu } from './calendar/AppointmentCalendarMenu';
 import { isAppointmentCalendarEventAvailable } from './calendar/appointmentCalendar';
 import Timeline8 from '@/components/ui/c-timeline-8';
+import { AppointmentConfirmationCard } from './AppointmentConfirmationCard';
 
 function getTicketTimelineStep(status: TicketStatus, isArrived = false): number {
   if (isArrived && status === 'SCHEDULED') {
@@ -170,6 +171,7 @@ function localDateTimeValue(date: Date): string {
 
 function statusMessage(status: TicketStatus, source?: TicketSource): string {
   switch (status) {
+    case 'PENDING_CONFIRMATION': return 'Ожидает подтверждения';
     case 'WAITING': return 'Вы в очереди';
     case 'CALLED': return 'Вас вызывают';
     case 'SERVING': return 'Идёт обслуживание';
@@ -317,7 +319,7 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
     if (typeof localStorage !== 'undefined' && localStorage.getItem('user_telegram_connected') === 'true') {
       const isTicketTgDisabled = localStorage.getItem(`ticket_telegram_disabled:${ticket.id}`) === 'true';
       const storedChatId = localStorage.getItem('user_telegram_chat_id');
-      if (!isTicketTgDisabled && token && capabilities?.telegram?.enabled && !connected('TELEGRAM') && busy !== 'TELEGRAM' && storedChatId) {
+      if (!isTicketTgDisabled && token && capabilities?.telegram?.enabled && !connected('TELEGRAM') && busy !== 'TELEGRAM' && storedChatId && !storedChatId.includes('*')) {
         api.saveNotificationSubscription(ticket.id, 'TELEGRAM', storedChatId, token)
           .then(() => refresh())
           .catch(() => {});
@@ -378,7 +380,7 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
     }
     try {
       const storedChatId = typeof localStorage !== 'undefined' ? (localStorage.getItem('user_telegram_chat_id') || '') : '';
-      if (storedChatId) {
+      if (storedChatId && !storedChatId.includes('*')) {
         setWaitingForTelegram(true);
         await api.saveNotificationSubscription(ticket.id, 'TELEGRAM', storedChatId, token);
         await refresh();
@@ -467,6 +469,17 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
     );
   };
   const webPushAction = () => {
+    const isPushSupported = typeof window !== 'undefined' && 'Notification' in window && 'serviceWorker' in navigator && 'PushManager' in window;
+    if (!isPushSupported) {
+      return (
+        <span
+          className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200 select-none cursor-default"
+          title="Ваш браузер не поддерживает системные Push-уведомления"
+        >
+          Недоступно
+        </span>
+      );
+    }
     if (!capabilities || unavailable('webPush')) return null;
     if (!profilePushEnabled) {
       return (
@@ -514,13 +527,23 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
   const subscriptionForm = (provider: 'email', form: React.ReactNode) => capabilities && !unavailable(provider) ? form : null;
   const channelText = (channel: NotificationChannel, defaultDesc: string, unavailMsg?: string) => {
     if (channel === 'WEB_PUSH') {
+      const isPushSupported = typeof window !== 'undefined' && 'Notification' in window && 'serviceWorker' in navigator && 'PushManager' in window;
+      if (!isPushSupported) {
+        return 'Уведомления браузера недоступны в этом браузере';
+      }
+      if (typeof Notification !== 'undefined' && Notification.permission === 'denied') {
+        return 'Уведомления заблокированы в настройках браузера';
+      }
       if (!profilePushEnabled) {
         return 'Отключено в профиле. Включить можно только в профиле пользователя.';
       }
       if (ticketPushDisabled) {
         return 'Отключено для этого талона (на другие талоны будет приходить)';
       }
-      return '✓ Уведомления браузера включены';
+      if (connected('WEB_PUSH')) {
+        return '✓ Уведомления браузера включены';
+      }
+      return 'Включить системные пуш-уведомления';
     }
     if (connected(channel)) {
       if (channel === 'TELEGRAM') return '✓ Telegram подключён';
@@ -1279,6 +1302,8 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
   // Владелец талонов. Талоны храним и показываем строго по текущему пользователю,
   // чтобы новый пользователь не видел талоны, созданные другим.
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
+  const [appointmentEmail, setAppointmentEmail] = useState<string>('');
   const ownerScope = currentUserId ?? ANON_SCOPE;
   const [tickets, setTickets] = useState<Ticket[]>(() => getCachedTickets(ANON_SCOPE));
   const [kioskTicket, setKioskTicket] = useState<Ticket | null>(null);
@@ -1503,8 +1528,21 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
     let active = true;
     const refreshOwner = () => {
       getMe()
-        .then((me) => { if (active) setCurrentUserId(me?.id ?? null); })
-        .catch(() => { if (active) setCurrentUserId(null); });
+        .then((me) => {
+          if (active) {
+            setCurrentUserId(me?.id ?? null);
+            setCurrentUserEmail(me?.email ?? null);
+            if (me?.email) {
+              setAppointmentEmail((prev) => prev || me.email);
+            }
+          }
+        })
+        .catch(() => {
+          if (active) {
+            setCurrentUserId(null);
+            setCurrentUserEmail(null);
+          }
+        });
     };
     refreshOwner();
     // Реагируем на вход/выход через шапку: «мои талоны» пересчитываются для нового владельца.
@@ -2123,12 +2161,16 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
         branchId,
         serviceId,
         scheduledAt.toISOString(),
-        keyFor(identity)
+        keyFor(identity),
+        appointmentEmail.trim() || undefined,
       );
       clearStoredIdempotencyKey(identity);
       requestKey.current = null;
 
       const finalTicket = created.ticket;
+      if (finalTicket.status === 'PENDING_CONFIRMATION') {
+        setNotice('Запись ожидает подтверждения! На ваш email отправлен 6-значный код (действителен 15 минут).');
+      }
       const mgmtToken = created.managementToken || finalTicket.managementToken;
       if (mgmtToken) {
         saveMgmtToken(finalTicket.id, mgmtToken, ownerScope);
@@ -2157,8 +2199,8 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
   };
 
   const cancel = async (ticket: Ticket) => {
-    if (cancellingTicketId || (ticket.status !== 'SCHEDULED' && ticket.status !== 'WAITING')) return;
-    const isAppointment = ticket.source === 'APPOINTMENT' && ticket.status === 'SCHEDULED';
+    if (cancellingTicketId || (ticket.status !== 'SCHEDULED' && ticket.status !== 'WAITING' && ticket.status !== 'PENDING_CONFIRMATION')) return;
+    const isAppointment = ticket.source === 'APPOINTMENT' && (ticket.status === 'SCHEDULED' || ticket.status === 'PENDING_CONFIRMATION');
     const confirmMessage = isAppointment
       ? 'Вы уверены, что хотите отменить предварительную запись?'
       : 'Вы уверены, что хотите отказаться от талона и покинуть очередь?';
@@ -2364,6 +2406,21 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
 
         {error && <ErrorBanner message={error} onClose={() => setError(null)} />}
         {notice && <NoticeBanner message={notice} onClose={() => setNotice(null)} />}
+
+        {activeTicket && activeTicket.status === 'PENDING_CONFIRMATION' && (
+          <AppointmentConfirmationCard
+            ticket={activeTicket}
+            branch={branches.find(b => b.id === activeTicket.branchId)}
+            onConfirmed={(updated) => {
+              setTickets(prev => prev.map(t => t.id === updated.id ? updated : t));
+              setNotice('Запись успешно подтверждена!');
+              pollAll();
+            }}
+            onCancelled={() => {
+              pollAll();
+            }}
+          />
+        )}
 
         <HomeHero
           ticketsLoading={ticketsLoading}
@@ -2818,6 +2875,28 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                 onDayOffChange={setIsAppointmentDateDayOff}
               />
 
+              <div className="pt-2 border-t border-slate-100 space-y-1.5">
+                <label htmlFor="appointment-email-input" className="text-xs font-bold text-slate-700 flex items-center justify-between">
+                  <span>Электронная почта для подтверждения</span>
+                  <span className="text-[11px] font-normal text-slate-500">15-минутная бронь</span>
+                </label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                  <input
+                    id="appointment-email-input"
+                    type="email"
+                    value={appointmentEmail}
+                    onChange={(e) => setAppointmentEmail(e.target.value)}
+                    placeholder="name@example.com"
+                    disabled={creating}
+                    className="w-full h-11 pl-9 pr-3 rounded-xl border border-slate-200 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-[#003B73]"
+                  />
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  На этот адрес придёт 6-значный код для подтверждения слота.
+                </p>
+              </div>
+
               <button
                 type="button"
                 className="w-full min-h-[48px] py-3 bg-[#003B73] hover:bg-[#054FA6] active:bg-[#00274D] text-white rounded-xl font-bold text-xs uppercase tracking-wider transition-all shadow-md active:scale-[0.99] disabled:opacity-50 flex items-center justify-center gap-2"
@@ -3104,6 +3183,23 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                       <StatusBadge status={ticket.status} source={ticket.source} />
                     </div>
 
+                    {ticket.status === 'PENDING_CONFIRMATION' && (
+                      <div className="my-3">
+                        <AppointmentConfirmationCard
+                          ticket={ticket}
+                          branch={branch}
+                          onConfirmed={(updated) => {
+                            setTickets(prev => prev.map(t => t.id === updated.id ? updated : t));
+                            setNotice('Запись успешно подтверждена!');
+                            pollAll();
+                          }}
+                          onCancelled={() => {
+                            pollAll();
+                          }}
+                        />
+                      </div>
+                    )}
+
                     {/* Animated Timeline */}
                     <div className="my-2.5 py-2 px-2 bg-slate-50/90 rounded-2xl border border-slate-200/80 overflow-x-auto shadow-2xs">
                       {(() => {
@@ -3233,7 +3329,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                           </button>
                         )
                       )}
-                      {(ticket.status === 'SCHEDULED' || ticket.status === 'WAITING') && (
+                      {(ticket.status === 'SCHEDULED' || ticket.status === 'WAITING' || ticket.status === 'PENDING_CONFIRMATION') && (
                         <button
                           type="button"
                           className="cx-btn cx-btn-danger cx-btn-block"
@@ -3242,7 +3338,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                         >
                           {cancellingTicketId === ticket.id
                             ? 'Отменяем...'
-                            : (ticket.status === 'SCHEDULED' ? 'Отменить запись' : 'Отказаться от талона')}
+                            : (ticket.status === 'WAITING' ? 'Отказаться от талона' : 'Отменить запись')}
                         </button>
                       )}
                       {terminalStatuses.has(ticket.status) && ticket.status !== 'COMPLETED' && (

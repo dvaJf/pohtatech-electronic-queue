@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, ShieldCheck, X, AlertCircle, Loader2, User as UserIcon, Clock, Bell, ExternalLink, Building2, MapPin } from 'lucide-react';
-import { User } from '../../api/authApi';
+import { User, createTelegramLink } from '../../api/authApi';
 import { PochtaEmblem } from '../../components/common/PochtaBrand';
 import { ClientServiceRecord, getClientServiceHistory, MOCK_OPERATOR_NAMES, resolveOperatorName, STORAGE_SERVICE_HISTORY_KEY } from '../client/serviceHistory';
 import { MOSCOW_BRANCHES } from '../client/map/branchLocations';
@@ -228,21 +228,26 @@ export function UserProfileModal({ isOpen, onClose, user, onUserUpdate }: UserPr
   });
   const [pushNotice, setPushNotice] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
 
-  const handleConnectTelegram = (username?: string) => {
-    const uname = (username || tgInputVal).trim().replace(/^@/, '');
-    const data = { connected: true, username: uname || undefined, connectedAt: new Date().toISOString() };
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(tgStorageKey, JSON.stringify(data));
-      localStorage.setItem('user_telegram_connected', 'true');
-    }
-    setTelegramConnected(true);
-    if (uname) setTelegramUsername(uname);
-    setShowTgInput(false);
-    setTgNotice('Telegram успешно подключен! Бот будет присылать уведомления.');
-    setTimeout(() => setTgNotice(null), 3500);
+  const [tgLoading, setTgLoading] = useState(false);
 
-    // Open Telegram bot link
-    window.open(`https://t.me/poiters_inno_bot?start=profile_${user.id || 'client'}`, '_blank', 'noopener,noreferrer');
+  const handleConnectTelegram = async () => {
+    setTgLoading(true);
+    try {
+      const res = await createTelegramLink();
+      window.open(res.deepLink, '_blank', 'noopener,noreferrer');
+      setTgNotice('Откройте Telegram и нажмите /start для завершения привязки.');
+      setTelegramConnected(true);
+      if (typeof localStorage !== 'undefined') {
+        const data = { connected: true, connectedAt: new Date().toISOString() };
+        localStorage.setItem(tgStorageKey, JSON.stringify(data));
+        localStorage.setItem('user_telegram_connected', 'true');
+      }
+    } catch {
+      setTgNotice('Не удалось сформировать ссылку для привязки Telegram.');
+    } finally {
+      setTgLoading(false);
+      setTimeout(() => setTgNotice(null), 4000);
+    }
   };
 
   const handleDisconnectTelegram = () => {
@@ -621,52 +626,17 @@ export function UserProfileModal({ isOpen, onClose, user, onUserUpdate }: UserPr
                   </button>
                 </div>
               ) : (
-                <div className="pt-2 border-t border-slate-200/70 space-y-2">
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handleConnectTelegram()}
-                      className="flex-1 px-3.5 py-2 bg-[#229ED9] hover:bg-[#1D8BC0] text-white text-xs font-bold rounded-xl transition-all shadow-sm flex items-center justify-center gap-1.5"
-                    >
-                      <span>Подключить Telegram</span>
-                      <ExternalLink className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setShowTgInput(!showTgInput)}
-                      className="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-semibold rounded-xl transition-colors whitespace-nowrap"
-                    >
-                      {showTgInput ? 'Отмена' : 'Указать @юзернейм'}
-                    </button>
-                  </div>
-
-                  {showTgInput && (
-                    <div className="p-3 bg-white border border-slate-200 rounded-xl space-y-2 animate-fade-in">
-                      <label className="text-[11px] font-bold text-slate-700 block">
-                        Ваш Telegram username (без @)
-                      </label>
-                      <div className="flex gap-2">
-                        <div className="relative flex-1">
-                          <span className="absolute left-3 top-2 text-slate-400 text-xs font-bold">@</span>
-                          <input
-                            type="text"
-                            value={tgInputVal}
-                            onChange={e => setTgInputVal(e.target.value)}
-                            placeholder="username"
-                            className="w-full pl-7 pr-3 py-1.5 text-xs rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-[#229ED9]"
-                          />
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => handleConnectTelegram(tgInputVal)}
-                          disabled={!tgInputVal.trim()}
-                          className="px-3 py-1.5 bg-[#003B73] hover:bg-[#054FA6] disabled:opacity-50 text-white text-xs font-bold rounded-lg transition-colors shrink-0"
-                        >
-                          Сохранить
-                        </button>
-                      </div>
-                    </div>
-                  )}
+                <div className="pt-2 border-t border-slate-200/70">
+                  <button
+                    type="button"
+                    disabled={tgLoading}
+                    onClick={() => void handleConnectTelegram()}
+                    className="w-full px-3.5 py-2.5 bg-[#229ED9] hover:bg-[#1D8BC0] text-white text-xs font-bold rounded-xl transition-all shadow-sm flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                  >
+                    {tgLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                    <span>Подключить Telegram</span>
+                    <ExternalLink className="w-4 h-4" />
+                  </button>
                 </div>
               )}
             </div>

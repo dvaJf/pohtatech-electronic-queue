@@ -14,7 +14,7 @@ import { useGeofencing, GeofenceSimulationMode, calculateHaversineDistanceMeters
 import { NearbyBranchCard } from './arrival/NearbyBranchCard';
 import { RouteOfferModal } from './RouteOfferModal';
 import { BranchMapModal } from './map/BranchMapModal';
-import { calculateBranchTotalTime, isUsableDurationMinutes, MAX_QUEUE_WAIT_MINUTES, MAX_ROUTE_TRAVEL_MINUTES, MOSCOW_BRANCHES, BranchLocation, RankedBranch } from './map/branchLocations';
+import { calculateBranchTotalTime, isUsableDurationMinutes, MAX_QUEUE_WAIT_MINUTES, MAX_ROUTE_TRAVEL_MINUTES, MOSCOW_BRANCHES, BranchLocation, RankedBranch, getBranchPlural } from './map/branchLocations';
 
 import { matchBranchLocation, matchesUserDefaultBranch, getUserDefaultBranchId, resolveSingleDefaultBranchId, getBranchPostalCode } from './map/liveBranches';
 import { cleanBranchName } from '../../utils/branchSlug';
@@ -78,6 +78,8 @@ export const DEFAULT_OPERATOR_NAMES: Record<number, string> = {
 function getTicketOperatorName(ticket: Ticket): string {
   return resolveOperatorName(ticket, DEFAULT_OPERATOR_NAMES);
 }
+
+export { getBranchPlural };
 
 function getCompletedTicketMetadata(ticket: Ticket) {
   const windowText = ticket.window?.number ? `Окно №${ticket.window.number}` : 'Окно №1';
@@ -202,6 +204,7 @@ function TelegramIcon({ size = 18 }: { size?: number }) {
 function NotificationControls({ ticket, managementToken }: { ticket: Ticket; managementToken?: string | null }) {
   const [email, setEmail] = useState(''); const [notice, setNotice] = useState(''); const [busy, setBusy] = useState<string | null>(null);
   const [telegramError, setTelegramError] = useState(false);
+  const [waitingForTelegram, setWaitingForTelegram] = useState(false);
   const [subscriptions, setSubscriptions] = useState<NotificationSubscription[]>([]);
   const [capabilities, setCapabilities] = useState<NotificationCapabilities | null>(null);
   const [capabilitiesError, setCapabilitiesError] = useState(false);
@@ -262,6 +265,50 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
     }
   }, [ticket.id, token]);
   useEffect(() => { void refresh(); }, [refresh]);
+
+  // Automatically sync Telegram connection state when subscriptions update
+  useEffect(() => {
+    const tgSub = subscriptions.find(item => item.channel === 'TELEGRAM' && item.enabled);
+    if (tgSub) {
+      setWaitingForTelegram(false);
+      if (typeof localStorage !== 'undefined') {
+        if (tgSub.destination) {
+          localStorage.setItem('user_telegram_chat_id', tgSub.destination);
+        }
+        localStorage.setItem('user_telegram_connected', 'true');
+      }
+    }
+  }, [subscriptions]);
+
+  // Active fast polling while waiting for Telegram bot /start confirmation
+  useEffect(() => {
+    if (!waitingForTelegram) return;
+    const interval = window.setInterval(() => {
+      void refresh();
+    }, 1500);
+    const timeout = window.setTimeout(() => {
+      setWaitingForTelegram(false);
+    }, 120000);
+    return () => {
+      window.clearInterval(interval);
+      window.clearTimeout(timeout);
+    };
+  }, [waitingForTelegram, refresh]);
+
+  // Window focus & visibilitychange listener to instantly detect when user returns from Telegram
+  useEffect(() => {
+    const handleFocus = () => {
+      if (document.visibilityState === 'visible') {
+        void refresh();
+      }
+    };
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('visibilitychange', handleFocus);
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('visibilitychange', handleFocus);
+    };
+  }, [refresh]);
   const connected = (channel: NotificationChannel) => subscriptions.find(item => item.channel === channel && item.enabled);
   const unavailable = (channel: 'telegram' | 'webPush' | 'email') => capabilities ? !capabilities[channel].enabled : true;
 
@@ -298,6 +345,7 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
       setTicketPushDisabled(true);
     }
     if (channel === 'TELEGRAM') {
+      setWaitingForTelegram(false);
       if (typeof localStorage !== 'undefined') {
         localStorage.setItem(`ticket_telegram_disabled:${ticket.id}`, 'true');
       }
@@ -331,15 +379,18 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
     try {
       const storedChatId = typeof localStorage !== 'undefined' ? (localStorage.getItem('user_telegram_chat_id') || '') : '';
       if (storedChatId) {
+        setWaitingForTelegram(true);
         await api.saveNotificationSubscription(ticket.id, 'TELEGRAM', storedChatId, token);
         await refresh();
         setNotice('Telegram-уведомления включены.');
       } else {
+        setWaitingForTelegram(true);
         const url = await api.telegramLink(ticket.id, token);
         window.open(url, '_blank', 'noopener,noreferrer');
         setNotice('Откройте Telegram и нажмите /start для завершения привязки.');
       }
     } catch (e) {
+      setWaitingForTelegram(false);
       setTelegramError(true);
       setNotice(friendlyError(e, 'Не удалось подключить Telegram'));
     } finally {
@@ -383,16 +434,25 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
   const telegramAction = () => {
     if (!capabilities || unavailable('telegram')) return null;
     const isConn = Boolean(connected('TELEGRAM'));
+    const isChecked = isConn || waitingForTelegram;
     return (
       <div className="flex items-center gap-2 shrink-0">
         {busy === 'TELEGRAM' && <span className="inline-flex items-center gap-1 text-[11px] text-[#003B73]"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Открываем Telegram…</span>}
-        <label className="relative inline-flex items-center cursor-pointer select-none" title={isConn ? 'Отключить Telegram' : 'Подключить Telegram'}>
+        {waitingForTelegram && !isConn && busy !== 'TELEGRAM' && (
+          <span className="inline-flex items-center gap-1 text-[11px] text-[#003B73]">
+            <Loader2 className="w-3.5 h-3.5 animate-spin" /> Ожидаем /start…
+          </span>
+        )}
+        <label className="relative inline-flex items-center cursor-pointer select-none" title={isChecked ? 'Отключить Telegram' : 'Подключить Telegram'}>
           <input
             type="checkbox"
-            checked={isConn}
+            checked={isChecked}
             disabled={busy !== null || !canManage}
             onChange={() => {
-              if (isConn) {
+              if (isChecked) {
+                if (waitingForTelegram) {
+                  setWaitingForTelegram(false);
+                }
                 void disconnect('TELEGRAM');
               } else {
                 void telegram();
@@ -466,6 +526,9 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
       if (channel === 'TELEGRAM') return '✓ Telegram подключён';
       return `✓ ${connected(channel)?.destination || 'Подключено'}`;
     }
+    if (channel === 'TELEGRAM' && waitingForTelegram) {
+      return 'Ожидание нажатия /start в Telegram боте…';
+    }
     if (channel === 'TELEGRAM' && telegramError) return 'Не удалось подключить Telegram';
     return unavailMsg || defaultDesc;
   };
@@ -473,7 +536,7 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
     <div className="cx-notification-row p-3.5 bg-white border border-slate-200/90 rounded-2xl flex flex-col gap-2 shadow-2xs overflow-hidden">
       <div className="flex items-center justify-between gap-3 w-full min-w-0">
         <div className="flex items-center gap-3 min-w-0 flex-1">
-          <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${connected(channel) ? 'bg-blue-50 text-[#003B73]' : 'bg-slate-100 text-slate-500'}`}>
+          <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${connected(channel) || (channel === 'TELEGRAM' && waitingForTelegram) ? 'bg-blue-50 text-[#003B73]' : 'bg-slate-100 text-slate-500'}`}>
             {icon}
           </div>
           <div className="cx-notification-main min-w-0 flex-1">
@@ -1069,6 +1132,35 @@ function removeMgmtToken(id: string, scope: string) {
   const updated = JSON.stringify(tokens);
   try { sessionStorage.setItem(mgmtTokensKeyFor(scope), updated); } catch {}
   try { localStorage.setItem(mgmtTokensKeyFor(scope), updated); } catch {}
+}
+
+function findMgmtToken(id: string, scope: string): string | undefined {
+  if (!id) return undefined;
+  const currentTokens = getSavedMgmtTokens(scope);
+  if (currentTokens[id]) return currentTokens[id];
+  if (scope !== ANON_SCOPE) {
+    const anonTokens = getSavedMgmtTokens(ANON_SCOPE);
+    if (anonTokens[id]) return anonTokens[id];
+  }
+  try {
+    for (const storage of [sessionStorage, localStorage]) {
+      for (let i = 0; i < storage.length; i++) {
+        const key = storage.key(i);
+        if (key && key.includes('mgmt_tokens')) {
+          const val = storage.getItem(key);
+          if (val) {
+            try {
+              const parsed = JSON.parse(val);
+              if (parsed && typeof parsed === 'object' && parsed[id]) {
+                return parsed[id];
+              }
+            } catch {}
+          }
+        }
+      }
+    }
+  } catch {}
+  return undefined;
 }
 
 function getStoredIdempotencyKey(identity: string): string {
@@ -2221,12 +2313,33 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
     history.pending = history.pending.filter(item => item.id !== ticket.id);
     if (kind === 'reviewed' && typeof rating === 'number') {
       try {
-        await api.submitFeedback(ticket.id, rating, comment, ticket.managementToken || getSavedMgmtTokens(ownerScope)[ticket.id]);
-      } catch (err) {
-        setError(friendlyError(err, 'Не удалось отправить оценку'));
-        return;
+        const token = findMgmtToken(ticket.id, ownerScope) || ticket.managementToken;
+        let submitted = false;
+        if (token) {
+          try {
+            await api.submitFeedback(ticket.id, rating, comment, token);
+            submitted = true;
+          } catch (feedErr: any) {
+            if (feedErr?.status === 409 || feedErr?.message?.includes('conflict') || feedErr?.message?.includes('already')) {
+              submitted = true;
+            }
+          }
+        }
+        if (!submitted) {
+          if (ticket.branchId) {
+            await api.submitBranchReview(ticket.branchId, rating, comment);
+          } else {
+            await api.submitFeedback(ticket.id, rating, comment);
+          }
+        }
+      } catch (err: any) {
+        if (err?.status !== 409) {
+          setError(friendlyError(err, 'Не удалось отправить оценку'));
+          return;
+        }
       }
-    } else if (!history.dismissed.includes(ticket.id)) history.dismissed.push(ticket.id);
+    }
+    if (!history.dismissed.includes(ticket.id)) history.dismissed.push(ticket.id);
     saveVisitRatingHistory(ownerScope, history);
     setVisitRatingQueue(history.pending);
   };
@@ -2256,6 +2369,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
           ticketsLoading={ticketsLoading}
           error={pollError}
           activeTicket={activeTicket}
+          isTicketArrived={activeTicket ? Boolean(activeTicket.arrivedAt || arrivalAcknowledgedTicketIds.has(activeTicket.id)) : false}
           position={activeTicket ? positions[activeTicket.id] : undefined}
           eta={activeTicket ? etas[activeTicket.id] : undefined}
           branch={activeTicket ? branches.find(branch => branch.id === activeTicket.branchId) : undefined}
@@ -2497,7 +2611,10 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                 Карта отделений
               </h3>
               <p className="text-xs text-slate-500 leading-snug">
-                26 отделений и маршруты
+                {(() => {
+                  const count = branches.length > 0 ? branches.length : MOSCOW_BRANCHES.length;
+                  return `${count} ${getBranchPlural(count)} и маршруты`;
+                })()}
               </p>
             </div>
           </button>
@@ -2995,9 +3112,10 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                         return (
                           <Timeline8
                             currentStep={getTicketTimelineStep(ticket.status, isTicketArrived)}
+                            status={ticket.status}
                             items={[
                               { id: 1, title: 'Выдан', description: position?.position ? `${position.position} в очереди` : 'Талон выдан' },
-                              { id: 2, title: 'Приглашение к окну', description: isCalledOrServing && ticket.window?.number ? `Окно №${ticket.window.number}` : 'Приглашение' },
+                              { id: 2, title: 'Приглашение к окну', description: isCalledOrServing && ticket.window?.number ? `Окно №${ticket.window.number}` : (isTicketArrived && ticket.status === 'SCHEDULED' ? 'Ожидание вызова' : 'Приглашение') },
                               { id: 3, title: 'Завершён', description: 'Готово' },
                             ]}
                             className="w-full max-w-full"

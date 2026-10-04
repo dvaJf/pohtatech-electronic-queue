@@ -92,6 +92,24 @@ export function calculateBranchTotalTime(travelMinutes: unknown, waitMinutes: un
   return Math.round((travelMinutes + waitMinutes) * 10) / 10;
 }
 
+/**
+ * Склонение слова "отделение" в зависимости от количества (1 отделение, 2 отделения, 5 отделений)
+ */
+export function getBranchPlural(count: number): string {
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+  if (mod100 >= 11 && mod100 <= 19) {
+    return 'отделений';
+  }
+  if (mod10 === 1) {
+    return 'отделение';
+  }
+  if (mod10 >= 2 && mod10 <= 4) {
+    return 'отделения';
+  }
+  return 'отделений';
+}
+
 export const DEFAULT_BRANCH_ID = '11111111-1111-1111-1111-111111111111';
 
 export const DEFAULT_USER_COORDINATES = {

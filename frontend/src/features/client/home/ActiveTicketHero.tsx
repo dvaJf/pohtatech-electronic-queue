@@ -3,7 +3,10 @@ import Timeline8 from '@/components/ui/c-timeline-8';
 import type { Branch, QueuePosition, Ticket, TicketETA } from '../../../api/client/types';
 import { getActiveTicketPresentation } from './activeTicketPresentation';
 
-function getTicketTimelineStep(status: string): number {
+function getTicketTimelineStep(status: string, isArrived = false): number {
+  if (isArrived && status === 'SCHEDULED') {
+    return 2;
+  }
   switch (status) {
     case 'SCHEDULED':
     case 'WAITING':
@@ -20,6 +23,7 @@ function getTicketTimelineStep(status: string): number {
 
 export function ActiveTicketHero({
   ticket,
+  isArrived = false,
   position,
   eta,
   branch,
@@ -27,6 +31,7 @@ export function ActiveTicketHero({
   onOpenRoute,
 }: {
   ticket: Ticket;
+  isArrived?: boolean;
   position?: QueuePosition;
   eta?: TicketETA;
   branch?: Branch;
@@ -67,10 +72,11 @@ export function ActiveTicketHero({
       {/* Анимированный таймлайн со статусами талона */}
       <div className="mt-3 pt-3 border-t border-slate-200/60 w-full overflow-x-auto">
         <Timeline8
-          currentStep={getTicketTimelineStep(ticket.status)}
+          currentStep={getTicketTimelineStep(ticket.status, isArrived)}
+          status={ticket.status}
           items={[
             { id: 1, title: 'Выдан', description: peopleAhead !== null && peopleAhead > 0 ? `${peopleAhead} в очереди` : 'Талон выдан' },
-            { id: 2, title: 'Приглашение к окну', description: isCalledOrServing && windowNumber ? `Окно №${windowNumber}` : 'Приглашение' },
+            { id: 2, title: 'Приглашение к окну', description: isCalledOrServing && windowNumber ? `Окно №${windowNumber}` : (isArrived && ticket.status === 'SCHEDULED' ? 'Ожидание вызова' : 'Приглашение') },
             { id: 3, title: 'Завершён', description: 'Готово' },
           ]}
           className="w-full max-w-full"

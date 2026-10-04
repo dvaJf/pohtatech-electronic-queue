@@ -7,6 +7,7 @@ export function HomeHero({
   ticketsLoading,
   error,
   activeTicket,
+  isTicketArrived = false,
   position,
   eta,
   branch,
@@ -18,6 +19,7 @@ export function HomeHero({
   ticketsLoading: boolean;
   error: string | null;
   activeTicket: Ticket | null;
+  isTicketArrived?: boolean;
   position?: QueuePosition;
   eta?: TicketETA;
   branch?: Branch;
@@ -32,7 +34,7 @@ export function HomeHero({
   } else if (error && !activeTicket) {
     content = <section role="alert" className="rounded-2xl border border-red-200 bg-red-50/80 p-4 shadow-xs"><p className="text-sm font-bold text-red-900">Не удалось проверить активный талон</p><p className="mt-1 text-xs text-red-700">Повторите проверку, чтобы не пропустить вызов.</p><button type="button" onClick={onRetry} className="mt-3 min-h-[44px] rounded-xl border border-red-200 bg-white px-4 text-sm font-bold text-red-800 hover:bg-red-100">Повторить</button></section>;
   } else if (activeTicket && isActiveTicketStatus(activeTicket.status)) {
-    content = <ActiveTicketHero ticket={activeTicket} position={position} eta={eta} branch={branch} onOpenTicket={onOpenTicket} onOpenRoute={onOpenRoute} />;
+    content = <ActiveTicketHero ticket={activeTicket} isArrived={isTicketArrived} position={position} eta={eta} branch={branch} onOpenTicket={onOpenTicket} onOpenRoute={onOpenRoute} />;
   } else {
     content = smartRoute;
   }

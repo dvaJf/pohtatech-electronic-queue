@@ -69,14 +69,17 @@ export function SmartRouteHero({
               <div className="cx-route-metric cx-route-metric-queue"><strong className="block text-xl font-semibold leading-none tabular-nums text-slate-950 sm:text-2xl">{Math.round(fastest.waitMinutes || 0)} мин</strong><span className="mt-2 block text-xs font-medium text-slate-600">В очереди</span></div>
               <div className="cx-route-metric cx-route-metric-total"><strong className="block text-2xl font-bold leading-none tabular-nums tracking-[-0.02em] text-[#003B73] sm:text-3xl">{Math.round(fastest.totalMinutes)} мин</strong><span className="mt-2 block text-xs font-semibold text-[#003B73]">Всего</span></div>
             </div>
-            <svg className="cx-route-line" viewBox="0 0 720 32" preserveAspectRatio="none" aria-hidden="true" focusable="false">
-              <path className="cx-route-line-track" d="M120 16 H600" pathLength="1" />
-              <path className="cx-route-line-draw" d="M120 16 H600" pathLength="1" />
-              <circle className="cx-route-node cx-route-node-start" cx="120" cy="16" r="4" />
-              <circle className="cx-route-node cx-route-node-middle" cx="360" cy="16" r="4" />
-              <circle className="cx-route-node cx-route-node-end" cx="600" cy="16" r="7" /><circle className="cx-route-node-end-core" cx="600" cy="16" r="2.25" />
-              <circle className="cx-route-pulse" r="3.5"><animate attributeName="opacity" begin=".68s" dur=".01s" from="0" to="1" fill="freeze" /><animateMotion begin=".68s" dur=".24s" fill="freeze" path="M120 16 H600" /><animate attributeName="opacity" begin=".93s" dur=".01s" from="1" to="0" fill="freeze" /></circle>
-            </svg>
+            <div className="cx-route-line" aria-hidden="true">
+              <div className="cx-route-line-track">
+                <div className="cx-route-line-draw" />
+              </div>
+              <div className="cx-route-node cx-route-node-start" />
+              <div className="cx-route-node cx-route-node-middle" />
+              <div className="cx-route-node cx-route-node-end">
+                <div className="cx-route-node-end-core" />
+              </div>
+              <div className="cx-route-pulse" />
+            </div>
           </div>
 
           <div className="cx-route-actions mt-6 flex flex-wrap items-center gap-2.5 sm:gap-3">

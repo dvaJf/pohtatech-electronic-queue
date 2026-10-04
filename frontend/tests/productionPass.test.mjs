@@ -155,3 +155,117 @@ test('Production Pass 5: Admin reviews view and API integration', async () => {
   assert.match(adminReviewsView, /selectedBranchId/);
   assert.match(adminReviewsView, /selectedRating/);
 });
+
+test('Production Pass 6: Map button displays dynamic branch count with authentic Russian pluralization', async () => {
+  const clientWorkspaceSource = await readFile(new URL('../src/features/client/ClientWorkspace.tsx', import.meta.url), 'utf8');
+
+  // Verify that static '26 отделений' is removed
+  assert.ok(!clientWorkspaceSource.includes('26 отделений и маршруты'), 'Static 26 branches text must be eliminated');
+
+  // Verify dynamic branch count expression is present
+  assert.match(clientWorkspaceSource, /getBranchPlural/);
+
+  // Load getBranchPlural from branchLocations
+  const { getBranchPlural } = await loadTS('../src/features/client/map/branchLocations.ts');
+  assert.equal(typeof getBranchPlural, 'function', 'getBranchPlural must be exported');
+  assert.equal(getBranchPlural(1), 'отделение');
+  assert.equal(getBranchPlural(2), 'отделения');
+  assert.equal(getBranchPlural(4), 'отделения');
+  assert.equal(getBranchPlural(5), 'отделений');
+  assert.equal(getBranchPlural(11), 'отделений');
+  assert.equal(getBranchPlural(21), 'отделение');
+  assert.equal(getBranchPlural(22), 'отделения');
+  assert.equal(getBranchPlural(28), 'отделений');
+});
+
+test('Production Pass 7: Smart route timeline nodes preserve true circular geometry without SVG ellipse squishing on mobile', async () => {
+  const smartRouteSource = await readFile(new URL('../src/features/client/home/SmartRouteHero.tsx', import.meta.url), 'utf8');
+  const clientCss = await readFile(new URL('../src/features/client/client.css', import.meta.url), 'utf8');
+  const timelineComponent = await readFile(new URL('../src/components/ui/c-timeline-8-utils/timeline.tsx', import.meta.url), 'utf8');
+
+  // SVG preserveAspectRatio="none" must NOT be used for timeline nodes
+  assert.ok(!smartRouteSource.includes('preserveAspectRatio="none"'), 'SVG preserveAspectRatio="none" must be eliminated to prevent squished nodes');
+
+  // Timeline must use responsive node containers
+  assert.match(smartRouteSource, /cx-route-node cx-route-node-start/);
+  assert.match(smartRouteSource, /cx-route-node cx-route-node-middle/);
+  assert.match(smartRouteSource, /cx-route-node cx-route-node-end/);
+
+  // CSS must enforce circular geometry (border-radius: 50%) and square aspect ratio
+  assert.match(clientCss, /\.cx-route-node\s*\{[^}]*border-radius:\s*50%/);
+  assert.match(clientCss, /\.cx-route-node-end\s*\{[^}]*border-radius:\s*50%/);
+
+  // TimelineIndicator in c-timeline-8 must prevent shrinking with shrink-0 aspect-square
+  assert.match(timelineComponent, /shrink-0\s+aspect-square/);
+});
+
+test('Production Pass 8: Ticket timeline steps on Home and My Tickets are synchronized without discrepancy', async () => {
+  const activeTicketHeroSource = await readFile(new URL('../src/features/client/home/ActiveTicketHero.tsx', import.meta.url), 'utf8');
+  const homeHeroSource = await readFile(new URL('../src/features/client/home/HomeHero.tsx', import.meta.url), 'utf8');
+  const clientWorkspaceSource = await readFile(new URL('../src/features/client/ClientWorkspace.tsx', import.meta.url), 'utf8');
+
+  // HomeHero and ActiveTicketHero accept isTicketArrived / isArrived
+  assert.match(homeHeroSource, /isTicketArrived\s*=\s*false/);
+  assert.match(homeHeroSource, /isArrived=\{isTicketArrived\}/);
+  assert.match(activeTicketHeroSource, /function getTicketTimelineStep\(status:\s*string,\s*isArrived\s*=\s*false\)/);
+  assert.match(activeTicketHeroSource, /if\s*\(isArrived\s*&&\s*status\s*===\s*'SCHEDULED'\)\s*\{\s*return\s*2;\s*\}/);
+  assert.match(activeTicketHeroSource, /currentStep=\{getTicketTimelineStep\(ticket\.status,\s*isArrived\)\}/);
+
+  // ClientWorkspace passes isTicketArrived to HomeHero
+  assert.match(clientWorkspaceSource, /isTicketArrived=\{activeTicket\s*\?\s*Boolean\(activeTicket\.arrivedAt\s*\|\|\s*arrivalAcknowledgedTicketIds\.has\(activeTicket\.id\)\)\s*:\s*false\}/);
+
+  // Both match step 2 description
+  assert.match(activeTicketHeroSource, /isArrived\s*&&\s*ticket\.status\s*===\s*'SCHEDULED'\s*\?\s*'Ожидание вызова'\s*:\s*'Приглашение'/);
+  assert.match(clientWorkspaceSource, /isTicketArrived\s*&&\s*ticket\.status\s*===\s*'SCHEDULED'\s*\?\s*'Ожидание вызова'\s*:\s*'Приглашение'/);
+});
+
+test('Production Pass 9: Timeline stripe lights first half when called and second half when serving, preserving circle text', async () => {
+  const timelineSource = await readFile(new URL('../src/components/ui/c-timeline-8-utils/timeline.tsx', import.meta.url), 'utf8');
+  const ratingSheetSource = await readFile(new URL('../src/features/client/rating/VisitRatingSheet.tsx', import.meta.url), 'utf8');
+  const clientWorkspaceSource = await readFile(new URL('../src/features/client/ClientWorkspace.tsx', import.meta.url), 'utf8');
+  const activeTicketHeroSource = await readFile(new URL('../src/features/client/home/ActiveTicketHero.tsx', import.meta.url), 'utf8');
+
+  // TimelineSeparator: first half lights on CALLED / SERVING / COMPLETED; second half lights on SERVING / COMPLETED
+  assert.match(timelineSource, /status === 'CALLED' \|\| status === 'SERVING' \|\| status === 'COMPLETED'/);
+  assert.match(timelineSource, /isLeftActive = status === 'SERVING' \|\| status === 'COMPLETED'/);
+
+  // Both views pass status={ticket.status} to Timeline8
+  assert.match(activeTicketHeroSource, /status=\{ticket\.status\}/);
+  assert.match(clientWorkspaceSource, /status=\{ticket\.status\}/);
+
+  // Circle 2 text remains 'Приглашение к окну'
+  assert.match(activeTicketHeroSource, /title:\s*'Приглашение к окну'/);
+  assert.match(clientWorkspaceSource, /title:\s*'Приглашение к окну'/);
+
+  // VisitRatingSheet has isSubmitting handling
+  assert.match(ratingSheetSource, /isSubmitting/);
+  assert.match(ratingSheetSource, /Отправка\.\.\./);
+
+  // ClientWorkspace has findMgmtToken and fallback to submitBranchReview
+  assert.match(clientWorkspaceSource, /function findMgmtToken/);
+  assert.match(clientWorkspaceSource, /api\.submitBranchReview/);
+});
+
+test('Production Pass 10: Reactive telegram notification toggle with auto-polling and focus refresh', async () => {
+  const clientWorkspaceSource = await readFile(new URL('../src/features/client/ClientWorkspace.tsx', import.meta.url), 'utf8');
+
+  // Has waitingForTelegram state
+  assert.match(clientWorkspaceSource, /const \[waitingForTelegram, setWaitingForTelegram\] = useState\(false\)/);
+
+  // Auto-polling interval while waiting for Telegram
+  assert.match(clientWorkspaceSource, /if \(!waitingForTelegram\) return/);
+  assert.match(clientWorkspaceSource, /window\.setInterval\(\(\) => \{\s*void refresh\(\);\s*\}, 1500\)/);
+
+  // Window focus & visibilitychange listener
+  assert.match(clientWorkspaceSource, /window\.addEventListener\('focus', handleFocus\)/);
+  assert.match(clientWorkspaceSource, /window\.addEventListener\('visibilitychange', handleFocus\)/);
+
+  // Toggle is checked when connected or waiting for Telegram
+  assert.match(clientWorkspaceSource, /const isChecked = isConn \|\| waitingForTelegram/);
+  assert.match(clientWorkspaceSource, /checked=\{isChecked\}/);
+
+  // Loading spinner & helper text
+  assert.match(clientWorkspaceSource, /Ожидаем \/start…/);
+  assert.match(clientWorkspaceSource, /Ожидание нажатия \/start в Telegram боте…/);
+});
+

@@ -6,14 +6,25 @@ export interface VisitRatingSheetProps {
   ticket: Ticket;
   branchName: string;
   onClose: () => void;
-  onSubmit: (rating: number, comment: string) => void;
+  onSubmit: (rating: number, comment: string) => void | Promise<void>;
 }
 
 export function VisitRatingSheet({ ticket, branchName, onClose, onSubmit }: VisitRatingSheetProps) {
   const [rating, setRating] = useState(0);
   const [comment, setComment] = useState('');
   const [hoveredRating, setHoveredRating] = useState(0);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const activeRating = hoveredRating || rating;
+
+  const handleSubmit = async () => {
+    if (!rating || isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      await onSubmit(rating, comment.trim());
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-[70] flex items-end justify-center bg-slate-950/55 p-0 backdrop-blur-sm sm:items-center sm:p-4" role="presentation">
@@ -41,11 +52,11 @@ export function VisitRatingSheet({ ticket, branchName, onClose, onSubmit }: Visi
         <label className="mt-4 block text-sm font-semibold text-slate-800" htmlFor="visit-rating-comment">Комментарий <span className="font-normal text-slate-500">(необязательно)</span></label>
         <textarea id="visit-rating-comment" value={comment} onChange={event => setComment(event.target.value)} maxLength={500} rows={3} placeholder="Что понравилось или что можно улучшить?"
           className="mt-2 w-full resize-none rounded-2xl border border-slate-300 p-3 text-sm outline-none focus:border-blue-700 focus:ring-2 focus:ring-blue-100" />
-        <button type="button" disabled={!rating} onClick={() => onSubmit(rating, comment.trim())}
+        <button type="button" disabled={!rating || isSubmitting} onClick={handleSubmit}
           className="mt-4 w-full rounded-2xl bg-[#052F85] px-5 py-3.5 text-sm font-bold text-white shadow-lg shadow-blue-900/15 transition hover:bg-[#031E56] disabled:cursor-not-allowed disabled:bg-slate-300">
-          Отправить оценку
+          {isSubmitting ? 'Отправка...' : 'Отправить оценку'}
         </button>
-        <button type="button" onClick={onClose} className="mt-3 w-full rounded-xl py-2 text-sm font-semibold text-slate-500 hover:bg-slate-50">Не сейчас</button>
+        <button type="button" onClick={onClose} disabled={isSubmitting} className="mt-3 w-full rounded-xl py-2 text-sm font-semibold text-slate-500 hover:bg-slate-50 disabled:opacity-50">Не сейчас</button>
       </section>
     </div>
   );

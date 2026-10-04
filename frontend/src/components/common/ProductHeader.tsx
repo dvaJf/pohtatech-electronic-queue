@@ -81,14 +81,14 @@ export function LiveClockIcon({ hours, minutes, className = 'w-5 h-5', size = 22
         <circle key={idx} cx={dot.cx} cy={dot.cy} r="0.5" fill="currentColor" fillOpacity="0.4" />
       ))}
 
-      {/* Часовая стрелка (короче, плотная белая) */}
+      {/* Часовая стрелка (короче, контрастная фирменная синяя) */}
       <line
         x1="11"
         y1="11"
         x2="11"
         y2="6.2"
-        stroke="white"
-        strokeWidth="1.9"
+        stroke="#003B73"
+        strokeWidth="2"
         strokeLinecap="round"
         transform={`rotate(${hourAngle.toFixed(1)} 11 11)`}
         style={{ transition: 'transform 0.4s cubic-bezier(0.4, 1.4, 0.6, 1)' }}
@@ -334,15 +334,33 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
 
   useEffect(() => {
     let active = true;
-    getMe()
-      .then((user) => {
-        if (active) setCurrentUser(user);
-      })
-      .catch(() => {
-        // Guest user
-      });
+    const fetchUser = () => {
+      getMe()
+        .then((user) => {
+          if (active) setCurrentUser(user);
+        })
+        .catch(() => {
+          if (active) setCurrentUser(null);
+        });
+    };
+    fetchUser();
+    const handleAuth = (e: Event) => {
+      const custom = e as CustomEvent<User | null>;
+      if (custom.detail !== undefined) {
+        if (active) setCurrentUser(custom.detail);
+      } else {
+        fetchUser();
+      }
+    };
+    const handleLogout = () => {
+      if (active) setCurrentUser(null);
+    };
+    window.addEventListener('pochta:auth', handleAuth);
+    window.addEventListener('pochta:logout', handleLogout);
     return () => {
       active = false;
+      window.removeEventListener('pochta:auth', handleAuth);
+      window.removeEventListener('pochta:logout', handleLogout);
     };
   }, []);
 

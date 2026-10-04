@@ -19,6 +19,17 @@ func appointmentView(t domain.Ticket) application.AppointmentView {
 	return application.AppointmentView{Ticket: t, ScheduledAt: *t.ScheduledAt}
 }
 
+func validateAppointmentBookingWindow(scheduledAt, now time.Time) error {
+	moscow := moscowLocation()
+	localNow := now.In(moscow)
+	today := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, moscow)
+	// The whole fourteenth calendar day is available, regardless of the request's offset.
+	if scheduledAt.Before(today) || !scheduledAt.Before(today.AddDate(0, 0, 15)) {
+		return application.ErrAppointmentOutsideBookingWindow
+	}
+	return nil
+}
+
 func (p *Postgres) CreateAppointment(ctx context.Context, cmd application.CreateAppointmentCommand) (application.CreateAppointmentResult, error) {
 	var empty application.CreateAppointmentResult
 	b, err := uuid(cmd.BranchID)
@@ -75,6 +86,9 @@ func (p *Postgres) CreateAppointment(ctx context.Context, cmd application.Create
 	if !errors.Is(err, application.ErrNotFound) {
 		return empty, err
 	}
+	if err := validateAppointmentBookingWindow(cmd.ScheduledAt, time.Now()); err != nil {
+		return empty, err
+	}
 	var enabled, future bool
 	err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM branch_services WHERE branch_id=$1 AND service_id=$2), $3::timestamptz > clock_timestamp()`, b, s, scheduled).Scan(&enabled, &future)
 	if err != nil {
@@ -122,7 +136,7 @@ func (p *Postgres) CreateAppointment(ctx context.Context, cmd application.Create
 		}
 		cStr := fmt.Sprintf("%06d", codeNum)
 		confCode = &cStr
-		exp := time.Now().UTC().Add(15 * time.Minute)
+		exp := time.Now().UTC().Add(15 * time.Minute).Truncate(time.Microsecond)
 		confExpiresAt = &exp
 	}
 
@@ -365,7 +379,7 @@ func (p *Postgres) ResendAppointmentConfirmation(ctx context.Context, ticketID s
 	if err != nil {
 		return "", "", time.Time{}, err
 	}
-	if t.Status != domain.TicketStatusPendingConfirmation {
+	if t.Status != domain.TicketStatusPendingConfirmation || t.ConfirmationExpiresAt == nil || !t.ConfirmationExpiresAt.After(time.Now()) {
 		return "", "", time.Time{}, application.ErrInvalidState
 	}
 
@@ -378,9 +392,12 @@ func (p *Postgres) ResendAppointmentConfirmation(ctx context.Context, ticketID s
 		codeNum += 100000
 	}
 	code = fmt.Sprintf("%06d", codeNum)
-	expiresAt = time.Now().UTC().Add(15 * time.Minute)
+	if t.ConfirmationCode != nil && code == *t.ConfirmationCode {
+		code = fmt.Sprintf("%06d", (codeNum-100000+1)%900000+100000)
+	}
+	expiresAt = *t.ConfirmationExpiresAt
 
-	_, err = tx.Exec(ctx, `UPDATE tickets SET confirmation_token_hash=$1, confirmation_code=$2, confirmation_expires_at=$3 WHERE id=$4`, hash, code, expiresAt, id)
+	_, err = tx.Exec(ctx, `UPDATE tickets SET confirmation_token_hash=$1, confirmation_code=$2 WHERE id=$3`, hash, code, id)
 	if err != nil {
 		return "", "", time.Time{}, dbError(err)
 	}

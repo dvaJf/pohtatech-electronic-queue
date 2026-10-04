@@ -84,7 +84,7 @@ func TestDemoCatalogSeedIsIdempotentAndOperational(t *testing.T) {
 	if err := p.pool.QueryRow(ctx, `SELECT address FROM branches WHERE id=$1`, demoBranch).Scan(&originalAddress); err != nil {
 		t.Fatal(err)
 	}
-	if originalAddress != "г. Рязань, ул. Ленина, д. 20" {
+	if originalAddress != "г. Казань, ул. Кремлёвская, д. 8" {
 		t.Fatalf("original branch changed: %s", originalAddress)
 	}
 }

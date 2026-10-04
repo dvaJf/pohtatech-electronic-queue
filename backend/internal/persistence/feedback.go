@@ -59,17 +59,21 @@ func (p *Postgres) SubmitFeedback(ctx context.Context, ticketID string, rating i
 		return application.ErrInvalidState
 	}
 
-	// Upsert feedback and record branch_id
-	_, err = tx.Exec(ctx, `
+	// A completed visit accepts exactly one immutable review. Branch-only reviews
+	// keep ticket_id NULL and are not constrained by the partial unique index.
+	tag, err := tx.Exec(ctx, `
 		INSERT INTO ticket_feedback(ticket_id, branch_id, rating, comment)
 		VALUES($1, $2, $3, $4)
-		ON CONFLICT (ticket_id) DO UPDATE SET rating = EXCLUDED.rating, comment = EXCLUDED.comment
+		ON CONFLICT (ticket_id) WHERE ticket_id IS NOT NULL DO NOTHING
 	`, ticket, branchID, rating, cleanComment)
 	if err != nil {
 		if pgErr, ok := err.(interface{ SQLState() string }); ok && pgErr.SQLState() == "23505" {
 			return application.ErrIdempotencyConflict
 		}
 		return dbError(err)
+	}
+	if tag.RowsAffected() == 0 {
+		return application.ErrIdempotencyConflict
 	}
 	return dbError(tx.Commit(ctx))
 }

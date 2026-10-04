@@ -326,16 +326,21 @@ export async function testConfirmAppointment(
 export async function resendAppointmentConfirmation(
   ticketId: string,
   signal?: AbortSignal,
-): Promise<{ success: boolean; expiresAt: string }> {
+): Promise<{ ok: boolean; confirmationExpiresAt: string; success: boolean; expiresAt: string }> {
   return request(`/appointments/${encodeURIComponent(ticketId)}/resend-confirmation`, {
     method: 'POST',
     signal,
     headers: { 'Content-Type': 'application/json' },
   }, (val) => {
     if (!isRecord(val)) throw new ClientApiError('Некорректный ответ сервера');
+    const ok = Boolean(val.ok ?? val.success);
+    const exp = String(val.confirmationExpiresAt ?? val.expiresAt ?? '');
+    if (!ok || !exp) throw new ClientApiError('Некорректный ответ сервера');
     return {
-      success: Boolean(val.success),
-      expiresAt: String(val.expiresAt || ''),
+      ok: true,
+      confirmationExpiresAt: exp,
+      success: true,
+      expiresAt: exp,
     };
   });
 }

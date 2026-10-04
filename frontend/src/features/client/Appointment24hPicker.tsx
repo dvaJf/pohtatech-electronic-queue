@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Calendar, Clock, Check, AlertCircle, CalendarDays } from 'lucide-react';
+import { Calendar, Clock, Check, AlertCircle, CalendarDays, Info } from 'lucide-react';
 import Calendar14 from '@/components/ui/c-calendar-14';
 import { parseWorkHours, getMoscowTimeComponents } from '../../utils/workload';
 import { getBranchWeeklySchedule } from './map/branchSchedule';
+import { getBookingWindowMoscow, BOOKING_WINDOW_INFO_TEXT } from './calendar/bookingWindow';
 import type { BranchWorkload } from '../../api/client/clientApi';
 
 function moscowDateInput(date: Date): string {
@@ -252,26 +253,24 @@ export const Appointment24hPicker: React.FC<Appointment24hPickerProps> = ({
         </label>
       </div>
 
-      {/* Уведомление, если отделение сегодня закрыто */}
-      {!canBookToday && (
-        <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-center gap-2">
-          <Clock className="w-4 h-4 text-amber-600 shrink-0" />
-          <span>
-            Отделение сейчас закрыто. Запись доступна начиная со следующего рабочего дня:{' '}
-            <strong>{firstAvailableOffset === 1 ? 'завтра' : selectedDaySchedule?.dayFull.toLowerCase() ?? firstAvailableDateStr}</strong>.
-          </span>
+      {/* Единый информационный блок: статус работы отделения + окно записи */}
+      <div className="flex items-start sm:items-center gap-2.5 px-3.5 py-2.5 rounded-xl bg-blue-50/80 border border-blue-200/80 text-xs text-[#003B73] leading-relaxed">
+        <Info className="w-4 h-4 shrink-0 text-[#003B73] mt-0.5 sm:mt-0" />
+        <div className="flex-1">
+          {!canBookToday && (
+            <span>
+              Отделение сейчас закрыто. Запись доступна начиная со следующего рабочего дня:{' '}
+              <strong>{firstAvailableOffset === 1 ? 'завтра' : selectedDaySchedule?.dayFull.toLowerCase() ?? firstAvailableDateStr}</strong>.{' '}
+            </span>
+          )}
+          <span className="font-medium">{BOOKING_WINDOW_INFO_TEXT}</span>
+          {isSelectedDateDayOff && (
+            <div className="text-rose-700 font-semibold pt-1">
+              В выбранный день (<strong>{selectedDaySchedule?.dayFull}</strong>) отделение не работает (выходной). Пожалуйста, выберите рабочий день.
+            </div>
+          )}
         </div>
-      )}
-
-      {/* Уведомление, если выбран выходной день */}
-      {isSelectedDateDayOff && (
-        <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center gap-2 font-medium">
-          <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
-          <span>
-            В выбранный день (<strong>{selectedDaySchedule?.dayFull}</strong>) отделение не работает (выходной). Пожалуйста, выберите рабочий день.
-          </span>
-        </div>
-      )}
+      </div>
 
       {/* Выбор даты и слота времени в две колонки (15-минутные интервалы) */}
       <div className="w-full max-w-full min-w-0 rounded-3xl bg-white border border-slate-200/90 shadow-xs overflow-hidden">
@@ -288,6 +287,7 @@ export const Appointment24hPicker: React.FC<Appointment24hPickerProps> = ({
           allowedMinutes={allowedMinutes}
           timeSlots={calendarTimeSlots}
           minDate={canBookToday ? new Date() : new Date(Date.now() + 86400000)}
+          maxDate={getBookingWindowMoscow().maxDate}
         />
       </div>
 

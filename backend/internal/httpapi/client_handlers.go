@@ -237,6 +237,10 @@ func (a *API) CreateAppointment(w http.ResponseWriter, r *http.Request) {
 		NotificationPhone: strings.TrimSpace(req.Phone),
 	})
 	if err != nil {
+		if errors.Is(err, application.ErrAppointmentOutsideBookingWindow) {
+			writeJSONError(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "Запись доступна на ближайшие 14 дней.")
+			return
+		}
 		if errors.Is(err, application.ErrInvalidState) {
 			writeJSONError(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "scheduledAt must be in the future")
 			return
@@ -353,11 +357,12 @@ func (a *API) ConfirmAppointment1Click(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) TestConfirmAppointment(w http.ResponseWriter, r *http.Request) {
-	allowTest := strings.TrimSpace(os.Getenv("ALLOW_TEST_APPOINTMENT_CONFIRM")) == "true"
 	env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
 	isNonProd := env == "test" || env == "development" || env == "dev" || env == "local"
+	allowTest := strings.TrimSpace(os.Getenv("ALLOW_SPECIAL_DEV_FORCE_CONFIRM")) == "true" ||
+		strings.TrimSpace(os.Getenv("ALLOW_TEST_APPOINTMENT_CONFIRM")) == "true"
 
-	if !allowTest && !isNonProd {
+	if !isNonProd || !allowTest {
 		writeJSONError(w, r, http.StatusForbidden, "TEST_CONFIRM_DISABLED", "Тестовое подтверждение недоступно в данном окружении")
 		return
 	}
@@ -613,5 +618,4 @@ func (a *API) GetAdminReviews(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSONResponse(w, http.StatusOK, result)
 }
-
 

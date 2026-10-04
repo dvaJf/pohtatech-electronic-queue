@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -106,6 +107,30 @@ func TestCreateAppointment_Sprint2(t *testing.T) {
 			t.Fatalf("expected 409, got %d", w.Code)
 		}
 	})
+}
+
+func TestCreateAppointmentBookingWindowValidation(t *testing.T) {
+	uc := &FakeUseCases{
+		CreateAppointmentFunc: func(context.Context, application.CreateAppointmentCommand) (application.CreateAppointmentResult, error) {
+			return application.CreateAppointmentResult{}, fmt.Errorf("database details must not leak: %w", application.ErrAppointmentOutsideBookingWindow)
+		},
+	}
+	r := setupTest(uc)
+	body := `{"branchId":"b1","serviceId":"s1","scheduledAt":"2026-10-19T12:00:00+03:00"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/appointments", bytes.NewBufferString(body))
+	req.Header.Set("Idempotency-Key", "out-of-window")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+	var response ErrorResponse
+	if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Error.Code != "VALIDATION_ERROR" || response.Error.Message != "Запись доступна на ближайшие 14 дней." {
+		t.Fatalf("expected safe Russian booking-window validation, got %+v", response.Error)
+	}
 }
 
 func TestCancelAppointment_Sprint2(t *testing.T) {

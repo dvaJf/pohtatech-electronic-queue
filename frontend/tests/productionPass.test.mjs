@@ -2,16 +2,18 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import ts from 'typescript';
+import * as esbuild from 'esbuild';
 
 async function loadTS(relativePath) {
   const filePath = resolve(import.meta.dirname, relativePath);
-  const code = await readFile(filePath, 'utf8');
-  const transpiled = ts.transpileModule(code, {
-    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+  const result = esbuild.buildSync({
+    entryPoints: [filePath],
+    bundle: true,
+    format: 'esm',
+    write: false,
+    external: ['react', 'react-dom'],
   });
-  const dataUrl = `data:text/javascript;base64,${Buffer.from(transpiled.outputText).toString('base64')}`;
-  return import(dataUrl);
+  return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString('base64')}`);
 }
 
 test('Production Pass 1: Catalog contains at least 20 real Kazan branches + Innopolis 420500', async () => {
@@ -87,21 +89,7 @@ test('Production Pass 4: Invariant COUNT(isDefault) <= 1 guaranteed', async () =
   assert.match(liveBranchesSource, /export function resolveSingleDefaultBranchId/);
   assert.match(liveBranchesSource, /Guarantees invariant: at most ONE branch can be marked as default/);
 
-  // Transpile TypeScript source to CommonJS
-  const transpiled = ts.transpileModule(liveBranchesSource, {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-  });
-
-  const moduleScope = { exports: {} };
-  const fn = new Function('module', 'exports', 'require', transpiled.outputText);
-  fn(moduleScope, moduleScope.exports, (id) => {
-    if (id.includes('branchLocations')) {
-      return { MOSCOW_BRANCHES: [] };
-    }
-    return {};
-  });
-
-  const { resolveSingleDefaultBranchId } = moduleScope.exports;
+  const { resolveSingleDefaultBranchId } = await loadTS('../src/features/client/map/liveBranches.ts');
 
   const testBranches = [
     { id: '11111111-1111-1111-1111-111111111111', name: 'Главпочтамт', address: 'г. Казань, ул. Кремлёвская, д. 8' },

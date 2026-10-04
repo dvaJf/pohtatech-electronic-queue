@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Mail, Clock, ShieldCheck, RefreshCw, AlertCircle, CheckCircle2, XCircle, Bug } from 'lucide-react';
 import type { Ticket, Branch } from '../../api/client/types';
 import * as api from '../../api/client/clientApi';
+import { isForceConfirmVisible } from './appointmentConfirmationPolicy';
 
 export interface AppointmentConfirmationCardProps {
   ticket: Ticket;
@@ -34,12 +35,11 @@ export function AppointmentConfirmationCard({
   const [resendNotice, setResendNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // DEV/TEST feature flag guard:
-  // In production builds, this is strictly false unless explicitly overridden by env.
-  const isTestConfirmAllowed =
-    import.meta.env.VITE_ALLOW_TEST_APPOINTMENT_CONFIRM === 'true' ||
-    import.meta.env.MODE === 'test' ||
-    import.meta.env.DEV;
+  const isTestConfirmAllowed = isForceConfirmVisible({
+    explicitFlag: import.meta.env.VITE_ALLOW_SPECIAL_DEV_FORCE_CONFIRM || import.meta.env.VITE_ALLOW_TEST_APPOINTMENT_CONFIRM,
+    mode: import.meta.env.MODE,
+    isDev: import.meta.env.DEV,
+  });
 
   // Expiration calculation: 15 minutes from createdAt or confirmationExpiresAt
   const expiresAtMs = ticket.confirmationExpiresAt
@@ -374,15 +374,15 @@ export function AppointmentConfirmationCard({
         </div>
       </div>
 
-      {/* DEV / TEST ONLY Guarded Block */}
+      {/* Intentionally enabled emergency confirmation block. */}
       {isTestConfirmAllowed && (
         <div className="pt-3 border-t-2 border-dashed border-amber-300/80 bg-amber-50/60 p-3 rounded-2xl text-center space-y-2">
           <div className="inline-flex items-center gap-1 text-[10px] font-mono font-bold uppercase tracking-wider text-amber-800">
             <Bug size={12} />
-            <span>DEV / TEST ONLY</span>
+            <span>СПЕЦИАЛЬНОЕ ПОДТВЕРЖДЕНИЕ</span>
           </div>
           <p className="text-[11px] text-amber-900 leading-tight">
-            Окружение для тестирования: если почтовый сервис недоступен, можно подтвердить запись напрямую.
+            Если письмо не доставлено, запись можно принудительно подтвердить напрямую.
           </p>
           <button
             type="button"

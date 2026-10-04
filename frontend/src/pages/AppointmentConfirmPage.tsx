@@ -87,16 +87,27 @@ export function AppointmentConfirmPage() {
 
   const persistTicketToStorage = (t: Ticket) => {
     try {
-      const scope = 'anonymous';
-      const key = `client.tickets:${scope}`;
-      const raw = localStorage.getItem(key) || sessionStorage.getItem(key) || '[]';
-      const parsed = JSON.parse(raw);
-      const list = Array.isArray(parsed) ? parsed : [];
-      if (!list.includes(t.id)) {
-        list.push(t.id);
-        const serialized = JSON.stringify(list);
-        localStorage.setItem(key, serialized);
-        sessionStorage.setItem(key, serialized);
+      const scopes = ['anon', 'anonymous'];
+      for (const scope of scopes) {
+        const key = `client.tickets:${scope}`;
+        const raw = localStorage.getItem(key) || sessionStorage.getItem(key) || '[]';
+        const parsed = JSON.parse(raw);
+        const list = Array.isArray(parsed) ? parsed : [];
+        if (!list.includes(t.id)) {
+          list.push(t.id);
+          const serialized = JSON.stringify(list);
+          localStorage.setItem(key, serialized);
+          sessionStorage.setItem(key, serialized);
+        }
+        if (t.managementToken) {
+          const mgmtKey = `client_management_tokens:${scope}`;
+          const mgmtRaw = localStorage.getItem(mgmtKey) || sessionStorage.getItem(mgmtKey) || '{}';
+          const mgmtMap = JSON.parse(mgmtRaw) || {};
+          mgmtMap[t.id] = t.managementToken;
+          const serializedMgmt = JSON.stringify(mgmtMap);
+          localStorage.setItem(mgmtKey, serializedMgmt);
+          sessionStorage.setItem(mgmtKey, serializedMgmt);
+        }
       }
     } catch {}
   };
@@ -179,7 +190,7 @@ export function AppointmentConfirmPage() {
           <div className="flex flex-col sm:flex-row gap-3 pt-2">
             <button
               type="button"
-              onClick={() => navigateTo('/')}
+              onClick={() => navigateTo('/?action=my')}
               className="flex-1 min-h-[48px] py-3 bg-[#003B73] hover:bg-[#054FA6] active:bg-[#00274D] text-white rounded-xl font-bold text-xs uppercase tracking-wider transition-all shadow-md flex items-center justify-center gap-2"
             >
               <span>Перейти к талону</span>

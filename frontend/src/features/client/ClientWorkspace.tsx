@@ -3051,6 +3051,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                         return (
                           <Timeline8
                             currentStep={getTicketTimelineStep(ticket.status, isTicketArrived)}
+                            status={ticket.status}
                             items={[
                               { id: 1, title: 'Выдан', description: position?.position ? `${position.position} в очереди` : 'Талон выдан' },
                               { id: 2, title: 'Приглашение к окну', description: isCalledOrServing && ticket.window?.number ? `Окно №${ticket.window.number}` : (isTicketArrived && ticket.status === 'SCHEDULED' ? 'Ожидание вызова' : 'Приглашение') },

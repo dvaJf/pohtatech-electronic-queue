@@ -22,6 +22,7 @@ export interface Timeline8Props {
   currentStep?: number;
   className?: string;
   orientation?: "horizontal" | "vertical";
+  status?: string;
 }
 
 const DEFAULT_RELEASE_CYCLE: TimelineStepItem[] = [
@@ -62,10 +63,12 @@ export function Pattern({
   currentStep = 2,
   className = "w-full max-w-xl",
   orientation = "horizontal",
+  status,
 }: Timeline8Props = {}) {
   return (
     <Timeline
       value={currentStep}
+      status={status}
       orientation={orientation}
       className={className}
     >

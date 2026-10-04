@@ -73,6 +73,7 @@ export function ActiveTicketHero({
       <div className="mt-3 pt-3 border-t border-slate-200/60 w-full overflow-x-auto">
         <Timeline8
           currentStep={getTicketTimelineStep(ticket.status, isArrived)}
+          status={ticket.status}
           items={[
             { id: 1, title: 'Выдан', description: peopleAhead !== null && peopleAhead > 0 ? `${peopleAhead} в очереди` : 'Талон выдан' },
             { id: 2, title: 'Приглашение к окну', description: isCalledOrServing && windowNumber ? `Окно №${windowNumber}` : (isArrived && ticket.status === 'SCHEDULED' ? 'Ожидание вызова' : 'Приглашение') },

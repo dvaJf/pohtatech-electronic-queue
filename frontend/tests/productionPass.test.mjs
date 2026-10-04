@@ -219,13 +219,23 @@ test('Production Pass 8: Ticket timeline steps on Home and My Tickets are synchr
   assert.match(clientWorkspaceSource, /isTicketArrived\s*&&\s*ticket\.status\s*===\s*'SCHEDULED'\s*\?\s*'Ожидание вызова'\s*:\s*'Приглашение'/);
 });
 
-test('Production Pass 9: Timeline stripe reaches active step and visit rating supports token lookup with review fallback', async () => {
+test('Production Pass 9: Timeline stripe lights first half when called and second half when serving, preserving circle text', async () => {
   const timelineSource = await readFile(new URL('../src/components/ui/c-timeline-8-utils/timeline.tsx', import.meta.url), 'utf8');
   const ratingSheetSource = await readFile(new URL('../src/features/client/rating/VisitRatingSheet.tsx', import.meta.url), 'utf8');
   const clientWorkspaceSource = await readFile(new URL('../src/features/client/ClientWorkspace.tsx', import.meta.url), 'utf8');
+  const activeTicketHeroSource = await readFile(new URL('../src/features/client/home/ActiveTicketHero.tsx', import.meta.url), 'utf8');
 
-  // TimelineSeparator incoming line is colored for current step, bringing stripe to active circle
-  assert.match(timelineSource, /group-data-\[state=current\]:bg-\[#003B73\]/);
+  // TimelineSeparator: first half lights on CALLED / SERVING / COMPLETED; second half lights on SERVING / COMPLETED
+  assert.match(timelineSource, /status === 'CALLED' \|\| status === 'SERVING' \|\| status === 'COMPLETED'/);
+  assert.match(timelineSource, /isLeftActive = status === 'SERVING' \|\| status === 'COMPLETED'/);
+
+  // Both views pass status={ticket.status} to Timeline8
+  assert.match(activeTicketHeroSource, /status=\{ticket\.status\}/);
+  assert.match(clientWorkspaceSource, /status=\{ticket\.status\}/);
+
+  // Circle 2 text remains 'Приглашение к окну'
+  assert.match(activeTicketHeroSource, /title:\s*'Приглашение к окну'/);
+  assert.match(clientWorkspaceSource, /title:\s*'Приглашение к окну'/);
 
   // VisitRatingSheet has isSubmitting handling
   assert.match(ratingSheetSource, /isSubmitting/);

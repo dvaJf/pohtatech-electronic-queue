@@ -131,7 +131,7 @@ export function BranchWorkloadCard({
         {feasibility.status === 'CLOSED' && (
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 text-slate-600 font-semibold border border-slate-200">
             <Clock className="w-3.5 h-3.5 text-slate-400" />
-            <span>Закрыто</span>
+            <span>Отделение сейчас закрыто</span>
           </span>
         )}
         {feasibility.status === 'NO_DATA' && (

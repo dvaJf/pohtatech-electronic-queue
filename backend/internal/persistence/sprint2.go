@@ -225,7 +225,17 @@ func (p *Postgres) ConfirmAppointment(ctx context.Context, ticketID, tokenOrCode
 		return empty, application.ErrInvalidState
 	}
 
+	var idempotencyKey string
+	_ = tx.QueryRow(ctx, `SELECT COALESCE(idempotency_key, '') FROM tickets WHERE id=$1`, id).Scan(&idempotencyKey)
+	attachToken := func() {
+		if idempotencyKey != "" {
+			rawToken, _ := DeterministicManagementToken(idempotencyKey)
+			t.ManagementToken = &rawToken
+		}
+	}
+
 	if t.Status == domain.TicketStatusScheduled {
+		attachToken()
 		return appointmentView(t), nil
 	}
 	if t.Status != domain.TicketStatusPendingConfirmation {
@@ -297,6 +307,7 @@ func (p *Postgres) ConfirmAppointment(ctx context.Context, ticketID, tokenOrCode
 	if err = tx.Commit(ctx); err != nil {
 		return empty, dbError(err)
 	}
+	attachToken()
 	return appointmentView(t), nil
 }
 
@@ -319,7 +330,18 @@ func (p *Postgres) ForceConfirmPendingAppointment(ctx context.Context, ticketID 
 	if t.Source != domain.TicketSourceAppointment {
 		return empty, application.ErrInvalidState
 	}
+
+	var idempotencyKey string
+	_ = tx.QueryRow(ctx, `SELECT COALESCE(idempotency_key, '') FROM tickets WHERE id=$1`, id).Scan(&idempotencyKey)
+	attachToken := func() {
+		if idempotencyKey != "" {
+			rawToken, _ := DeterministicManagementToken(idempotencyKey)
+			t.ManagementToken = &rawToken
+		}
+	}
+
 	if t.Status == domain.TicketStatusScheduled {
+		attachToken()
 		return appointmentView(t), nil
 	}
 	if t.Status != domain.TicketStatusPendingConfirmation {
@@ -361,6 +383,7 @@ func (p *Postgres) ForceConfirmPendingAppointment(ctx context.Context, ticketID 
 	if err = tx.Commit(ctx); err != nil {
 		return empty, dbError(err)
 	}
+	attachToken()
 	return appointmentView(t), nil
 }
 

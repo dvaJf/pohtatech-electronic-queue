@@ -216,9 +216,9 @@ git commit -m "chore(gitops): deploy${UPDATED_SERVICES} [skip ci]"
 
 # Push в gitops ветку
 if [[ -n "${GITOPS_PUSH_URL}" ]]; then
-  git push "${GITOPS_PUSH_URL}" "HEAD:${GITOPS_BRANCH}"
+  git push "${GITOPS_PUSH_URL}" "HEAD:${GITOPS_BRANCH}" --force
 else
-  git push origin "HEAD:${GITOPS_BRANCH}"
+  git push origin "HEAD:${GITOPS_BRANCH}" --force
 fi
 
 ok "GitOps commit pushed to ${GITOPS_BRANCH} → ArgoCD will sync"

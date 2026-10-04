@@ -2455,7 +2455,16 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
             }}
             onOpenRoute={(branch, saved) => { setRouteOfferBranch(branch as RankedBranch); setRouteOfferTimeSaved(saved); }}
             onOpenMap={() => handleOpenMap()}
-            onBook={branch => { handleBranchSelect(branch); setScreen('booking'); setBookingStep(1); }}
+            onBook={branch => {
+              if (branch) {
+                handleBranchSelect(branch);
+                setScreen('booking');
+                setBookingStep(1);
+              } else {
+                setScreen('booking');
+                setBookingStep(0);
+              }
+            }}
           />}
         />
 
@@ -3478,6 +3487,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
 
       {/* Accessible OTP Confirmation Dialog for appointments */}
       <AppointmentConfirmationDialog
+        key={pendingAppointmentTicket?.id || 'none'}
         open={isConfirmationDialogOpen}
         ticket={pendingAppointmentTicket}
         branch={branches.find(b => b.id === pendingAppointmentTicket?.branchId)}

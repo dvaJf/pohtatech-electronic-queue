@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { MapPinOff, Navigation, Ticket as TicketIcon, Clock, RefreshCw, Calendar, AlertCircle } from 'lucide-react';
+import { MapPinOff, Navigation, Ticket as TicketIcon, Clock, RefreshCw, Calendar, MapPin } from 'lucide-react';
 import { StreetsNavigationIcon } from '@solar-icons/react/linear';
 import type { Branch, Service } from '../../../api/client/types';
 import type { GeoCoordinates, GeofenceSimulationMode, GpsPermissionState } from '../arrival/useGeofencing';
@@ -173,79 +173,37 @@ export function SmartRouteHero({
         </section>
       )}
 
-      {!fastest && closestBranch && !isRouteDataPending && (
-        <section role="region" aria-label="Умный маршрут — риск не успеть" className="rounded-2xl border border-amber-300 bg-amber-50/40 p-4 shadow-[0_4px_14px_rgb(217_119_6_/_8%)] sm:p-5">
-          <div className="min-w-0">
-            <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
-              <p className="cx-route-symbol flex items-center gap-2 text-xs font-semibold text-amber-900">
-                <StreetsNavigationIcon className="h-5 w-5 text-amber-700" aria-hidden="true" />
-                Умный маршрут
+      {hasReliableGpsFix && !fastest && !isRouteDataPending && !isRouteDataUnavailable && (routingBranches.length === 0 || hasNoReachableBranch) && (
+        <section role="region" aria-label="Отделения закрыты или вы не успеете" className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_4px_14px_rgb(13_37_61_/_5%)] sm:p-5">
+          <div className="flex items-start gap-3.5">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-blue-50 text-[#003B73]">
+              <Clock size={22} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <h2 className="text-base font-semibold text-slate-950">
+                Отделения закрыты или вы не успеете
+              </h2>
+              <p className="mt-1 text-sm text-slate-600 leading-relaxed">
+                С учётом дороги и очереди сегодня обслужиться не выйдет. Запишитесь онлайн на завтра или откройте карту отделений.
               </p>
-              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300">
-                <Clock className="w-3.5 h-3.5" />
-                Не успеем до закрытия
-              </span>
-            </div>
-            <h2 className="text-lg font-semibold leading-snug text-slate-950">{closestBranch.name}</h2>
-            <p className="mt-1 text-sm text-slate-600">{closestBranch.address}</p>
-
-            <div className="mt-3 flex items-start gap-2 text-xs font-medium text-amber-900 bg-amber-100/80 rounded-xl p-3 border border-amber-200/90 leading-relaxed">
-              <AlertCircle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" aria-hidden="true" />
-              <span>
-                <strong>{closestBranchWalkInCheck?.reason || 'С учётом дороги и очереди вы не успеете до окончания обслуживания.'}</strong> Рекомендуем предварительно записаться онлайн на удобную дату и время.
-              </span>
-            </div>
-          </div>
-
-          <div className="cx-route-flow mx-auto mt-6 max-w-[760px]">
-            <div className="grid grid-cols-3 text-center">
-              <div className="cx-route-metric cx-route-metric-travel">
-                <strong className="block text-xl font-semibold leading-none tabular-nums text-slate-950 sm:text-2xl">{Math.round(closestBranch.travelMinutes)} мин</strong>
-                <span className="mt-2 block text-xs font-medium text-slate-600">Дорога</span>
+              <div className="mt-4 flex flex-col sm:flex-row flex-wrap gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => onBook('')}
+                  className="flex min-h-11 w-full sm:w-auto items-center justify-center gap-2 rounded-lg bg-[#003B73] px-4 text-sm font-semibold text-white transition-colors hover:bg-[#00519B] active:bg-[#002C57]"
+                >
+                  <Calendar size={16} />
+                  <span>Записаться на завтра</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={onOpenMap}
+                  className="flex min-h-11 w-full sm:w-auto items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 active:bg-slate-100"
+                >
+                  <MapPin size={16} />
+                  <span>Карта отделений</span>
+                </button>
               </div>
-              <div className="cx-route-metric cx-route-metric-queue">
-                <strong className="block text-xl font-semibold leading-none tabular-nums text-slate-950 sm:text-2xl">{Math.round(closestBranch.waitMinutes)} мин</strong>
-                <span className="mt-2 block text-xs font-medium text-slate-600">В очереди</span>
-              </div>
-              <div className="cx-route-metric cx-route-metric-total">
-                <strong className="block text-xl font-bold leading-none tabular-nums tracking-[-0.02em] text-amber-800 sm:text-2xl">Не успеем</strong>
-                <span className="mt-2 block text-xs font-semibold text-amber-800">До закрытия</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="cx-route-actions mt-6 flex flex-wrap items-center gap-2.5 sm:gap-3">
-            <button
-              type="button"
-              onClick={() => onBook(closestBranch.id)}
-              className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-[#003B73] px-5 text-sm font-semibold text-white transition-colors hover:bg-[#00519B] active:bg-[#002C57] sm:w-auto"
-            >
-              <Calendar className="w-4 h-4" />
-              Записаться онлайн на завтра
-            </button>
-            <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto">
-              <button
-                type="button"
-                onClick={() => onOpenRoute({
-                  id: closestBranch.id,
-                  name: closestBranch.name,
-                  address: closestBranch.address,
-                  totalMinutes: closestBranch.travelMinutes + closestBranch.waitMinutes,
-                  travelMinutes: closestBranch.travelMinutes,
-                  waitMinutes: closestBranch.waitMinutes,
-                }, 0)}
-                className="min-h-11 flex-1 rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 hover:text-[#003B73] sm:flex-none"
-              >
-                <Navigation size={16} className="mr-1 inline" />
-                Маршрут
-              </button>
-              <button
-                type="button"
-                onClick={onOpenMap}
-                className="min-h-11 flex-1 rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 sm:flex-none"
-              >
-                Все отделения на карте
-              </button>
             </div>
           </div>
         </section>

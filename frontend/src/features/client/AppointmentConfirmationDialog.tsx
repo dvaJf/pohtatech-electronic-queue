@@ -100,14 +100,24 @@ export function AppointmentConfirmationDialog({
         successTimeoutRef.current = null;
       }
       setCode('');
+      setSubmitting(false);
+      setResending(false);
+      setResendCooldown(0);
       setError(null);
       setResendNotice(null);
       setIsConfirmedSuccess(false);
       setShowAbortPrompt(false);
       submittingRef.current = false;
       successHandledRef.current = false;
+      setExpiresAt(ticket?.confirmationExpiresAt || null);
+    } else {
+      setSubmitting(false);
+      setIsConfirmedSuccess(false);
+      setShowAbortPrompt(false);
+      submittingRef.current = false;
+      successHandledRef.current = false;
     }
-  }, [open, ticket?.id]);
+  }, [open, ticket?.id, ticket?.confirmationExpiresAt]);
 
   const finishConfirmation = useCallback((confirmedTicket: Ticket) => {
     if (successHandledRef.current) return;

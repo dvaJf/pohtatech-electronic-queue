@@ -31,10 +31,13 @@ const InputOTP = React.forwardRef<HTMLInputElement, InputOTPProps>(
     React.useImperativeHandle(ref, () => inputRef.current as HTMLInputElement)
 
     React.useEffect(() => {
-      if (autoFocus && inputRef.current) {
-        inputRef.current.focus()
+      if (autoFocus && !disabled && inputRef.current) {
+        const t = setTimeout(() => {
+          inputRef.current?.focus()
+        }, 50)
+        return () => clearTimeout(t)
       }
-    }, [autoFocus])
+    }, [autoFocus, disabled])
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       const raw = e.target.value.replace(/\D/g, "").slice(0, maxLength)

@@ -41,6 +41,15 @@ export async function mountMap(t, viewport = { width: 1280, height: 900 }) {
   await page.goto(`${process.env.MAP_BROWSER_URL}/__map_test`);
   await page.evaluate(() => import('/tests/mapFixture.tsx'));
   const render = async props => { await page.evaluate(next => window.__renderMap(next), props); await page.waitForTimeout(80); };
-  const open = async props => { await page.locator('#opener').focus(); await render({ isOpen: true, ...props }); await page.getByRole('dialog').waitFor(); await page.waitForFunction(() => window.__maps.length > 0); };
+  const open = async props => {
+    await page.locator('#opener').focus();
+    await render({ isOpen: true, ...props });
+    try {
+      await page.getByRole('dialog').waitFor();
+      await page.waitForFunction(() => window.__maps.length > 0);
+    } catch (error) {
+      throw new Error(`Map fixture did not open: ${errors.join(' | ') || 'no browser error captured'}`, { cause: error });
+    }
+  };
   return { page, render, open };
 }

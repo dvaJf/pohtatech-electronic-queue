@@ -94,9 +94,10 @@ export function calculatePersonalRouting(
   branches: BranchLocation[],
   hasReliableGpsFix: boolean,
   simulationMode: string,
+  referenceDate = new Date(),
 ) {
   if (!hasReliableGpsFix || simulationMode !== 'real_gps') return { rankedBranches: [] };
-  return calculateSmartRouting(coordinates.lat, coordinates.lng, branches);
+  return calculateSmartRouting(coordinates.lat, coordinates.lng, branches, undefined, referenceDate);
 }
 
 /** The public services endpoint returns the services enabled for that branch. */
@@ -178,4 +179,3 @@ export function matchesUserDefaultBranch(
 
   return false;
 }
-

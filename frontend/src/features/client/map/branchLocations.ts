@@ -1665,14 +1665,24 @@ export function calculateSmartRouting(
 
     const distanceKm = calculateHaversineDistance(userLat, userLng, b.lat, b.lng);
     const travelMinutes = calculateTravelTimeMinutes(distanceKm);
+    const waitMinutes = calculateWaitTime(b, serviceCategory);
     if (referenceDate) {
-      const walkInCheck = isBranchEligibleForWalkIn(b, undefined, travelMinutes, referenceDate);
+      const walkInCheck = isBranchEligibleForWalkIn(b, {
+        branchId: b.id,
+        currentWaiting: b.activeQueueCount,
+        activeWindows: b.activeWindows,
+        estimatedWaitSeconds: Math.round(waitMinutes * 60),
+        calculatedAt: referenceDate.toISOString(),
+        currentHour: referenceDate.getHours(),
+        sampleCount: 0,
+        isHistorical: false,
+        hourly: [],
+      }, travelMinutes, referenceDate);
       if (!walkInCheck.eligible) return [];
     } else if (b.isShiftClosed) {
       return [];
     }
 
-    const waitMinutes = calculateWaitTime(b, serviceCategory);
     const totalMinutes = calculateBranchTotalTime(travelMinutes, waitMinutes);
     if (totalMinutes === undefined) return [];
 

@@ -21,6 +21,32 @@ test('map locate delegates to the shared parent location stream', { skip: !brows
   assert.equal(await page.evaluate(() => window.__geoRequests), 0);
 });
 
+test('left branch list is ordered nearest to farthest from the real user coordinate', { skip: !browserEnabled }, async t => {
+  const { page, open } = await mountMap(t);
+  await open({ userCoordinates: [55.763253, 37.624975] });
+  const names = await page.locator('.md\\:w-\\[35\\%\\] button').evaluateAll(buttons =>
+    buttons.map(button => button.textContent || '').filter(text => text.includes('отделение')),
+  );
+  const firstIndex = names.findIndex(text => text.includes('Первое отделение'));
+  const secondIndex = names.findIndex(text => text.includes('Второе отделение'));
+  assert.ok(secondIndex >= 0 && firstIndex >= 0, 'both branches must be present in the left list');
+  assert.ok(secondIndex < firstIndex, 'the branch nearest to the user must be listed first');
+});
+
+test('map filter can hide closed branches from the list and map candidates', { skip: !browserEnabled }, async t => {
+  const { page, open } = await mountMap(t);
+  const closedWorkload = id => ({
+    branchId: id, currentHour: 12, currentWaiting: 0, activeWindows: 0,
+    estimatedWaitSeconds: 0, calculatedAt: new Date().toISOString(),
+    sampleCount: 1, isHistorical: false, hourly: [],
+  });
+  await open({ workloads: { A: closedWorkload('A'), B: closedWorkload('B') } });
+  await page.getByRole('button', { name: 'Скрыть закрытые', exact: true }).first().click();
+  await page.getByText('По вашему запросу отделений не найдено', { exact: true }).first().waitFor();
+  const leftText = await page.locator('.md\\:w-\\[35\\%\\]').innerText();
+  assert.doesNotMatch(leftText, /Первое отделение|Второе отделение/);
+});
+
 test('reopening applies requested filters and clears old search and selected branch', { skip: !browserEnabled }, async t => {
   const { page, open, render } = await mountMap(t);
   await open({ selectedBranchId: 'A' });
@@ -354,4 +380,3 @@ test('BranchMapModal shows Yandex Maps rating with recognizable YandexIcon to th
   const branchCardPattern = /YandexIcon[\s\S]*?yRating\.toFixed\(2\)[\s\S]*?<Star[\s\S]*?branch\.rating/;
   assert.match(modal, branchCardPattern, 'Yandex rating with YandexIcon must appear to the left of the site star rating');
 });
-

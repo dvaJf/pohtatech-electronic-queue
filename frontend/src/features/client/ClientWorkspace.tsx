@@ -3216,12 +3216,15 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
               <div className="space-y-4">
                 {visibleTickets.map(ticket => {
                   const position = positions[ticket.id];
-                  const appointment = appointments[ticket.id];
+                  const isArrived = Boolean(ticket.arrivedAt || arrivalAcknowledgedTicketIds.has(ticket.id));
+                  const appointment = appointments[ticket.id] || (ticket.source === 'APPOINTMENT' ? { ticket, scheduledAt: ticket.queueEnteredAt } : undefined);
                   const branch = branches.find(b => b.id === ticket.branchId);
                   const eta = etas[ticket.id];
                   const managementToken = findMgmtToken(ticket.id, ownerScope) || getSavedMgmtTokens(ownerScope)[ticket.id] || ticket.managementToken || undefined;
                   const canExportAppointmentCalendar = ticket.source === 'APPOINTMENT'
-                    && appointment
+                    && ticket.status === 'SCHEDULED'
+                    && !isArrived
+                    && Boolean(appointment)
                     && isAppointmentCalendarEventAvailable(appointment, branch);
 
                   return (
@@ -3487,6 +3490,13 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
             saveMgmtToken(confirmedTicket.id, mgmtToken, ownerScope);
           }
           setTickets(prev => [confirmedTicket, ...prev.filter(t => t.id !== confirmedTicket.id)]);
+          setAppointments(prev => ({
+            ...prev,
+            [confirmedTicket.id]: {
+              ticket: confirmedTicket,
+              scheduledAt: confirmedTicket.queueEnteredAt || (confirmedTicket as any).scheduledAt || new Date().toISOString(),
+            },
+          }));
           setIsConfirmationDialogOpen(false);
           setPendingAppointmentTicket(null);
           setNotice('Запись успешно подтверждена!');

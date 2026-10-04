@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -272,7 +273,15 @@ func (a *API) CreateAppointment(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		scheduledStr := result.Appointment.ScheduledAt.Format("02.01.2006 15:04")
-		_ = a.mailer.SendAppointmentVerificationEmail(r.Context(), email, result.Appointment.Ticket.ID, result.Appointment.Ticket.PublicNumber, scheduledStr, result.Appointment.Ticket.ServiceName, branchName, branchAddress, rawCode, rawToken, "")
+		go func(to, id, num, sched, svc, brName, brAddr, code, tok string) {
+			ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+			defer cancel()
+			if err := a.mailer.SendAppointmentVerificationEmail(ctx, to, id, num, sched, svc, brName, brAddr, code, tok, ""); err != nil {
+				slog.Error("failed to send appointment verification email", "ticketId", id, "to", to, "err", err)
+			} else {
+				slog.Info("appointment verification email sent successfully", "ticketId", id, "to", to)
+			}
+		}(email, result.Appointment.Ticket.ID, result.Appointment.Ticket.PublicNumber, scheduledStr, result.Appointment.Ticket.ServiceName, branchName, branchAddress, rawCode, rawToken)
 	}
 
 	status := http.StatusCreated
@@ -362,12 +371,10 @@ func (a *API) ConfirmAppointment1Click(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) TestConfirmAppointment(w http.ResponseWriter, r *http.Request) {
-	env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
-	isNonProd := env == "test" || env == "development" || env == "dev" || env == "local"
 	allowTest := strings.TrimSpace(os.Getenv("ALLOW_SPECIAL_DEV_FORCE_CONFIRM")) == "true" ||
 		strings.TrimSpace(os.Getenv("ALLOW_TEST_APPOINTMENT_CONFIRM")) == "true"
 
-	if !isNonProd || !allowTest {
+	if !allowTest {
 		writeJSONError(w, r, http.StatusForbidden, "TEST_CONFIRM_DISABLED", "Тестовое подтверждение недоступно в данном окружении")
 		return
 	}
@@ -421,7 +428,9 @@ func (a *API) ResendAppointmentConfirmation(w http.ResponseWriter, r *http.Reque
 		if ticket.ScheduledAt != nil {
 			scheduledStr = ticket.ScheduledAt.Format("02.01.2006 15:04")
 		}
-		mailErr = a.mailer.SendAppointmentVerificationEmail(r.Context(), *ticket.NotificationEmail, ticket.ID, ticket.PublicNumber, scheduledStr, ticket.ServiceName, branchName, branchAddress, code, token, "")
+		mailCtx, mailCancel := context.WithTimeout(context.Background(), 25*time.Second)
+		defer mailCancel()
+		mailErr = a.mailer.SendAppointmentVerificationEmail(mailCtx, *ticket.NotificationEmail, ticket.ID, ticket.PublicNumber, scheduledStr, ticket.ServiceName, branchName, branchAddress, code, token, "")
 	}
 
 	if mailErr != nil {

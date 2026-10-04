@@ -1,4 +1,4 @@
-import { CheckCircle2, Clock, MapPin, Navigation, Ticket as TicketIcon, Users } from 'lucide-react';
+import { CheckCircle2, Clock, Loader2, MapPin, Navigation, Ticket as TicketIcon, Users } from 'lucide-react';
 import Timeline8 from '@/components/ui/c-timeline-8';
 import type { Branch, QueuePosition, Ticket, TicketETA } from '../../../api/client/types';
 import { getActiveTicketPresentation } from './activeTicketPresentation';
@@ -99,5 +99,31 @@ export function ActiveTicketHero({
 }
 
 export function HomeHeroSkeleton() {
-  return <div aria-label="Загружаем активный талон" role="status" className="min-h-[270px] animate-pulse rounded-2xl border border-slate-200 bg-slate-50/80 p-4 sm:min-h-[230px] sm:p-5"><div className="h-5 w-32 rounded-full bg-slate-200" /><div className="mt-4 h-9 w-48 rounded-xl bg-slate-200" /><div className="mt-5 grid grid-cols-2 gap-3"><div className="h-16 rounded-xl bg-slate-200" /><div className="h-16 rounded-xl bg-slate-200" /></div><div className="mt-4 h-12 rounded-xl bg-slate-200" /></div>;
+  return (
+    <section
+      role="status"
+      aria-live="polite"
+      aria-label="Обновляем данные для главной карточки"
+      className="min-h-[230px] rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_4px_14px_rgb(13_37_61_/_5%)] sm:p-5"
+    >
+      <div className="flex items-start gap-3">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-[#003B73]">
+          <Loader2 size={20} className="animate-spin" aria-hidden="true" />
+        </div>
+        <div className="min-w-0">
+          <p className="text-xs font-semibold text-[#003B73]">Умный маршрут</p>
+          <h2 className="mt-1 text-base font-semibold text-slate-950">Подбираем лучшее отделение…</h2>
+          <p className="mt-1 text-sm text-slate-600">Проверяем ваши талоны, дорогу и актуальную очередь.</p>
+        </div>
+      </div>
+      <div className="mt-7 grid grid-cols-3 gap-3" aria-hidden="true">
+        {[0, 1, 2].map(item => (
+          <div key={item} className="space-y-2 text-center">
+            <div className="mx-auto h-7 w-16 animate-pulse rounded-md bg-slate-200" />
+            <div className="mx-auto h-3 w-12 animate-pulse rounded bg-slate-100" />
+          </div>
+        ))}
+      </div>
+    </section>
+  );
 }

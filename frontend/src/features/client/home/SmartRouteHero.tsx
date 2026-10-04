@@ -7,6 +7,7 @@ import { calculatePersonalRouting, recommendationActions, matchBranchLocation, l
 import { MOSCOW_BRANCHES } from '../map/branchLocations';
 import { useBranchWorkloads } from '../map/useBranchWorkloads';
 import { isBranchEligibleForWalkIn } from '../map/branchSchedule';
+import { HomeHeroSkeleton } from './ActiveTicketHero';
 
 type RouteBranch = { id: string; name: string; address: string; totalMinutes: number; travelMinutes: number; waitMinutes: number };
 
@@ -106,31 +107,7 @@ export function SmartRouteHero({
       )}
 
       {isRouteDataPending && (
-        <section
-          role="status"
-          aria-live="polite"
-          aria-label="Подбираем умный маршрут"
-          className="min-h-[220px] rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_4px_14px_rgb(13_37_61_/_5%)] sm:p-5"
-        >
-          <div className="flex items-start gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-[#003B73]">
-              <Loader2 size={20} className="animate-spin" aria-hidden="true" />
-            </div>
-            <div className="min-w-0">
-              <p className="text-xs font-semibold text-[#003B73]">Умный маршрут</p>
-              <h2 className="mt-1 text-base font-semibold text-slate-950">Подбираем лучшее отделение…</h2>
-              <p className="mt-1 text-sm text-slate-600">Проверяем дорогу и актуальную очередь. Рекомендация появится здесь.</p>
-            </div>
-          </div>
-          <div className="mt-7 grid grid-cols-3 gap-3" aria-hidden="true">
-            {[0, 1, 2].map(item => (
-              <div key={item} className="space-y-2 text-center">
-                <div className="mx-auto h-7 w-16 animate-pulse rounded-md bg-slate-200" />
-                <div className="mx-auto h-3 w-12 animate-pulse rounded bg-slate-100" />
-              </div>
-            ))}
-          </div>
-        </section>
+        <HomeHeroSkeleton />
       )}
 
       {hasReliableGpsFix && !fastest && !isRouteDataPending && routingBranches.length === 0 && (

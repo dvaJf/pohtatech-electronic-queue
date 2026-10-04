@@ -245,3 +245,27 @@ test('Production Pass 9: Timeline stripe lights first half when called and secon
   assert.match(clientWorkspaceSource, /function findMgmtToken/);
   assert.match(clientWorkspaceSource, /api\.submitBranchReview/);
 });
+
+test('Production Pass 10: Reactive telegram notification toggle with auto-polling and focus refresh', async () => {
+  const clientWorkspaceSource = await readFile(new URL('../src/features/client/ClientWorkspace.tsx', import.meta.url), 'utf8');
+
+  // Has waitingForTelegram state
+  assert.match(clientWorkspaceSource, /const \[waitingForTelegram, setWaitingForTelegram\] = useState\(false\)/);
+
+  // Auto-polling interval while waiting for Telegram
+  assert.match(clientWorkspaceSource, /if \(!waitingForTelegram\) return/);
+  assert.match(clientWorkspaceSource, /window\.setInterval\(\(\) => \{\s*void refresh\(\);\s*\}, 1500\)/);
+
+  // Window focus & visibilitychange listener
+  assert.match(clientWorkspaceSource, /window\.addEventListener\('focus', handleFocus\)/);
+  assert.match(clientWorkspaceSource, /window\.addEventListener\('visibilitychange', handleFocus\)/);
+
+  // Toggle is checked when connected or waiting for Telegram
+  assert.match(clientWorkspaceSource, /const isChecked = isConn \|\| waitingForTelegram/);
+  assert.match(clientWorkspaceSource, /checked=\{isChecked\}/);
+
+  // Loading spinner & helper text
+  assert.match(clientWorkspaceSource, /Ожидаем \/start…/);
+  assert.match(clientWorkspaceSource, /Ожидание нажатия \/start в Telegram боте…/);
+});
+

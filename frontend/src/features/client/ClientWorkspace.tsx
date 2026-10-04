@@ -204,6 +204,7 @@ function TelegramIcon({ size = 18 }: { size?: number }) {
 function NotificationControls({ ticket, managementToken }: { ticket: Ticket; managementToken?: string | null }) {
   const [email, setEmail] = useState(''); const [notice, setNotice] = useState(''); const [busy, setBusy] = useState<string | null>(null);
   const [telegramError, setTelegramError] = useState(false);
+  const [waitingForTelegram, setWaitingForTelegram] = useState(false);
   const [subscriptions, setSubscriptions] = useState<NotificationSubscription[]>([]);
   const [capabilities, setCapabilities] = useState<NotificationCapabilities | null>(null);
   const [capabilitiesError, setCapabilitiesError] = useState(false);
@@ -264,6 +265,50 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
     }
   }, [ticket.id, token]);
   useEffect(() => { void refresh(); }, [refresh]);
+
+  // Automatically sync Telegram connection state when subscriptions update
+  useEffect(() => {
+    const tgSub = subscriptions.find(item => item.channel === 'TELEGRAM' && item.enabled);
+    if (tgSub) {
+      setWaitingForTelegram(false);
+      if (typeof localStorage !== 'undefined') {
+        if (tgSub.destination) {
+          localStorage.setItem('user_telegram_chat_id', tgSub.destination);
+        }
+        localStorage.setItem('user_telegram_connected', 'true');
+      }
+    }
+  }, [subscriptions]);
+
+  // Active fast polling while waiting for Telegram bot /start confirmation
+  useEffect(() => {
+    if (!waitingForTelegram) return;
+    const interval = window.setInterval(() => {
+      void refresh();
+    }, 1500);
+    const timeout = window.setTimeout(() => {
+      setWaitingForTelegram(false);
+    }, 120000);
+    return () => {
+      window.clearInterval(interval);
+      window.clearTimeout(timeout);
+    };
+  }, [waitingForTelegram, refresh]);
+
+  // Window focus & visibilitychange listener to instantly detect when user returns from Telegram
+  useEffect(() => {
+    const handleFocus = () => {
+      if (document.visibilityState === 'visible') {
+        void refresh();
+      }
+    };
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('visibilitychange', handleFocus);
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('visibilitychange', handleFocus);
+    };
+  }, [refresh]);
   const connected = (channel: NotificationChannel) => subscriptions.find(item => item.channel === channel && item.enabled);
   const unavailable = (channel: 'telegram' | 'webPush' | 'email') => capabilities ? !capabilities[channel].enabled : true;
 
@@ -300,6 +345,7 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
       setTicketPushDisabled(true);
     }
     if (channel === 'TELEGRAM') {
+      setWaitingForTelegram(false);
       if (typeof localStorage !== 'undefined') {
         localStorage.setItem(`ticket_telegram_disabled:${ticket.id}`, 'true');
       }
@@ -333,15 +379,18 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
     try {
       const storedChatId = typeof localStorage !== 'undefined' ? (localStorage.getItem('user_telegram_chat_id') || '') : '';
       if (storedChatId) {
+        setWaitingForTelegram(true);
         await api.saveNotificationSubscription(ticket.id, 'TELEGRAM', storedChatId, token);
         await refresh();
         setNotice('Telegram-уведомления включены.');
       } else {
+        setWaitingForTelegram(true);
         const url = await api.telegramLink(ticket.id, token);
         window.open(url, '_blank', 'noopener,noreferrer');
         setNotice('Откройте Telegram и нажмите /start для завершения привязки.');
       }
     } catch (e) {
+      setWaitingForTelegram(false);
       setTelegramError(true);
       setNotice(friendlyError(e, 'Не удалось подключить Telegram'));
     } finally {
@@ -385,16 +434,25 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
   const telegramAction = () => {
     if (!capabilities || unavailable('telegram')) return null;
     const isConn = Boolean(connected('TELEGRAM'));
+    const isChecked = isConn || waitingForTelegram;
     return (
       <div className="flex items-center gap-2 shrink-0">
         {busy === 'TELEGRAM' && <span className="inline-flex items-center gap-1 text-[11px] text-[#003B73]"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Открываем Telegram…</span>}
-        <label className="relative inline-flex items-center cursor-pointer select-none" title={isConn ? 'Отключить Telegram' : 'Подключить Telegram'}>
+        {waitingForTelegram && !isConn && busy !== 'TELEGRAM' && (
+          <span className="inline-flex items-center gap-1 text-[11px] text-[#003B73]">
+            <Loader2 className="w-3.5 h-3.5 animate-spin" /> Ожидаем /start…
+          </span>
+        )}
+        <label className="relative inline-flex items-center cursor-pointer select-none" title={isChecked ? 'Отключить Telegram' : 'Подключить Telegram'}>
           <input
             type="checkbox"
-            checked={isConn}
+            checked={isChecked}
             disabled={busy !== null || !canManage}
             onChange={() => {
-              if (isConn) {
+              if (isChecked) {
+                if (waitingForTelegram) {
+                  setWaitingForTelegram(false);
+                }
                 void disconnect('TELEGRAM');
               } else {
                 void telegram();
@@ -468,6 +526,9 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
       if (channel === 'TELEGRAM') return '✓ Telegram подключён';
       return `✓ ${connected(channel)?.destination || 'Подключено'}`;
     }
+    if (channel === 'TELEGRAM' && waitingForTelegram) {
+      return 'Ожидание нажатия /start в Telegram боте…';
+    }
     if (channel === 'TELEGRAM' && telegramError) return 'Не удалось подключить Telegram';
     return unavailMsg || defaultDesc;
   };
@@ -475,7 +536,7 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
     <div className="cx-notification-row p-3.5 bg-white border border-slate-200/90 rounded-2xl flex flex-col gap-2 shadow-2xs overflow-hidden">
       <div className="flex items-center justify-between gap-3 w-full min-w-0">
         <div className="flex items-center gap-3 min-w-0 flex-1">
-          <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${connected(channel) ? 'bg-blue-50 text-[#003B73]' : 'bg-slate-100 text-slate-500'}`}>
+          <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${connected(channel) || (channel === 'TELEGRAM' && waitingForTelegram) ? 'bg-blue-50 text-[#003B73]' : 'bg-slate-100 text-slate-500'}`}>
             {icon}
           </div>
           <div className="cx-notification-main min-w-0 flex-1">

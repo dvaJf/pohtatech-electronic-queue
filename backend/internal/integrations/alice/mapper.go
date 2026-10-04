@@ -34,32 +34,43 @@ func ToVoiceRequest(req AliceRequest) voice.VoiceRequest {
 	reqID := fmt.Sprintf("%s:%d", req.Session.SessionID, req.Session.MessageID)
 
 	var loc *voice.UserLocation
-	// Default coordinates if no GPS available from dialog (Innopolis center for hackathon)
-	loc = &voice.UserLocation{
-		Latitude:  55.752176,
-		Longitude: 48.744474,
-		Source:    voice.LocationSourceUnknown,
-	}
 
-	streetSlot := strings.ToLower(slots["street"])
-	cmd := strings.ToLower(req.Request.Command)
+	// 1. If device provided real GPS in session.location:
+	if req.Session.Location != nil && req.Session.Location.Lat != 0 && req.Session.Location.Lon != 0 {
+		loc = &voice.UserLocation{
+			Latitude:  req.Session.Location.Lat,
+			Longitude: req.Session.Location.Lon,
+			Accuracy:  req.Session.Location.Accuracy,
+			Source:    voice.LocationSourceGPS,
+		}
+	} else {
+		// 2. Default coordinates if no GPS available from dialog (Innopolis center for hackathon)
+		loc = &voice.UserLocation{
+			Latitude:  55.752176,
+			Longitude: 48.744474,
+			Source:    voice.LocationSourceUnknown,
+		}
 
-	if strings.Contains(streetSlot, "иннополис") || strings.Contains(cmd, "иннополис") || strings.Contains(cmd, "университетск") {
-		loc.Latitude = 55.752176
-		loc.Longitude = 48.744474
-		loc.Source = voice.LocationSourceVoice
-	} else if strings.Contains(streetSlot, "казан") || strings.Contains(cmd, "казан") || strings.Contains(cmd, "бауман") || strings.Contains(cmd, "кремлев") || strings.Contains(cmd, "декабрист") || strings.Contains(cmd, "чистополь") || strings.Contains(cmd, "ямашев") {
-		loc.Latitude = 55.795120
-		loc.Longitude = 49.112340
-		loc.Source = voice.LocationSourceVoice
-	} else if strings.Contains(streetSlot, "рязан") || strings.Contains(cmd, "рязан") {
-		loc.Latitude = 54.62912
-		loc.Longitude = 39.73685
-		loc.Source = voice.LocationSourceVoice
-	} else if strings.Contains(streetSlot, "москв") || strings.Contains(cmd, "москв") || strings.Contains(cmd, "арбат") || strings.Contains(cmd, "тверск") || strings.Contains(cmd, "мясницк") {
-		loc.Latitude = 55.7558
-		loc.Longitude = 37.6173
-		loc.Source = voice.LocationSourceVoice
+		streetSlot := strings.ToLower(slots["street"])
+		cmd := strings.ToLower(req.Request.Command)
+
+		if strings.Contains(streetSlot, "иннополис") || strings.Contains(cmd, "иннополис") || strings.Contains(cmd, "университетск") {
+			loc.Latitude = 55.752176
+			loc.Longitude = 48.744474
+			loc.Source = voice.LocationSourceVoice
+		} else if strings.Contains(streetSlot, "казан") || strings.Contains(cmd, "казан") || strings.Contains(cmd, "бауман") || strings.Contains(cmd, "кремлев") || strings.Contains(cmd, "декабрист") || strings.Contains(cmd, "чистополь") || strings.Contains(cmd, "ямашев") {
+			loc.Latitude = 55.795120
+			loc.Longitude = 49.112340
+			loc.Source = voice.LocationSourceVoice
+		} else if strings.Contains(streetSlot, "рязан") || strings.Contains(cmd, "рязан") {
+			loc.Latitude = 54.62912
+			loc.Longitude = 39.73685
+			loc.Source = voice.LocationSourceVoice
+		} else if strings.Contains(streetSlot, "москв") || strings.Contains(cmd, "москв") || strings.Contains(cmd, "арбат") || strings.Contains(cmd, "тверск") || strings.Contains(cmd, "мясницк") {
+			loc.Latitude = 55.7558
+			loc.Longitude = 37.6173
+			loc.Source = voice.LocationSourceVoice
+		}
 	}
 
 	return voice.VoiceRequest{

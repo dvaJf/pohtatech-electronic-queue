@@ -249,5 +249,26 @@ func TestToVoiceRequest_LocationResolution(t *testing.T) {
 	if vUniv.Location == nil || vUniv.Location.Latitude != 55.752176 {
 		t.Errorf("expected Innopolis coords for Университетская, got: %+v", vUniv.Location)
 	}
+
+	// 4. Device provides real GPS in Session.Location
+	reqGPS := AliceRequest{
+		Request: AliceReqBody{
+			Command: "где ближайшая почта",
+		},
+		Session: AliceSession{
+			SessionID: "sess-gps-1",
+			MessageID: 1,
+			Location: &AliceLocation{
+				Lat:      55.751111,
+				Lon:      48.742222,
+				Accuracy: 10.0,
+			},
+		},
+	}
+	vGPS := ToVoiceRequest(reqGPS)
+	if vGPS.Location == nil || vGPS.Location.Source != voice.LocationSourceGPS || vGPS.Location.Latitude != 55.751111 {
+		t.Errorf("expected real device GPS, got: %+v", vGPS.Location)
+	}
 }
+
 

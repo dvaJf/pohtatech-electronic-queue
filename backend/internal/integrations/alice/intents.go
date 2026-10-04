@@ -153,7 +153,7 @@ func extractLocationSlots(req AliceReqBody, cmd string, slots map[string]string)
 					slots["street"] = geo.Street
 					return
 				}
-				if geo.City != "" && geo.City != "Москва" {
+				if geo.City != "" {
 					slots["street"] = geo.City
 					return
 				}
@@ -167,6 +167,7 @@ func extractLocationSlots(req AliceReqBody, cmd string, slots map[string]string)
 		canonical string
 	}{
 		// Moscow
+		{"москв", "москва"},
 		{"арбат", "арбат"},
 		{"тверск", "тверская"},
 		{"рождественк", "рождественка"},
@@ -199,7 +200,9 @@ func extractLocationSlots(req AliceReqBody, cmd string, slots map[string]string)
 		{"павелецк", "павелецкая"},
 		{"курск", "курская"},
 		{"киевск", "киевская"},
-		// Kazan
+		// Kazan & Tatarstan
+		{"казан", "казань"},
+		{"бауман", "баумана"},
 		{"кремлевск", "кремлевская"},
 		{"кремлёвск", "кремлевская"},
 		{"декабрист", "декабристов"},
@@ -213,6 +216,7 @@ func extractLocationSlots(req AliceReqBody, cmd string, slots map[string]string)
 		{"университетск", "университетская"},
 		{"ибрагимов", "ибрагимова"},
 		{"побед", "проспект победы"},
+		{"татарстан", "татарстан"},
 	}
 	for _, spot := range knownSpots {
 		if strings.Contains(cmd, spot.stem) {

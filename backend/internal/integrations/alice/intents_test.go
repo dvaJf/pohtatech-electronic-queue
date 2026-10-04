@@ -194,3 +194,60 @@ func TestClassifyIntent_NaturalConversationalPhrases(t *testing.T) {
 		t.Errorf("expected street лубянка, got %s", slotsMsk["street"])
 	}
 }
+
+func TestToVoiceRequest_LocationResolution(t *testing.T) {
+	// 1. User says "я в Иннополисе, где ближайшая почта"
+	reqInno := AliceRequest{
+		Request: AliceReqBody{
+			Command: "я в иннополисе где ближайшая почта",
+		},
+		Session: AliceSession{
+			SessionID: "sess-inno-1",
+			MessageID: 1,
+		},
+	}
+	vInno := ToVoiceRequest(reqInno)
+	if vInno.Slots["street"] != "иннополис" {
+		t.Errorf("expected slot street='иннополис', got: %s", vInno.Slots["street"])
+	}
+	if vInno.Location == nil || vInno.Location.Latitude != 55.752176 || vInno.Location.Longitude != 48.744474 {
+		t.Errorf("expected Innopolis coords, got: %+v", vInno.Location)
+	}
+
+	// 2. User says "я в Казани"
+	reqKazan := AliceRequest{
+		Request: AliceReqBody{
+			Command: "я в казани",
+		},
+		Session: AliceSession{
+			SessionID: "sess-kazan-1",
+			MessageID: 1,
+		},
+	}
+	vKazan := ToVoiceRequest(reqKazan)
+	if vKazan.Slots["street"] != "казань" {
+		t.Errorf("expected slot street='казань', got: %s", vKazan.Slots["street"])
+	}
+	if vKazan.Location == nil || vKazan.Location.Latitude != 55.795120 || vKazan.Location.Longitude != 49.112340 {
+		t.Errorf("expected Kazan coords, got: %+v", vKazan.Location)
+	}
+
+	// 3. User says "запиши на Университетской"
+	reqUniv := AliceRequest{
+		Request: AliceReqBody{
+			Command: "запиши на университетской",
+		},
+		Session: AliceSession{
+			SessionID: "sess-univ-1",
+			MessageID: 1,
+		},
+	}
+	vUniv := ToVoiceRequest(reqUniv)
+	if vUniv.Slots["street"] != "университетская" {
+		t.Errorf("expected slot street='университетская', got: %s", vUniv.Slots["street"])
+	}
+	if vUniv.Location == nil || vUniv.Location.Latitude != 55.752176 {
+		t.Errorf("expected Innopolis coords for Университетская, got: %+v", vUniv.Location)
+	}
+}
+

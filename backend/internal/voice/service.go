@@ -233,6 +233,18 @@ func (s *VoiceService) handleTakeTicket(ctx context.Context, req VoiceRequest, u
 
 	best := candidates[0]
 
+	// Check if branch is already closed today
+	if !isTomorrow {
+		isOpenNow, openStr, closeStr := IsBranchOpenNow(best.Branch.WorkHours, nowMSK)
+		if !isOpenNow && nowMSK.Hour() >= 18 {
+			return VoiceResponse{
+				Text: fmt.Sprintf("Отделение %s сейчас уже закрыто (график: %s–%s). Доступна предварительная онлайн-запись на завтра. На какое время вас записать?",
+					best.Branch.Name, openStr, closeStr),
+				Buttons: generateSuggestedTimeButtons(nowMSK, true),
+			}, nil
+		}
+	}
+
 	if isTomorrow {
 		return VoiceResponse{
 			Text: fmt.Sprintf("Для вас доступна предварительная онлайн-запись на завтра в отделение %s (%s). На какое время вас записать? Например, на 10:00, 14:00 или 17:00.",
@@ -280,6 +292,19 @@ func (s *VoiceService) handleBookAppointment(ctx context.Context, req VoiceReque
 	}
 
 	best := candidates[0]
+
+	// Check if requested appointment time falls within branch work hours
+	msk := time.FixedZone("MSK", 3*3600)
+	nowMSK := time.Now().In(msk)
+	if ok, openStr, closeStr := IsTimeWithinWorkHours(best.Branch.WorkHours, *scheduledAt); !ok {
+		timeStr := scheduledAt.In(msk).Format("15:04")
+		return VoiceResponse{
+			Text: fmt.Sprintf("Отделение %s работает с %s до %s. В выбранное время (%s) оно закрыто. Пожалуйста, выберите рабочее время для записи.",
+				best.Branch.Name, openStr, closeStr, timeStr),
+			Buttons: generateSuggestedTimeButtons(nowMSK, req.Slots["target_date"] == "tomorrow"),
+		}, nil
+	}
+
 	serviceID := s.resolveDefaultServiceID(ctx, best.Branch.ID)
 
 	pending := &PendingAction{
@@ -413,6 +438,15 @@ func (s *VoiceService) handleFastestBranch(ctx context.Context, req VoiceRequest
 	timeButtons := generateSuggestedTimeButtons(nowMSK, false)
 
 	best := candidates[0]
+	isOpenNow, openStr, closeStr := IsBranchOpenNow(best.Branch.WorkHours, nowMSK)
+	if !isOpenNow && nowMSK.Hour() >= 18 {
+		return VoiceResponse{
+			Text: fmt.Sprintf("Отделение %s (%s) сейчас уже закрыто на сегодня (график: %s–%s). Вы можете записаться онлайн на завтра. На какое время вас записать?",
+				best.Branch.Name, best.Branch.Address, openStr, closeStr),
+			Buttons: generateSuggestedTimeButtons(nowMSK, true),
+		}, nil
+	}
+
 	return VoiceResponse{
 		Text: fmt.Sprintf("Быстрее всего сейчас отделение %s (%s): в очереди %d %s, ожидание около %d минут. Дорога пешком займет около %d минут. Всего с дорогой: около %d минут. На какое время вас записать онлайн?",
 			best.Branch.Name, best.Branch.Address, best.WaitingCount, pluralPeople(best.WaitingCount), best.QueueMinutes, best.TravelMinutes, best.TotalMinutes),
@@ -435,6 +469,14 @@ func (s *VoiceService) handleNearestBranch(ctx context.Context, req VoiceRequest
 		return candidates[i].DistanceKm < candidates[j].DistanceKm
 	})
 	nearest := candidates[0]
+	isOpenNow, openStr, closeStr := IsBranchOpenNow(nearest.Branch.WorkHours, nowMSK)
+	if !isOpenNow && nowMSK.Hour() >= 18 {
+		return VoiceResponse{
+			Text: fmt.Sprintf("Ближайшее отделение — %s (%s). Сейчас оно уже закрыто на сегодня (график: %s–%s). Вы можете записаться онлайн на завтра. На какое время вас записать?",
+				nearest.Branch.Name, nearest.Branch.Address, openStr, closeStr),
+			Buttons: generateSuggestedTimeButtons(nowMSK, true),
+		}, nil
+	}
 
 	return VoiceResponse{
 		Text: fmt.Sprintf("Ближайшее отделение — %s (%s). До него %.1f км (пешком около %d минут). В очереди сейчас %d %s, ожидание ~%d минут (всего ~%d минут с дорогой). На какое время вас записать онлайн?",
@@ -467,9 +509,9 @@ func (s *VoiceService) rankBranches(ctx context.Context, loc *UserLocation, stre
 		return nil, nil
 	}
 
-	// Default Moscow coordinates if location unknown
-	userLat := 55.7558
-	userLng := 37.6173
+	// Default coordinates if location unknown (Innopolis center for hackathon)
+	userLat := 55.752176
+	userLng := 48.744474
 	if loc != nil && loc.Latitude != 0 && loc.Longitude != 0 {
 		userLat = loc.Latitude
 		userLng = loc.Longitude
@@ -480,6 +522,9 @@ func (s *VoiceService) rankBranches(ctx context.Context, loc *UserLocation, stre
 	if streetQuery != "" {
 		matchedBranch = MatchBranchByQuery(branches, streetQuery)
 	}
+
+	msk := time.FixedZone("MSK", 3*3600)
+	nowMSK := time.Now().In(msk)
 
 	var candidates []BranchCandidate
 	for _, b := range branches {
@@ -495,6 +540,11 @@ func (s *VoiceService) rankBranches(ctx context.Context, loc *UserLocation, stre
 		}
 
 		distKm := HaversineDistanceKm(userLat, userLng, bLat, bLng)
+		// If user selected a specific branch by name/query, but user GPS is unknown,
+		// assume customer is in the local area of that branch (approx ~5-7 min walk)
+		if matchedBranch != nil && (loc == nil || loc.Source == LocationSourceUnknown) && distKm > 30.0 {
+			distKm = 0.5
+		}
 		travelMins := CalculateTravelMinutes(distKm)
 
 		// Queue wait time and waiting count from real branch workload
@@ -513,6 +563,8 @@ func (s *VoiceService) rankBranches(ctx context.Context, loc *UserLocation, stre
 			}
 		}
 
+		isOpen, _, _ := IsBranchOpenNow(b.WorkHours, nowMSK)
+
 		candidates = append(candidates, BranchCandidate{
 			Branch:        b,
 			DistanceKm:    math.Round(distKm*10) / 10,
@@ -520,11 +572,15 @@ func (s *VoiceService) rankBranches(ctx context.Context, loc *UserLocation, stre
 			QueueMinutes:  queueMins,
 			TotalMinutes:  travelMins + queueMins,
 			WaitingCount:  waitingCount,
+			IsOpenNow:     isOpen,
 		})
 	}
 
-	// Sort ascending by TotalMinutes (fastest first)
+	// Sort: open branches first, then ascending by TotalMinutes (fastest first)
 	sort.Slice(candidates, func(i, j int) bool {
+		if candidates[i].IsOpenNow != candidates[j].IsOpenNow {
+			return candidates[i].IsOpenNow
+		}
 		return candidates[i].TotalMinutes < candidates[j].TotalMinutes
 	})
 

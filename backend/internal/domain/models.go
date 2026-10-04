@@ -13,13 +13,14 @@ const (
 type TicketStatus string
 
 const (
-	TicketStatusScheduled TicketStatus = "SCHEDULED"
-	TicketStatusWaiting   TicketStatus = "WAITING"
-	TicketStatusCalled    TicketStatus = "CALLED"
-	TicketStatusServing   TicketStatus = "SERVING"
-	TicketStatusCompleted TicketStatus = "COMPLETED"
-	TicketStatusCancelled TicketStatus = "CANCELLED"
-	TicketStatusNoShow    TicketStatus = "NO_SHOW"
+	TicketStatusPendingConfirmation TicketStatus = "PENDING_CONFIRMATION"
+	TicketStatusScheduled           TicketStatus = "SCHEDULED"
+	TicketStatusWaiting             TicketStatus = "WAITING"
+	TicketStatusCalled              TicketStatus = "CALLED"
+	TicketStatusServing             TicketStatus = "SERVING"
+	TicketStatusCompleted           TicketStatus = "COMPLETED"
+	TicketStatusCancelled           TicketStatus = "CANCELLED"
+	TicketStatusNoShow              TicketStatus = "NO_SHOW"
 )
 
 type WindowStatus string
@@ -140,8 +141,14 @@ type Ticket struct {
 	SourceRank       int
 	PolicyVersion    int64
 	RecallCount      int
-	ClientID         *string
-	ManagementToken  *string
+	ClientID              *string
+	ManagementToken       *string
+	ConfirmationTokenHash *string
+	ConfirmationCode      *string
+	ConfirmationExpiresAt *time.Time
+	ConfirmedAt           *time.Time
+	NotificationEmail     *string
+	NotificationPhone     *string
 }
 
 type QueuePolicy struct {

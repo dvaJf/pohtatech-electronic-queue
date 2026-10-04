@@ -3,7 +3,9 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -21,7 +23,10 @@ func (a *API) ListBranches(w http.ResponseWriter, r *http.Request) {
 		a.respondError(w, r, err)
 		return
 	}
-	res := ListBranchesResponse{Items: make([]BranchDTO, len(branches))}
+	res := ListBranchesResponse{
+		Items: make([]BranchDTO, len(branches)),
+		Total: len(branches),
+	}
 	for i, b := range branches {
 		res.Items[i] = BranchDTO{ID: b.ID, Name: b.Name, Address: b.Address, WorkHours: b.WorkHours, TimezoneOffset: b.TimezoneOffset, Latitude: b.Latitude, Longitude: b.Longitude, IsDemo: b.IsDemo, RatingAverage: b.RatingAverage, RatingCount: b.RatingCount}
 	}
@@ -214,8 +219,12 @@ func (a *API) CreateAppointment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var clientID *string
+	email := strings.TrimSpace(req.Email)
 	if u, ok := userFromContext(r.Context()); ok && u.ID != "" {
 		clientID = &u.ID
+		if email == "" && u.Email != "" {
+			email = u.Email
+		}
 	}
 
 	result, err := a.usecases.CreateAppointment(r.Context(), application.CreateAppointmentCommand{
@@ -224,7 +233,7 @@ func (a *API) CreateAppointment(w http.ResponseWriter, r *http.Request) {
 		ScheduledAt:       scheduledAt,
 		IdempotencyKey:    idempotencyKey,
 		ClientID:          clientID,
-		NotificationEmail: strings.TrimSpace(req.Email),
+		NotificationEmail: email,
 		NotificationPhone: strings.TrimSpace(req.Phone),
 	})
 	if err != nil {
@@ -236,6 +245,31 @@ func (a *API) CreateAppointment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// If the appointment requires 15-minute confirmation and email is set, dispatch verification email
+	if result.Appointment.Ticket.Status == domain.TicketStatusPendingConfirmation && email != "" {
+		rawToken := ""
+		if result.Appointment.Ticket.ConfirmationTokenHash != nil {
+			rawToken = *result.Appointment.Ticket.ConfirmationTokenHash
+		}
+		rawCode := ""
+		if result.Appointment.Ticket.ConfirmationCode != nil {
+			rawCode = *result.Appointment.Ticket.ConfirmationCode
+		}
+		branchName := "Отделение связи"
+		branchAddress := ""
+		if branches, bErr := a.usecases.ListBranches(r.Context()); bErr == nil {
+			for _, b := range branches {
+				if b.ID == branchID {
+					branchName = b.Name
+					branchAddress = b.Address
+					break
+				}
+			}
+		}
+		scheduledStr := result.Appointment.ScheduledAt.Format("02.01.2006 15:04")
+		_ = a.mailer.SendAppointmentVerificationEmail(r.Context(), email, result.Appointment.Ticket.ID, result.Appointment.Ticket.PublicNumber, scheduledStr, result.Appointment.Ticket.ServiceName, branchName, branchAddress, rawCode, rawToken, "")
+	}
+
 	status := http.StatusCreated
 	if result.Replayed {
 		status = http.StatusOK
@@ -245,6 +279,126 @@ func (a *API) CreateAppointment(w http.ResponseWriter, r *http.Request) {
 		Ticket:          mapTicket(result.Appointment.Ticket),
 		ScheduledAt:     result.Appointment.ScheduledAt,
 		ManagementToken: result.Appointment.Ticket.ManagementToken,
+	})
+}
+
+type ConfirmAppointmentRequest struct {
+	Code  string `json:"code"`
+	Token string `json:"token"`
+}
+
+func (a *API) ConfirmAppointment(w http.ResponseWriter, r *http.Request) {
+	ticketID := chi.URLParam(r, "ticketId")
+	var req ConfirmAppointmentRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body")
+		return
+	}
+	input := strings.TrimSpace(req.Code)
+	if input == "" {
+		input = strings.TrimSpace(req.Token)
+	}
+	if input == "" {
+		writeJSONError(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "code or token is required")
+		return
+	}
+
+	appView, err := a.usecases.ConfirmAppointment(r.Context(), ticketID, input)
+	if err != nil {
+		if errors.Is(err, application.ErrInvalidState) {
+			writeJSONError(w, r, http.StatusBadRequest, "APPOINTMENT_EXPIRED", "Срок действия кода подтверждения (15 минут) истёк или запись уже не ожидает подтверждения")
+			return
+		}
+		if errors.Is(err, application.ErrForbidden) {
+			writeJSONError(w, r, http.StatusForbidden, "INVALID_CODE", "Неверный код подтверждения")
+			return
+		}
+		a.respondError(w, r, err)
+		return
+	}
+
+	writeJSONResponse(w, http.StatusOK, AppointmentResponse{
+		Ticket:          mapTicket(appView.Ticket),
+		ScheduledAt:     appView.ScheduledAt,
+		ManagementToken: appView.Ticket.ManagementToken,
+	})
+}
+
+func (a *API) ConfirmAppointment1Click(w http.ResponseWriter, r *http.Request) {
+	ticketID := chi.URLParam(r, "ticketId")
+	token := r.URL.Query().Get("token")
+	if strings.TrimSpace(token) == "" {
+		http.Redirect(w, r, "/?appointment_error=missing_token", http.StatusFound)
+		return
+	}
+
+	_, err := a.usecases.ConfirmAppointment(r.Context(), ticketID, token)
+	if err != nil {
+		http.Redirect(w, r, "/?appointment_error=expired", http.StatusFound)
+		return
+	}
+
+	http.Redirect(w, r, fmt.Sprintf("/?appointment_confirmed=%s", ticketID), http.StatusFound)
+}
+
+func (a *API) ResendAppointmentConfirmation(w http.ResponseWriter, r *http.Request) {
+	ticketID := chi.URLParam(r, "ticketId")
+	token, code, expiresAt, err := a.usecases.ResendAppointmentConfirmation(r.Context(), ticketID)
+	if err != nil {
+		a.respondError(w, r, err)
+		return
+	}
+
+	ticket, tErr := a.usecases.GetTicket(r.Context(), ticketID)
+	if tErr == nil && ticket.NotificationEmail != nil && *ticket.NotificationEmail != "" {
+		branchName := "Отделение связи"
+		branchAddress := ""
+		if branches, bErr := a.usecases.ListBranches(r.Context()); bErr == nil {
+			for _, b := range branches {
+				if b.ID == ticket.BranchID {
+					branchName = b.Name
+					branchAddress = b.Address
+					break
+				}
+			}
+		}
+		scheduledStr := ""
+		if ticket.ScheduledAt != nil {
+			scheduledStr = ticket.ScheduledAt.Format("02.01.2006 15:04")
+		}
+		_ = a.mailer.SendAppointmentVerificationEmail(r.Context(), *ticket.NotificationEmail, ticket.ID, ticket.PublicNumber, scheduledStr, ticket.ServiceName, branchName, branchAddress, code, token, "")
+	}
+
+	writeJSONResponse(w, http.StatusOK, map[string]any{
+		"ok":                    true,
+		"confirmationExpiresAt": expiresAt,
+	})
+}
+
+func (a *API) CreateUserTelegramLink(w http.ResponseWriter, r *http.Request) {
+	user, ok := userFromContext(r.Context())
+	if !ok || user.ID == "" {
+		writeJSONError(w, r, http.StatusUnauthorized, "UNAUTHORIZED", "Authentication required")
+		return
+	}
+
+	token, expiresAt, err := a.usecases.CreateUserTelegramLink(r.Context(), user.ID)
+	if err != nil {
+		a.respondError(w, r, err)
+		return
+	}
+
+	botUsername := os.Getenv("TELEGRAM_BOT_USERNAME")
+	if botUsername == "" {
+		botUsername = "PochtaNextBot"
+	}
+	botUsername = strings.TrimPrefix(botUsername, "@")
+	deepLink := fmt.Sprintf("https://t.me/%s?start=%s", botUsername, token)
+
+	writeJSONResponse(w, http.StatusOK, map[string]any{
+		"token":     token,
+		"deepLink":  deepLink,
+		"expiresAt": expiresAt,
 	})
 }
 

@@ -39,6 +39,7 @@ import {
   BranchLocation,
   calculateWaitTime,
   getBranchWorkload,
+  getBranchPlural,
 } from './branchLocations';
 
 /**
@@ -325,7 +326,21 @@ export function BranchMapModal({
     const seenIds = new Set<string>();
     const seenAddresses = new Set<string>();
 
-    for (const b of incomingBranches) {
+    const effectiveBranches = incomingBranches.length > 0
+      ? incomingBranches
+      : MOSCOW_BRANCHES.map(loc => ({
+          id: loc.id,
+          name: loc.name,
+          address: loc.address,
+          workHours: loc.workHours,
+          ratingAverage: loc.rating,
+          ratingCount: loc.reviewCount,
+          activeWindows: loc.activeWindows,
+          services: loc.services,
+          postalCode: loc.code,
+        } as unknown as Branch));
+
+    for (const b of effectiveBranches) {
       if (!b || seenIds.has(b.id)) continue;
       const loc = matchBranchLocation(b, MOSCOW_BRANCHES);
       if (!loc) continue;
@@ -1306,7 +1321,7 @@ export function BranchMapModal({
               >
                 <div className="w-12 h-1.5 rounded-full bg-slate-300 mb-1" />
                 <div className="flex items-center gap-2 text-xs font-bold text-slate-600">
-                  <span>{selectedBranch ? 'Выбранное отделение' : `Отделения · ${filteredBranches.length}`}</span>
+                  <span>{selectedBranch ? 'Выбранное отделение' : `${filteredBranches.length} ${getBranchPlural(filteredBranches.length)}`}</span>
                   {bottomSheetState === 'collapsed' ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                 </div>
               </button>

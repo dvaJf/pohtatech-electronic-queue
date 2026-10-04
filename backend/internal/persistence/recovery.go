@@ -28,6 +28,14 @@ func (p *Postgres) ReconcileStaleTickets(ctx context.Context, authoritativeTime 
 	}
 	defer tx.Rollback(context.Background())
 
+	// Expire pending appointments that exceeded 15 minutes confirmation window
+	_, _ = tx.Exec(ctx, `
+		UPDATE tickets
+		SET status = 'CANCELLED'
+		WHERE status = 'PENDING_CONFIRMATION'
+		  AND confirmation_expires_at <= $1::timestamptz
+	`, authoritativeTime)
+
 	// Find tickets in CALLED status where called_at + timeout < authoritativeTime
 	cutoff := authoritativeTime.Add(-time.Duration(timeoutSec) * time.Second)
 

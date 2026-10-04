@@ -758,6 +758,18 @@
   background: rgba(255, 255, 255, 0.25);
 }
 
+.cx-badge-pending_confirmation {
+  background: #FEF3C7;
+  color: #92400E;
+  border: 1px solid #FCD34D;
+}
+
+.cx-badge-scheduled {
+  background: #EFF6FF;
+  color: #1E40AF;
+  border: 1px solid #BFDBFE;
+}
+
 .cx-error-box {
   background: #FFEBEE;
   color: #C62828;

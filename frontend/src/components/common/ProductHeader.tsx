@@ -421,12 +421,12 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
 
             <button type="button" onClick={handleRequestGeo} disabled={geoStatus === 'locating'}
               aria-busy={geoStatus === 'locating'} aria-pressed={geoStatus === 'granted'}
-              aria-label={geoStatus === 'locating' ? 'Определяем местоположение' : 'Определить местоположение'}
-              title={geoStatus === 'granted' ? 'Геолокация активна' : 'Определить местоположение'}
-              className={`inline-flex h-11 min-w-[92px] items-center justify-center gap-1.5 rounded-xl border px-2.5 text-xs font-semibold text-white transition-colors md:min-w-[104px] md:px-3 ${geoStatus === 'granted' ? 'border-emerald-300/45 bg-emerald-300/15' : 'border-white/25 bg-white/10 hover:bg-white/15'}`}>
+              aria-label={geoStatus === 'locating' ? 'Определяем местоположение' : geoStatus === 'granted' ? 'Геолокация: определена' : 'Геолокация: недоступна'}
+              title={geoStatus === 'granted' ? 'Геолокация: определена' : geoStatus === 'locating' ? 'Геолокация: поиск…' : 'Геолокация: недоступна'}
+              className={`inline-flex h-11 min-w-[92px] items-center justify-center gap-1.5 rounded-xl border px-2.5 text-xs font-semibold text-white transition-colors md:min-w-[104px] md:px-3 ${geoStatus === 'granted' ? 'border-[#003B73]/45 bg-[#003B73]/20' : 'border-white/25 bg-white/10 hover:bg-white/15'}`}>
               {geoStatus === 'locating' ? <RestartIcon className="h-5 w-5 animate-spin" /> : <MapPointIcon className="h-5 w-5" />}
               <span>{geoStatus === 'locating' ? 'Поиск…' : 'Гео'}</span>
-              <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${geoStatus === 'granted' ? 'bg-emerald-300' : 'bg-white/45'}`} />
+              <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${geoStatus === 'granted' ? 'bg-[#003B73]' : geoStatus === 'locating' ? 'bg-amber-400 animate-pulse' : 'bg-[#D92534]'}`} />
             </button>
 
             {/* Часы: точное московское время (Europe/Moscow) */}

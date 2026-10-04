@@ -83,7 +83,8 @@ const ticketColumns = `t.id::text, t.public_number, t.branch_id::text, t.service
  t.source, t.status, w.id::text, w.number, t.created_at, t.queue_entered_at,
  t.called_at, t.service_started_at, t.completed_at, t.scheduled_at, t.arrived_at, t.no_show_at,
  t.checkin_at, t.ready_at, t.due_at, t.source_rank, t.policy_version, t.recall_count, t.client_id,
- COALESCE(s.name, '')`
+ COALESCE(s.name, ''),
+ t.confirmation_code, t.confirmation_expires_at, t.confirmed_at, t.notification_email, t.notification_phone`
 const ticketSelect = `SELECT ` + ticketColumns + ` FROM tickets t LEFT JOIN windows w ON w.id=t.window_id LEFT JOIN services s ON s.id=t.service_id `
 
 func scanTicket(row pgx.Row) (domain.Ticket, error) {
@@ -96,6 +97,7 @@ func scanTicket(row pgx.Row) (domain.Ticket, error) {
 		&t.CalledAt, &t.ServiceStartedAt, &t.CompletedAt, &t.ScheduledAt, &t.ArrivedAt, &t.NoShowAt,
 		&t.CheckinAt, &t.ReadyAt, &t.DueAt, &t.SourceRank, &t.PolicyVersion, &t.RecallCount, &t.ClientID,
 		&t.ServiceName,
+		&t.ConfirmationCode, &t.ConfirmationExpiresAt, &t.ConfirmedAt, &t.NotificationEmail, &t.NotificationPhone,
 	)
 	if err != nil {
 		return domain.Ticket{}, dbError(err)
@@ -105,7 +107,7 @@ func scanTicket(row pgx.Row) (domain.Ticket, error) {
 	}
 	t.CreatedAt = t.CreatedAt.UTC()
 	t.QueueEnteredAt = t.QueueEnteredAt.UTC()
-	for _, v := range []*time.Time{t.CalledAt, t.ServiceStartedAt, t.CompletedAt, t.ScheduledAt, t.ArrivedAt, t.NoShowAt, t.CheckinAt, t.ReadyAt, t.DueAt} {
+	for _, v := range []*time.Time{t.CalledAt, t.ServiceStartedAt, t.CompletedAt, t.ScheduledAt, t.ArrivedAt, t.NoShowAt, t.CheckinAt, t.ReadyAt, t.DueAt, t.ConfirmationExpiresAt, t.ConfirmedAt} {
 		if v != nil {
 			*v = v.UTC()
 		}
@@ -1099,7 +1101,7 @@ func (p *Postgres) FindActiveTicketByClient(ctx context.Context, clientID string
 	if clientID == "" {
 		return nil, nil
 	}
-	query := ticketSelect + `WHERE t.client_id = $1 AND t.status IN ('SCHEDULED', 'WAITING', 'CALLED', 'SERVING') ORDER BY t.created_at DESC LIMIT 1`
+	query := ticketSelect + `WHERE t.client_id = $1 AND t.status IN ('PENDING_CONFIRMATION', 'SCHEDULED', 'WAITING', 'CALLED', 'SERVING') ORDER BY t.created_at DESC LIMIT 1`
 	t, err := scanTicket(p.pool.QueryRow(ctx, query, clientID))
 	if errors.Is(err, application.ErrNotFound) {
 		return nil, nil
@@ -1143,7 +1145,7 @@ func (p *Postgres) ListActiveTicketsByClient(ctx context.Context, clientID strin
 				)
 			)
 		)
-		AND t.status IN ('SCHEDULED', 'WAITING', 'CALLED', 'SERVING')
+		AND t.status IN ('PENDING_CONFIRMATION', 'SCHEDULED', 'WAITING', 'CALLED', 'SERVING')
 		ORDER BY t.created_at DESC
 	`
 	rows, err := p.pool.Query(ctx, query, clientID)
@@ -1164,6 +1166,55 @@ func (p *Postgres) ListActiveTicketsByClient(ctx context.Context, clientID strin
 		list = []domain.Ticket{}
 	}
 	return list, dbError(rows.Err())
+}
+
+func (p *Postgres) FindActiveTicketByTelegramChat(ctx context.Context, chatID string) (*domain.Ticket, error) {
+	chatID = strings.TrimSpace(chatID)
+	if chatID == "" {
+		return nil, nil
+	}
+	query := ticketSelect + `
+		WHERE (
+			t.id IN (
+				SELECT ns.ticket_id FROM notification_subscriptions ns 
+				WHERE ns.channel = 'TELEGRAM' AND ns.destination = $1 AND ns.enabled = true
+			)
+			OR t.client_id IN (
+				SELECT ea.user_id::text FROM external_accounts ea
+				WHERE ea.provider = 'telegram' AND ea.external_user_id = $1
+			)
+		)
+		AND t.status IN ('PENDING_CONFIRMATION', 'SCHEDULED', 'WAITING', 'CALLED', 'SERVING')
+		ORDER BY t.created_at DESC LIMIT 1
+	`
+	t, err := scanTicket(p.pool.QueryRow(ctx, query, chatID))
+	if errors.Is(err, application.ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, dbError(err)
+	}
+	return &t, nil
+}
+
+func (p *Postgres) CancelTicketByTelegram(ctx context.Context, chatID string) (*domain.Ticket, error) {
+	chatID = strings.TrimSpace(chatID)
+	if chatID == "" {
+		return nil, application.ErrNotFound
+	}
+	active, err := p.FindActiveTicketByTelegramChat(ctx, chatID)
+	if err != nil {
+		return nil, err
+	}
+	if active == nil {
+		return nil, application.ErrNotFound
+	}
+	// Bypass staff check since Telegram cancellation is authenticated by the linked chat
+	res, err := p.CancelTicket(WithStaffBypass(ctx), active.ID)
+	if err != nil {
+		return nil, err
+	}
+	return &res, nil
 }
 
 

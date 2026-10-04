@@ -111,6 +111,38 @@ func (f *FakeUseCases) LinkExternalAccount(ctx context.Context, userID, provider
 	return nil
 }
 
+func (f *FakeUseCases) CreateUserTelegramLink(ctx context.Context, userID string) (string, time.Time, error) {
+	return "fake-user-link-token", time.Now().Add(15 * time.Minute), nil
+}
+
+func (f *FakeUseCases) FindActiveTicketByTelegramChat(ctx context.Context, chatID string) (*domain.Ticket, error) {
+	return nil, nil
+}
+
+func (f *FakeUseCases) CancelTicketByTelegram(ctx context.Context, chatID string) (*domain.Ticket, error) {
+	return nil, application.ErrNotFound
+}
+
+func (f *FakeUseCases) ConfirmAppointment(ctx context.Context, ticketID, tokenOrCode string) (application.AppointmentView, error) {
+	now := time.Now().UTC()
+	return application.AppointmentView{
+		Ticket: domain.Ticket{
+			ID:           ticketID,
+			PublicNumber: "A-000001",
+			Status:       domain.TicketStatusScheduled,
+		},
+		ScheduledAt: now.Add(2 * time.Hour),
+	}, nil
+}
+
+func (f *FakeUseCases) ResendAppointmentConfirmation(ctx context.Context, ticketID string) (string, string, time.Time, error) {
+	return "fake-token", "123456", time.Now().Add(15 * time.Minute), nil
+}
+
+func (f *FakeUseCases) ExpirePendingAppointments(ctx context.Context, cutoff time.Time) (int64, error) {
+	return 0, nil
+}
+
 var _ application.UseCases = (*FakeUseCases)(nil)
 
 

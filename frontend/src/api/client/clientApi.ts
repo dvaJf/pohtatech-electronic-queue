@@ -93,7 +93,7 @@ function parseServices(value: unknown): ServiceListResponse {
   };
 }
 
-const statuses = new Set(['SCHEDULED', 'WAITING', 'CALLED', 'SERVING', 'COMPLETED', 'CANCELLED', 'NO_SHOW']);
+const statuses = new Set(['PENDING_CONFIRMATION', 'SCHEDULED', 'WAITING', 'CALLED', 'SERVING', 'COMPLETED', 'CANCELLED', 'NO_SHOW']);
 const sources = new Set(['APPOINTMENT', 'QR', 'LIVE']);
 
 function parseTicket(value: unknown): Ticket {
@@ -123,6 +123,9 @@ function parseTicket(value: unknown): Ticket {
     completedAt: value.completedAt === null ? null : requireString(value.completedAt, 'completedAt'),
     arrivedAt: typeof value.arrivedAt === 'string' ? value.arrivedAt : undefined,
     managementToken: typeof value.managementToken === 'string' ? value.managementToken : undefined,
+    confirmationExpiresAt: typeof value.confirmationExpiresAt === 'string' ? value.confirmationExpiresAt : undefined,
+    notificationEmail: typeof value.notificationEmail === 'string' ? value.notificationEmail : undefined,
+    notificationPhone: typeof value.notificationPhone === 'string' ? value.notificationPhone : undefined,
   };
 }
 
@@ -265,14 +268,49 @@ export async function createAppointment(
   serviceId: string,
   scheduledAt: string,
   idempotencyKey: string,
+  email?: string,
+  phone?: string,
   signal?: AbortSignal,
 ): Promise<Appointment> {
+  const payload: Record<string, string> = { serviceId, scheduledAt };
+  if (email) payload.email = email;
+  if (phone) payload.phone = phone;
   return requestWithNetworkRetry(`/branches/${encodeURIComponent(branchId)}/tickets/appointment`, {
     method: 'POST',
     signal,
     headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
-    body: JSON.stringify({ serviceId, scheduledAt }),
+    body: JSON.stringify(payload),
   }, parseAppointment);
+}
+
+export async function confirmAppointment(
+  ticketId: string,
+  code: string,
+  signal?: AbortSignal,
+): Promise<Ticket> {
+  return request(`/appointments/${encodeURIComponent(ticketId)}/confirm`, {
+    method: 'POST',
+    signal,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code }),
+  }, parseTicket);
+}
+
+export async function resendAppointmentConfirmation(
+  ticketId: string,
+  signal?: AbortSignal,
+): Promise<{ success: boolean; expiresAt: string }> {
+  return request(`/appointments/${encodeURIComponent(ticketId)}/resend-confirmation`, {
+    method: 'POST',
+    signal,
+    headers: { 'Content-Type': 'application/json' },
+  }, (val) => {
+    if (!isRecord(val)) throw new ClientApiError('Некорректный ответ сервера');
+    return {
+      success: Boolean(val.success),
+      expiresAt: String(val.expiresAt || ''),
+    };
+  });
 }
 
 export async function cancelAppointment(ticketId: string, token?: string, signal?: AbortSignal): Promise<Appointment> {

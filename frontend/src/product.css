@@ -117,7 +117,21 @@ html[data-text-scale="150"] { --client-text-scale: 1.5; }
 .main-product-header .product-header-tools [class*="border-white"] { border-color: var(--border-subtle) !important; }
 .main-product-header .product-header-tools [class*="bg-emerald"] { background: var(--success-soft) !important; color: var(--success) !important; }
 .main-product-header .product-header-tools [class*="bg-white/10"] { background: var(--surface-muted) !important; }
-.main-product-header .header-utility-group { display: flex; align-items: center; gap: 8px !important; padding: 0 !important; border: 0 !important; background: transparent !important; }
+@media (max-width: 767px) {
+  .main-product-header .header-utility-group {
+    display: none !important;
+  }
+}
+@media (min-width: 768px) {
+  .main-product-header .header-utility-group {
+    display: flex !important;
+    align-items: center;
+    gap: 8px !important;
+    padding: 0 !important;
+    border: 0 !important;
+    background: transparent !important;
+  }
+}
 .main-product-header .header-utility-group button { border: 1px solid var(--border-subtle) !important; border-radius: 12px !important; background: var(--surface-muted) !important; color: var(--text-secondary) !important; transition: all 0.15s ease-in-out; }
 .main-product-header .header-utility-group button + button { border-left: 1px solid var(--border-subtle) !important; border-radius: 12px !important; }
 .main-product-header .header-utility-group button:hover { background: var(--surface-card) !important; border-color: var(--border-strong) !important; color: var(--color-primary) !important; }
@@ -136,6 +150,15 @@ html.map-dialog-open .ai-widget-container { display: none; }
   max-height: calc(100dvh - 88px);
   overflow-y: auto;
   overflow-wrap: anywhere;
+}
+#mobile-service-menu a,
+#mobile-service-menu a:visited {
+  color: #ffffff !important;
+}
+#mobile-service-menu a:hover,
+#mobile-service-menu a:focus {
+  color: #ffffff !important;
+  background-color: rgba(255, 255, 255, 0.22) !important;
 }
 #a11y-settings [role="group"] > div:first-child {
   color: #334155 !important;

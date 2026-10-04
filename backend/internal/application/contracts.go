@@ -141,6 +141,14 @@ type UseCases interface {
 	FindActiveTicketByClient(ctx context.Context, clientID string) (*domain.Ticket, error)
 	ListActiveTicketsByClient(ctx context.Context, clientID string) ([]domain.Ticket, error)
 	LinkExternalAccount(ctx context.Context, userID, provider, externalUserID string) error
+	CreateUserTelegramLink(ctx context.Context, userID string) (token string, expiresAt time.Time, err error)
+	FindActiveTicketByTelegramChat(ctx context.Context, chatID string) (*domain.Ticket, error)
+	CancelTicketByTelegram(ctx context.Context, chatID string) (*domain.Ticket, error)
+
+	// Appointment Confirmation & Expiration
+	ConfirmAppointment(ctx context.Context, ticketID, tokenOrCode string) (AppointmentView, error)
+	ResendAppointmentConfirmation(ctx context.Context, ticketID string) (token, code string, expiresAt time.Time, err error)
+	ExpirePendingAppointments(ctx context.Context, cutoff time.Time) (int64, error)
 }
 
 type ReportIncidentCommand struct {

@@ -8,10 +8,8 @@ metadata:
 spec:
   replicas: 2
   strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 0
+    # Do not mix HTML and content-hashed assets from different revisions.
+    type: Recreate
   selector:
     matchLabels:
       app: frontend

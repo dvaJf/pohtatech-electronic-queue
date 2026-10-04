@@ -7,10 +7,10 @@ metadata:
 spec:
   replicas: {{ .Values.frontend.replicaCount }}
   strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 0
+    # Each image owns a different set of content-hashed Vite assets. Mixing
+    # frontend revisions can serve new index.html from one pod and route its
+    # asset request to an old pod. Replace the small static tier atomically.
+    type: Recreate
   selector:
     matchLabels:
       app: frontend

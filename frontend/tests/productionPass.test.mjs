@@ -2,16 +2,18 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import ts from 'typescript';
+import * as esbuild from 'esbuild';
 
 async function loadTS(relativePath) {
   const filePath = resolve(import.meta.dirname, relativePath);
-  const code = await readFile(filePath, 'utf8');
-  const transpiled = ts.transpileModule(code, {
-    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+  const result = esbuild.buildSync({
+    entryPoints: [filePath],
+    bundle: true,
+    format: 'esm',
+    write: false,
+    external: ['react', 'react-dom'],
   });
-  const dataUrl = `data:text/javascript;base64,${Buffer.from(transpiled.outputText).toString('base64')}`;
-  return import(dataUrl);
+  return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString('base64')}`);
 }
 
 test('Production Pass 1: Catalog contains at least 20 real Kazan branches + Innopolis 420500', async () => {
@@ -87,21 +89,7 @@ test('Production Pass 4: Invariant COUNT(isDefault) <= 1 guaranteed', async () =
   assert.match(liveBranchesSource, /export function resolveSingleDefaultBranchId/);
   assert.match(liveBranchesSource, /Guarantees invariant: at most ONE branch can be marked as default/);
 
-  // Transpile TypeScript source to CommonJS
-  const transpiled = ts.transpileModule(liveBranchesSource, {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-  });
-
-  const moduleScope = { exports: {} };
-  const fn = new Function('module', 'exports', 'require', transpiled.outputText);
-  fn(moduleScope, moduleScope.exports, (id) => {
-    if (id.includes('branchLocations')) {
-      return { MOSCOW_BRANCHES: [] };
-    }
-    return {};
-  });
-
-  const { resolveSingleDefaultBranchId } = moduleScope.exports;
+  const { resolveSingleDefaultBranchId } = await loadTS('../src/features/client/map/liveBranches.ts');
 
   const testBranches = [
     { id: '11111111-1111-1111-1111-111111111111', name: 'Главпочтамт', address: 'г. Казань, ул. Кремлёвская, д. 8' },
@@ -268,4 +256,53 @@ test('Production Pass 10: Reactive telegram notification toggle with auto-pollin
   assert.match(clientWorkspaceSource, /Ожидаем \/start…/);
   assert.match(clientWorkspaceSource, /Ожидание нажатия \/start в Telegram боте…/);
 });
+
+test('Production Pass 15: Centralized status mapper returns authentic Russian labels and never raw enums', async () => {
+  const mapperSource = await readFile(new URL('../src/utils/statusMapper.ts', import.meta.url), 'utf8');
+  assert.match(mapperSource, /export function getTicketStatusLabel/);
+  assert.match(mapperSource, /PENDING_CONFIRMATION['"]\s*:\s*return\s*['"]Ожидает подтверждения['"]/);
+  assert.match(mapperSource, /SCHEDULED['"]\s*:\s*return\s*source === 'APPOINTMENT'\s*\?\s*['"]Запись запланирована['"]\s*:\s*['"]Запись подтверждена['"]/);
+  assert.match(mapperSource, /WAITING['"]\s*:\s*return\s*['"]В очереди['"]/);
+  assert.match(mapperSource, /CALLED['"]\s*:\s*return\s*['"]Вас вызывают к окну['"]/);
+  assert.match(mapperSource, /SERVING['"]\s*:\s*return\s*['"]Идёт обслуживание['"]/);
+  assert.match(mapperSource, /COMPLETED['"]\s*:\s*return\s*['"]Обслуживание завершено['"]/);
+  assert.match(mapperSource, /CANCELLED['"]\s*:\s*return\s*source === 'APPOINTMENT'\s*\?\s*['"]Запись отменена['"]\s*:\s*['"]Талон отменён['"]/);
+  assert.match(mapperSource, /NO_SHOW['"]\s*:\s*return\s*['"]Неявка['"]/);
+  assert.match(mapperSource, /default:\s*return\s*['"]Статус обновляется['"]/);
+});
+
+test('Production Pass 16: One-click confirmation page and route registered in App.tsx', async () => {
+  const appSource = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
+  const confirmPageSource = await readFile(new URL('../src/pages/AppointmentConfirmPage.tsx', import.meta.url), 'utf8');
+
+  assert.match(appSource, /import\s*\{\s*AppointmentConfirmPage\s*\}\s*from\s*['"]\.\/pages\/AppointmentConfirmPage['"]/);
+  assert.match(appSource, /path:\s*['"]\/appointments\/confirm['"]/);
+  assert.match(confirmPageSource, /export function AppointmentConfirmPage/);
+  assert.match(confirmPageSource, /api\.confirmAppointment/);
+  assert.match(confirmPageSource, /Запись успешно подтверждена/);
+  assert.match(confirmPageSource, /Срок подтверждения истёк/);
+  assert.match(confirmPageSource, /Ссылка недействительна/);
+});
+
+test('Production Pass 17: DEV/TEST guard, spam hint, and cancel option in AppointmentConfirmationCard', async () => {
+  const cardSource = await readFile(new URL('../src/features/client/AppointmentConfirmationCard.tsx', import.meta.url), 'utf8');
+
+  // Spam hint present
+  assert.match(cardSource, /Не нашли письмо\? Проверьте папку «Спам» или отправьте письмо ещё раз\./);
+
+  // Cancel action present
+  assert.match(cardSource, /Отменить запись/);
+  assert.match(cardSource, /api\.cancelTicket/);
+
+  // DEV/TEST guarded force confirmation
+  assert.match(cardSource, /isTestConfirmAllowed/);
+  assert.match(cardSource, /VITE_ALLOW_TEST_APPOINTMENT_CONFIRM/);
+  assert.match(cardSource, /Письмо не пришло — подтвердить тестово/);
+  assert.match(cardSource, /api\.testConfirmAppointment/);
+
+  // Segmented 6-digit input
+  assert.match(cardSource, /codeDigits/);
+  assert.match(cardSource, /ПОДТВЕРДИТЬ ЗАПИСЬ/);
+});
+
 

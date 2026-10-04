@@ -52,7 +52,18 @@ func text(m domain.NotificationMessage) string {
 	if m.Body != "" {
 		return m.Body
 	}
-	return fmt.Sprintf("Талон %s: %s", m.PublicNumber, m.EventType)
+	eventDesc := string(m.EventType)
+	switch m.EventType {
+	case domain.NotificationTicketCalled:
+		eventDesc = "Вас вызывают к окну"
+	case domain.NotificationTicketNearTurn:
+		eventDesc = "Скоро ваша очередь"
+	case domain.NotificationAppointmentReminder:
+		eventDesc = "Напоминание о записи через 30 минут"
+	case domain.NotificationAppointmentConfirmation:
+		eventDesc = "Подтверждение предварительной записи"
+	}
+	return fmt.Sprintf("Талон %s: %s", m.PublicNumber, eventDesc)
 }
 
 func telegramText(m domain.NotificationMessage) string {

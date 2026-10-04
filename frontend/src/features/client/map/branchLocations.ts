@@ -13,6 +13,8 @@
  */
 
 
+import { isBranchEligibleForWalkIn } from './branchSchedule';
+
 export interface BranchService {
   id: string;
   name: string;
@@ -46,6 +48,7 @@ export interface BranchLocation {
   photos: string[];
   photoSource?: string;
   photoSourceUrl?: string;
+  isShiftClosed?: boolean;
   walkingMinutes: number;
   distanceKm: number;
 }
@@ -1646,7 +1649,8 @@ export function calculateSmartRouting(
   userLat: number,
   userLng: number,
   branches: BranchLocation[],
-  serviceCategory?: string
+  serviceCategory?: string,
+  referenceDate?: Date
 ): SmartRoutingResult {
   if (!branches || branches.length === 0) {
     return { rankedBranches: [] };
@@ -1661,6 +1665,13 @@ export function calculateSmartRouting(
 
     const distanceKm = calculateHaversineDistance(userLat, userLng, b.lat, b.lng);
     const travelMinutes = calculateTravelTimeMinutes(distanceKm);
+    if (referenceDate) {
+      const walkInCheck = isBranchEligibleForWalkIn(b, undefined, travelMinutes, referenceDate);
+      if (!walkInCheck.eligible) return [];
+    } else if (b.isShiftClosed) {
+      return [];
+    }
+
     const waitMinutes = calculateWaitTime(b, serviceCategory);
     const totalMinutes = calculateBranchTotalTime(travelMinutes, waitMinutes);
     if (totalMinutes === undefined) return [];

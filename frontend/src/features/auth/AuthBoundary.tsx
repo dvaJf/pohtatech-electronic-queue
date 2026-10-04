@@ -31,7 +31,9 @@ export function AuthBoundary({ children, area, loginPage }: { children: ReactNod
     setPending(true); setError('');
     try {
       await login(String(fields.get('email')), String(fields.get('password')));
-      setUser(await getMe());
+      const me = await getMe();
+      setUser(me);
+      window.dispatchEvent(new CustomEvent('pochta:auth', { detail: me }));
     } catch {
       setError('Не удалось войти. Проверьте почту, пароль и соединение с сервером.');
     } finally { setPending(false); }

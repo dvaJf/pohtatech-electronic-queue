@@ -1,11 +1,12 @@
 import { useEffect, useMemo } from 'react';
-import { Loader2, MapPinOff, Navigation, Ticket as TicketIcon } from 'lucide-react';
+import { Loader2, MapPinOff, Navigation, Ticket as TicketIcon, Clock } from 'lucide-react';
 import { StreetsNavigationIcon } from '@solar-icons/react/linear';
 import type { Branch, Service } from '../../../api/client/types';
 import type { GeoCoordinates, GeofenceSimulationMode, GpsPermissionState } from '../arrival/useGeofencing';
 import { calculatePersonalRouting, recommendationActions, matchBranchLocation, liveWaitMinutes } from '../map/liveBranches';
 import { MOSCOW_BRANCHES } from '../map/branchLocations';
 import { useBranchWorkloads } from '../map/useBranchWorkloads';
+import { isBranchEligibleForWalkIn } from '../map/branchSchedule';
 
 type RouteBranch = { id: string; name: string; address: string; totalMinutes: number; travelMinutes: number; waitMinutes: number };
 
@@ -28,7 +29,13 @@ export function SmartRouteHero({
   onBook: (branchId: string) => void;
 }) {
   const workloads = useBranchWorkloads(branches.map(branch => branch.id));
+  const isWorkloadLoading = branches.length > 0 && Object.keys(workloads).length === 0;
+
   const routingBranches = useMemo(() => branches.flatMap(branch => {
+    // 1. Walk-in eligibility check: branch must be open and able to serve client before closing
+    const eligibility = isBranchEligibleForWalkIn(branch, workloads[branch.id]);
+    if (!eligibility.eligible) return [];
+
     const location = matchBranchLocation(branch, MOSCOW_BRANCHES);
     const wait = liveWaitMinutes(workloads[branch.id]);
     return location && wait !== undefined
@@ -87,6 +94,31 @@ export function SmartRouteHero({
             <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto">
               {actions.includes('appointment') && <button type="button" onClick={() => onBook(fastest.id)} className="min-h-11 flex-1 rounded-lg border border-blue-200 bg-[#F5F9FD] px-3.5 text-sm font-semibold text-[#003B73] transition-colors hover:bg-[#EAF2FB] sm:flex-none">Записаться</button>}
               <button type="button" onClick={() => onOpenRoute(fastest, smartRouting.recommendation!.timeSavedMinutes)} className="min-h-11 flex-1 rounded-lg px-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 hover:text-[#003B73] sm:flex-none"><Navigation size={16} className="mr-1 inline" />Маршрут</button>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {hasReliableGpsFix && !fastest && !isWorkloadLoading && routingBranches.length === 0 && (
+        <section role="region" aria-label="Ближайшие отделения закрыты" className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_4px_14px_rgb(13_37_61_/_5%)] sm:p-5">
+          <div className="flex items-start gap-3.5">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-blue-50 text-[#003B73]">
+              <Clock size={22} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <h2 className="text-base font-semibold text-slate-950">Ближайшие отделения сейчас закрыты</h2>
+              <p className="mt-1 text-sm text-slate-600 leading-relaxed">
+                Живая очередь откроется в соответствии с расписанием отделений. Вы можете предварительно записаться онлайн на удобную дату и время.
+              </p>
+              <div className="mt-4 flex flex-wrap gap-2.5">
+                <button
+                  type="button"
+                  onClick={onOpenMap}
+                  className="flex min-h-11 items-center justify-center gap-2 rounded-lg bg-[#003B73] px-4 text-sm font-semibold text-white transition-colors hover:bg-[#00519B]"
+                >
+                  Посмотреть отделения на карте
+                </button>
+              </div>
             </div>
           </div>
         </section>

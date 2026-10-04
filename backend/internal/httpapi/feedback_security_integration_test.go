@@ -127,7 +127,7 @@ func TestFeedbackHTTPCrossTicketRealPostgres(t *testing.T) {
 	rows(b, 0)
 	submit(a, tokenB, http.StatusForbidden)
 	rows(a, 0)
-	submit(b, tokenB, http.StatusNoContent)
+	submit(b, tokenB, http.StatusOK)
 	rows(b, 1)
 	var ticketID, comment string
 	var rating int

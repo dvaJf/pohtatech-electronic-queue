@@ -25,6 +25,7 @@ export interface Calendar14Props {
   allowedMinutes?: string[];
   timeSlots?: TimeSlotItem[];
   minDate?: Date;
+  maxDate?: Date;
   className?: string;
 }
 
@@ -47,6 +48,7 @@ export function Pattern({
   allowedMinutes,
   timeSlots,
   minDate,
+  maxDate,
   className = "",
 }: Calendar14Props = {}) {
   const today = new Date();
@@ -127,7 +129,10 @@ export function Pattern({
           <div className="p-2 sm:p-2.5 flex-1 flex justify-center items-center min-w-0 overflow-hidden">
             <Calendar
               locale={ru}
-              disabled={[{ before: effectiveMinDate }]}
+              disabled={[
+                { before: effectiveMinDate },
+                ...(maxDate ? [{ after: maxDate }] : []),
+              ]}
               mode="single"
               onSelect={handleDateChange}
               selected={date}

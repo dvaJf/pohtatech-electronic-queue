@@ -44,6 +44,12 @@ export const WindowSelector: React.FC<WindowSelectorProps> = ({
                 : w.status === 'CLOSING'
                 ? 'badge-closing'
                 : 'badge-closed';
+            const statusText =
+              w.status === 'OPEN'
+                ? 'Открыто'
+                : w.status === 'CLOSING'
+                ? 'Закрывается'
+                : 'Закрыто';
 
             return (
               <button
@@ -55,7 +61,7 @@ export const WindowSelector: React.FC<WindowSelectorProps> = ({
               >
                 <div className="window-item-header">
                   <span className="window-title">Окно №{w.number}</span>
-                  <span className={`window-badge ${statusClass}`}>{w.status}</span>
+                  <span className={`window-badge ${statusClass}`}>{statusText}</span>
                 </div>
                 <div className="window-services-label">Услуги:</div>
                 {w.services && w.services.length > 0 ? (

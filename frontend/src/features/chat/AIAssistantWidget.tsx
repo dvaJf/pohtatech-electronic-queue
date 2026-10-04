@@ -17,6 +17,7 @@ import { sendChatMessage, ChatMessage, ChatSource, ChatCard } from './chatApi';
 import { getMe } from '../../api/authApi';
 import { MOSCOW_BRANCHES } from '../client/map/branchLocations';
 import { calculateHaversineDistanceMeters } from '../client/arrival';
+import { getTicketStatusLabel } from '../../utils/statusMapper';
 import './chat.css';
 
 interface MessageItem extends ChatMessage {
@@ -187,7 +188,7 @@ export const AIAssistantWidget: React.FC = () => {
                   number: t.publicNumber || t.number || '',
                   serviceName: t.serviceName || 'Почтовые услуги',
                   branchId: t.branchId,
-                  status: t.status || 'WAITING',
+                  status: getTicketStatusLabel(t.status || 'WAITING'),
                 });
               }
             }
@@ -209,7 +210,7 @@ export const AIAssistantWidget: React.FC = () => {
                   id,
                   number: 'Талон',
                   serviceName: 'Почтовые услуги',
-                  status: 'WAITING',
+                  status: getTicketStatusLabel('WAITING'),
                 });
               }
             }
@@ -233,7 +234,7 @@ export const AIAssistantWidget: React.FC = () => {
                   number: t.publicNumber || t.number || 'Запись',
                   serviceName: t.serviceName || 'Предварительная запись',
                   branchId: t.branchId,
-                  status: t.status || 'SCHEDULED',
+                  status: getTicketStatusLabel(t.status || 'SCHEDULED', 'APPOINTMENT'),
                 });
               }
             }

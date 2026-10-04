@@ -23,6 +23,30 @@ const (
 	TicketStatusNoShow              TicketStatus = "NO_SHOW"
 )
 
+func (s TicketStatus) RussianLabel() string {
+	switch s {
+	case TicketStatusPendingConfirmation:
+		return "Ожидает подтверждения"
+	case TicketStatusScheduled:
+		return "Запись запланирована"
+	case TicketStatusWaiting:
+		return "В очереди"
+	case TicketStatusCalled:
+		return "Вас вызывают к окну"
+	case TicketStatusServing:
+		return "Идёт обслуживание"
+	case TicketStatusCompleted:
+		return "Обслуживание завершено"
+	case TicketStatusCancelled:
+		return "Запись отменена"
+	case TicketStatusNoShow:
+		return "Неявка"
+	default:
+		return "Статус обновляется"
+	}
+}
+
+
 type WindowStatus string
 
 const (

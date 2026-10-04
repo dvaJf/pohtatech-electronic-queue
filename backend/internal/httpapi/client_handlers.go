@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"strconv"
@@ -353,7 +354,11 @@ func (a *API) ConfirmAppointment1Click(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.Redirect(w, r, fmt.Sprintf("/appointments/confirm?ticketId=%s&status=success", appView.Ticket.ID), http.StatusFound)
+	redirURL := fmt.Sprintf("/appointments/confirm?ticketId=%s&status=success", appView.Ticket.ID)
+	if appView.Ticket.ManagementToken != nil && *appView.Ticket.ManagementToken != "" {
+		redirURL += fmt.Sprintf("#token=%s", *appView.Ticket.ManagementToken)
+	}
+	http.Redirect(w, r, redirURL, http.StatusFound)
 }
 
 func (a *API) TestConfirmAppointment(w http.ResponseWriter, r *http.Request) {
@@ -399,6 +404,7 @@ func (a *API) ResendAppointmentConfirmation(w http.ResponseWriter, r *http.Reque
 	}
 
 	ticket, tErr := a.usecases.GetTicket(r.Context(), ticketID)
+	var mailErr error
 	if tErr == nil && ticket.NotificationEmail != nil && *ticket.NotificationEmail != "" {
 		branchName := "Отделение связи"
 		branchAddress := ""
@@ -415,7 +421,13 @@ func (a *API) ResendAppointmentConfirmation(w http.ResponseWriter, r *http.Reque
 		if ticket.ScheduledAt != nil {
 			scheduledStr = ticket.ScheduledAt.Format("02.01.2006 15:04")
 		}
-		_ = a.mailer.SendAppointmentVerificationEmail(r.Context(), *ticket.NotificationEmail, ticket.ID, ticket.PublicNumber, scheduledStr, ticket.ServiceName, branchName, branchAddress, code, token, "")
+		mailErr = a.mailer.SendAppointmentVerificationEmail(r.Context(), *ticket.NotificationEmail, ticket.ID, ticket.PublicNumber, scheduledStr, ticket.ServiceName, branchName, branchAddress, code, token, "")
+	}
+
+	if mailErr != nil {
+		slog.Error("failed to resend appointment confirmation email", "ticketId", ticketID, "err", mailErr)
+		writeJSONError(w, r, http.StatusBadGateway, "EMAIL_DELIVERY_FAILED", "Не удалось отправить письмо. Попробуйте ещё раз.")
+		return
 	}
 
 	writeJSONResponse(w, http.StatusOK, map[string]any{

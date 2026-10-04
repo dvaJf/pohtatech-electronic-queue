@@ -53,7 +53,7 @@ test('ClientWorkspace uses direct switch toggles for notifications without redun
   // Direct switch toggles present for channels
   assert.match(source, /aria-label="Включить или отключить Telegram"/);
   assert.match(source, /aria-label="Включить или отключить уведомления браузера"/);
-  assert.match(source, /ticket\.source === 'APPOINTMENT' && row\(/);
+  assert.doesNotMatch(source, /Email для подтверждения записи/);
 });
 
 test('ClientWorkspace advances timeline to step 2 when arrival is confirmed', async () => {

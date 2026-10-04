@@ -98,7 +98,13 @@ const sources = new Set(['APPOINTMENT', 'QR', 'LIVE']);
 
 function parseTicket(value: unknown): Ticket {
   if (!isRecord(value)) throw new ClientApiError('Некорректный формат талона');
-  if (isRecord(value.ticket)) return parseTicket(value.ticket);
+  if (isRecord(value.ticket)) {
+    const parsed = parseTicket(value.ticket);
+    if (!parsed.managementToken && typeof value.managementToken === 'string') {
+      parsed.managementToken = value.managementToken;
+    }
+    return parsed;
+  }
   if (!statuses.has(value.status as string) || !sources.has(value.source as string)) {
     throw new ClientApiError('Некорректный статус или источник талона');
   }
@@ -141,6 +147,9 @@ function parseAppointment(value: unknown): Appointment {
   }
   const ticket = parseTicket(value.ticket);
   const mgmtToken = typeof value.managementToken === 'string' ? value.managementToken : ticket.managementToken;
+  if (mgmtToken && !ticket.managementToken) {
+    ticket.managementToken = mgmtToken;
+  }
   return { ticket, scheduledAt, managementToken: mgmtToken };
 }
 

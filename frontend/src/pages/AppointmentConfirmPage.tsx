@@ -35,9 +35,18 @@ export function AppointmentConfirmPage() {
         setStatus('success');
         if (paramTicketId) {
           try {
+            const hashRaw = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : window.location.hash;
+            const hashParams = new URLSearchParams(hashRaw);
+            const hashToken = hashParams.get('token');
             const loaded = await api.getTicket(paramTicketId);
+            if (hashToken && !loaded.managementToken) {
+              loaded.managementToken = hashToken;
+            }
             setTicket(loaded);
             persistTicketToStorage(loaded);
+            if (window.history && window.history.replaceState) {
+              window.history.replaceState(null, '', window.location.pathname + window.location.search);
+            }
             try {
               const branches = await api.listBranches();
               const b = branches.find(item => item.id === loaded.branchId);
@@ -87,7 +96,17 @@ export function AppointmentConfirmPage() {
 
   const persistTicketToStorage = (t: Ticket) => {
     try {
-      const scopes = ['anon', 'anonymous'];
+      const scopes = new Set(['anon', 'anonymous']);
+      for (const storage of [localStorage, sessionStorage]) {
+        for (let i = 0; i < storage.length; i++) {
+          const key = storage.key(i);
+          if (key && key.startsWith('client_active_ticket_ids:')) {
+            const scope = key.split(':')[1];
+            if (scope) scopes.add(scope);
+          }
+        }
+      }
+
       for (const scope of scopes) {
         const key = `client_active_ticket_ids:${scope}`;
         const raw = localStorage.getItem(key) || sessionStorage.getItem(key) || '[]';

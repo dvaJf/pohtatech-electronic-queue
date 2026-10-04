@@ -49,7 +49,24 @@ func (a *API) NotificationCapabilities(w http.ResponseWriter, r *http.Request) {
 	})
 }
 func notificationContext(r *http.Request) context.Context {
-	return persistence.WithManagementToken(persistence.WithPublicClient(r.Context()), r.Header.Get("X-Ticket-Manage-Token"))
+	ctx := r.Context()
+	user, isStaff := userFromContext(ctx)
+	isAuthorizedStaff := isStaff && (user.Role == domain.RoleEmployee || user.Role == domain.RoleOPCChief)
+	isAuthenticatedClient := isStaff && user.ID != ""
+
+	if isAuthorizedStaff {
+		ctx = persistence.WithStaffBypass(ctx)
+	} else if isAuthenticatedClient {
+		ctx = persistence.WithClientOwner(ctx, user.ID)
+	} else {
+		ctx = persistence.WithPublicClient(ctx)
+	}
+
+	token := strings.TrimSpace(r.Header.Get("X-Ticket-Manage-Token"))
+	if token != "" {
+		ctx = persistence.WithManagementToken(ctx, token)
+	}
+	return ctx
 }
 func (a *API) Notifications(w http.ResponseWriter, r *http.Request) {
 	n, ok := a.notificationStore()

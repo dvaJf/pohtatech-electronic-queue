@@ -197,8 +197,8 @@ function TelegramIcon({ size = 18 }: { size?: number }) {
   return <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="#229ED9"/><path d="M17.67 6.99 5.93 11.52c-.8.32-.8.76-.15.96l3.01.94 1.16 3.55c.14.39.07.55.48.55.32 0 .46-.15.64-.32l1.46-1.42 3.04 2.24c.56.31.96.15 1.1-.52l2-9.42c.2-.82-.31-1.19-1-0.88Zm-8.41 6.15 6.79-4.28c.34-.2.65-.09.4.14l-5.5 4.97-.22 2.42-1.47-3.26Z" fill="white"/></svg>;
 }
 
-function NotificationControls({ ticket, managementToken }: { ticket: Ticket; managementToken?: string | null }) {
-  const [email, setEmail] = useState(''); const [notice, setNotice] = useState(''); const [busy, setBusy] = useState<string | null>(null);
+function NotificationControls({ ticket, managementToken, currentUserId }: { ticket: Ticket; managementToken?: string | null; currentUserId?: string | null }) {
+  const [notice, setNotice] = useState(''); const [busy, setBusy] = useState<string | null>(null);
   const [telegramError, setTelegramError] = useState(false);
   const [waitingForTelegram, setWaitingForTelegram] = useState(false);
   const [subscriptions, setSubscriptions] = useState<NotificationSubscription[]>([]);
@@ -241,7 +241,7 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
     return true;
   });
   const token = managementToken || ticket.managementToken || undefined;
-  const canManage = Boolean(token);
+  const canManage = Boolean(token || currentUserId);
   const refresh = useCallback(async () => {
     setCapabilitiesError(false);
     setSubscriptionsError(false);
@@ -250,7 +250,7 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
     } catch {
       setCapabilitiesError(true);
     }
-    if (!token) {
+    if (!canManage) {
       setSubscriptions([]);
       return;
     }
@@ -259,7 +259,7 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
     } catch {
       setSubscriptionsError(true);
     }
-  }, [ticket.id, token]);
+  }, [ticket.id, token, canManage]);
   useEffect(() => { void refresh(); }, [refresh]);
 
   // Automatically sync Telegram connection state when subscriptions update
@@ -313,23 +313,23 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
     if (typeof localStorage !== 'undefined' && localStorage.getItem('user_telegram_connected') === 'true') {
       const isTicketTgDisabled = localStorage.getItem(`ticket_telegram_disabled:${ticket.id}`) === 'true';
       const storedChatId = localStorage.getItem('user_telegram_chat_id');
-      if (!isTicketTgDisabled && token && capabilities?.telegram?.enabled && !connected('TELEGRAM') && busy !== 'TELEGRAM' && storedChatId && !storedChatId.includes('*')) {
+      if (!isTicketTgDisabled && canManage && capabilities?.telegram?.enabled && !connected('TELEGRAM') && busy !== 'TELEGRAM' && storedChatId && !storedChatId.includes('*')) {
         api.saveNotificationSubscription(ticket.id, 'TELEGRAM', storedChatId, token)
           .then(() => refresh())
           .catch(() => {});
       }
     }
-  }, [ticket.id, token, capabilities?.telegram?.enabled, subscriptions.length, busy]);
+  }, [ticket.id, token, canManage, capabilities?.telegram?.enabled, subscriptions.length, busy]);
 
   // Auto-subscribe Browser Push by default on new ticket creation if profile enabled
   useEffect(() => {
     if (typeof localStorage !== 'undefined' && localStorage.getItem('user_browser_push_enabled') !== 'false') {
       const isTicketPushDisabled = localStorage.getItem(`ticket_webpush_disabled:${ticket.id}`) === 'true';
-      if (!isTicketPushDisabled && token && capabilities?.webPush?.enabled && !connected('WEB_PUSH') && busy !== 'WEB_PUSH' && typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+      if (!isTicketPushDisabled && canManage && capabilities?.webPush?.enabled && !connected('WEB_PUSH') && busy !== 'WEB_PUSH' && typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
         push();
       }
     }
-  }, [ticket.id, token, capabilities?.webPush?.enabled, subscriptions.length, busy]);
+  }, [ticket.id, token, canManage, capabilities?.webPush?.enabled, subscriptions.length, busy]);
 
   const managementUnavailable = 'Для этого талона управление уведомлениями недоступно. Создайте новый талон.';
   const disconnect = async (channel: NotificationChannel) => {
@@ -393,7 +393,6 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
       setBusy(null);
     }
   };
-  const save = async (channel: 'EMAIL', value: string) => { const valid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value); if (!valid) { setNotice('Введите корректный email.'); return; } setBusy(channel); try { await api.saveNotificationSubscription(ticket.id, channel, value, token); await refresh(); } catch (e) { setNotice(friendlyError(e, 'Не удалось сохранить уведомления')); } finally { setBusy(null); } };
   const push = async () => {
     if (typeof localStorage !== 'undefined' && localStorage.getItem('user_browser_push_enabled') === 'false') {
       setNotice('Уведомления браузера отключены в вашем профиле. Включить их можно в профиле пользователя.');
@@ -518,7 +517,6 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
     capabilities && !unavailable(provider)
       ? (channel === 'TELEGRAM' ? telegramAction() : channel === 'WEB_PUSH' ? webPushAction() : action(channel, label, onClick))
       : null;
-  const subscriptionForm = (provider: 'email', form: React.ReactNode) => capabilities && !unavailable(provider) ? form : null;
   const channelText = (channel: NotificationChannel, defaultDesc: string, unavailMsg?: string) => {
     if (channel === 'WEB_PUSH') {
       const isPushSupported = typeof window !== 'undefined' && 'Notification' in window && 'serviceWorker' in navigator && 'PushManager' in window;
@@ -563,29 +561,6 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
         </div>
         <div className="shrink-0">{content}</div>
       </div>
-      {channel === 'EMAIL' && !connected('EMAIL') && emailForm}
-    </div>
-  );
-  const emailForm = (
-    <div className="cx-notification-form mt-2 pt-2 border-t border-slate-100 flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full">
-      <label className="sr-only" htmlFor={`email-${ticket.id}`}>Email для подтверждения записи</label>
-      <input
-        id={`email-${ticket.id}`}
-        type="email"
-        value={email}
-        onChange={e => setEmail(e.target.value)}
-        placeholder="name@example.com"
-        className="w-full min-w-0 flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-[#003B73]"
-        disabled={busy !== null || !canManage || unavailable('email')}
-      />
-      <button
-        type="button"
-        className="cx-btn cx-btn-secondary text-xs px-3 py-2 w-full sm:w-auto shrink-0 justify-center"
-        disabled={busy !== null || !canManage || unavailable('email')}
-        onClick={() => save('EMAIL', email)}
-      >
-        {busy === 'EMAIL' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Получить подтверждение'}
-      </button>
     </div>
   );
   const unavailableMessage = (provider: 'telegram' | 'webPush' | 'email', label: string) => {
@@ -601,29 +576,6 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
       <div className="space-y-2">
         {row(<TelegramIcon/>, 'Telegram', 'Получать сообщения о движении очереди.', 'TELEGRAM', providerAction('telegram', 'TELEGRAM', 'Подключить Telegram', telegram), unavailableMessage('telegram', 'Telegram'))}
         {row(<Bell size={18}/>, 'Уведомления браузера', 'Системные уведомления даже при свёрнутой вкладке.', 'WEB_PUSH', providerAction('webPush', 'WEB_PUSH', 'Включить', push), unavailableMessage('webPush', 'Уведомления браузера'))}
-        {ticket.source === 'APPOINTMENT' && row(
-          <Mail size={18}/>,
-          'Email',
-          capabilities?.email.mode === 'demo' ? 'Email доступен только в демонстрационном режиме.' : 'Подтверждение предварительной записи.',
-          'EMAIL',
-          connected('EMAIL') ? (
-            <div className="flex items-center gap-2 shrink-0">
-              {busy === 'EMAIL' && <Loader2 className="w-3.5 h-3.5 animate-spin text-[#003B73]" />}
-              <label className="relative inline-flex items-center cursor-pointer select-none" title="Отключить Email">
-                <input
-                  type="checkbox"
-                  checked={true}
-                  disabled={busy !== null || !canManage}
-                  onChange={() => void disconnect('EMAIL')}
-                  className="sr-only peer"
-                  aria-label="Отключить Email"
-                />
-                <div className="w-10 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-5 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#003B73]" />
-              </label>
-            </div>
-          ) : subscriptionForm('email', null),
-          unavailableMessage('email', 'Email')
-        )}
       </div>
       {!canManage && <p className="cx-notification-status" role="status">{managementUnavailable}</p>}
       {subscriptionsError && <p className="cx-notification-status" role="status" aria-live="polite">Не удалось загрузить настройки уведомлений. <button type="button" className="cx-notification-link" onClick={() => void refresh()}>Повторить</button></p>}
@@ -1851,6 +1803,9 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
             if (linkedTicket.status === 'PENDING_CONFIRMATION') return;
             addSavedTicketId(linkedTicket.id, ownerScope);
             clearPendingAppointmentFlow(ownerScope);
+            if (linkedTicket.managementToken) {
+              saveMgmtToken(linkedTicket.id, linkedTicket.managementToken, ownerScope);
+            }
             setTickets((previous) => [
               linkedTicket,
               ...previous.filter((item) => item.id !== linkedTicket.id),
@@ -3264,7 +3219,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                   const appointment = appointments[ticket.id];
                   const branch = branches.find(b => b.id === ticket.branchId);
                   const eta = etas[ticket.id];
-                  const managementToken = getSavedMgmtTokens(ownerScope)[ticket.id] || ticket.managementToken || undefined;
+                  const managementToken = findMgmtToken(ticket.id, ownerScope) || getSavedMgmtTokens(ownerScope)[ticket.id] || ticket.managementToken || undefined;
                   const canExportAppointmentCalendar = ticket.source === 'APPOINTMENT'
                     && appointment
                     && isAppointmentCalendarEventAvailable(appointment, branch);
@@ -3381,7 +3336,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                       )}
                     </div>
 
-                    {!terminalStatuses.has(ticket.status) && <NotificationControls ticket={ticket} managementToken={getSavedMgmtTokens(ownerScope)[ticket.id] || ticket.managementToken} />}
+                    {!terminalStatuses.has(ticket.status) && <NotificationControls ticket={ticket} managementToken={findMgmtToken(ticket.id, ownerScope) || ticket.managementToken} currentUserId={currentUserId} />}
 
 
 

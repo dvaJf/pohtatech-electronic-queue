@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from 'react';
-import { Loader2, MapPinOff, Navigation, Ticket as TicketIcon, Clock } from 'lucide-react';
+import { MapPinOff, Navigation, Ticket as TicketIcon, Clock } from 'lucide-react';
 import { StreetsNavigationIcon } from '@solar-icons/react/linear';
 import type { Branch, Service } from '../../../api/client/types';
 import type { GeoCoordinates, GeofenceSimulationMode, GpsPermissionState } from '../arrival/useGeofencing';
@@ -52,9 +52,14 @@ export function SmartRouteHero({
   );
   const fastest = smartRouting.recommendation?.fastestBranch;
   const actions = fastest ? recommendationActions(fastest.id, confirmedServicesByBranch) : [];
-  const isRouteDataPending = hasReliableGpsFix
+  const isGeoPending = !hasReliableGpsFix
+    && gpsPermissionStatus !== 'denied'
+    && gpsPermissionStatus !== 'unavailable';
+  const isRouteDataPending = isGeoPending || (
+    hasReliableGpsFix
     && !fastest
-    && (branches.length === 0 || operationallyEligibleBranches.length > 0);
+    && (branches.length === 0 || operationallyEligibleBranches.length > 0)
+  );
 
   useEffect(() => {
     if (fastest && confirmedServicesByBranch[fastest.id] === undefined) onNeedServices(fastest.id);
@@ -62,13 +67,6 @@ export function SmartRouteHero({
 
   return (
     <>
-      {!hasReliableGpsFix && gpsPermissionStatus !== 'denied' && gpsPermissionStatus !== 'unavailable' && (
-        <div className="flex items-center gap-3 border-b border-blue-200 bg-blue-50 px-4 py-3">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-100 text-blue-700"><Loader2 size={16} className="animate-spin" /></div>
-          <div><p className="text-sm font-semibold text-blue-950">Определяем местоположение…</p><p className="mt-0.5 text-xs text-blue-800">Скоро покажем удобное отделение.</p></div>
-        </div>
-      )}
-
       {fastest && (
         <section role="region" aria-label="Умный маршрут" className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_4px_14px_rgb(13_37_61_/_5%)] sm:p-5">
           <div className="min-w-0">

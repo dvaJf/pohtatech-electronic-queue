@@ -1,5 +1,7 @@
 /* === ПЕРЕМЕННЫЕ ДИЗАЙН-СИСТЕМЫ ПОЧТЫ РОССИИ === */
 :root {
+  /* Bump when a CDN cache object must be retired without changing tokens. */
+  --stylesheet-revision: 20261004;
   /* Canonical semantic layer. Legacy aliases below remain while client, map
      and back-office surfaces migrate component-by-component. */
   --surface-page: #F6F8FB;

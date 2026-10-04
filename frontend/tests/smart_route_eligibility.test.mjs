@@ -19,6 +19,7 @@ async function loadTS(relativePath) {
 test('Bug #15 Reproduction & Verification: Closed branch is never eligible for walk-in or recommended by Smart Route', async () => {
   const { isBranchEligibleForWalkIn } = await loadTS('../src/features/client/map/branchSchedule.ts');
   const { calculateSmartRouting } = await loadTS('../src/features/client/map/branchLocations.ts');
+  const { calculatePersonalRouting } = await loadTS('../src/features/client/map/liveBranches.ts');
 
   // Branch Mayakovskogo with standard working hours 08:00–20:00
   const mayakovskogoBranch = {
@@ -55,4 +56,22 @@ test('Bug #15 Reproduction & Verification: Closed branch is never eligible for w
   const lateDate = new Date('2026-10-05T19:40:00+03:00');
   const lateCheck = isBranchEligibleForWalkIn(mayakovskogoBranch, undefined, 39, lateDate);
   assert.equal(lateCheck.eligible, false, 'Branch must not be eligible if user arrives after closing');
+
+  const unreachable = calculatePersonalRouting(
+    { lat: 54.62, lng: 39.74 },
+    [{ ...mayakovskogoBranch, serverWaitMinutes: 5 }],
+    true,
+    'real_gps',
+    new Date('2026-10-05T19:55:00+03:00'),
+  );
+  assert.equal(unreachable.rankedBranches.length, 0, 'Personal routing must reject a branch the user cannot reach before closing');
+
+  const queueWouldFinishAfterClose = calculatePersonalRouting(
+    { lat: 54.62, lng: 39.74 },
+    [{ ...mayakovskogoBranch, lat: 54.6275, lng: 39.74, serverWaitMinutes: 40 }],
+    true,
+    'real_gps',
+    new Date('2026-10-05T19:20:00+03:00'),
+  );
+  assert.equal(queueWouldFinishAfterClose.rankedBranches.length, 0, 'Personal routing must reject a branch when travel plus queue exceeds closing time');
 });

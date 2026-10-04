@@ -91,14 +91,16 @@ test('BranchMapModal turns closed branch map pins gray and unclickable', async (
   assert.match(modalSource, /isClosed\s*\?\s*'cursor-default pointer-events-none opacity-80'/);
 });
 
-test('BranchMapModal and ClientWorkspace sort closed branches below open branches with closedUntil note', async () => {
+test('BranchMapModal sorts by real user distance while ClientWorkspace keeps closed branches below open branches', async () => {
   const modalSource = await readFile(new URL('../src/features/client/map/BranchMapModal.tsx', import.meta.url), 'utf8');
   const workspaceSource = await readFile(new URL('../src/features/client/ClientWorkspace.tsx', import.meta.url), 'utf8');
 
-  // Modal sorts open branches above closed branches
+  // Map list uses the same real user coordinate as its marker and sorts by
+  // Haversine distance instead of default-branch or open/closed priority.
   assert.match(modalSource, /sortedFilteredBranches/);
-  assert.match(modalSource, /if\s*\(aClosed\s*&&\s*!bClosed\)\s*return\s*1;/);
-  assert.match(modalSource, /if\s*\(!aClosed\s*&&\s*bClosed\)\s*return\s*-1;/);
+  assert.match(modalSource, /calculateHaversineDistance\(userLocation\[0\], userLocation\[1\], a\.coordinates\[0\], a\.coordinates\[1\]\)/);
+  assert.match(modalSource, /return aDistance - bDistance/);
+  assert.match(modalSource, /if \(!userLocation\) return filteredBranches/);
 
   // ClientWorkspace sorts open branches above closed branches
   assert.match(workspaceSource, /displayBranches\s*=\s*useMemo/);

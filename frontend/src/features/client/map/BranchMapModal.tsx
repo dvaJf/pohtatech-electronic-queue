@@ -38,6 +38,7 @@ import {
   MOSCOW_BRANCHES,
   BranchLocation,
   calculateWaitTime,
+  calculateHaversineDistance,
   getBranchWorkload,
   getBranchPlural,
 } from './branchLocations';
@@ -283,6 +284,7 @@ export function BranchMapModal({
   }, [isOpen]);
   // Быстрые фильтр-чипы: «Все», «Посылки», «Письма», «Пенсии», «Доступная среда»
   const [selectedFilter, setSelectedFilter] = useState<FilterCategory>(initialFilter);
+  const [hideClosedBranches, setHideClosedBranches] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedBranchId, setSelectedBranchId] = useState<string | null>(null);
   const selectedBranchIdRef = useRef<string | null>(null);
@@ -360,7 +362,7 @@ export function BranchMapModal({
         name: cleanBranchName(b.name || loc.name),
         address: b.address || loc.address,
         workHours: b.workHours || loc.workHours,
-        rating: b.ratingAverage,
+        rating: typeof b.ratingAverage === 'number' ? b.ratingAverage : null,
         yandexRating: yRating,
         reviewsCount: b.ratingCount,
         liveWaitMinutes: liveWaitMinutes(workload) ?? null,
@@ -385,6 +387,8 @@ export function BranchMapModal({
   // Фильтрация списка отделений
   const filteredBranches = useMemo(() => {
     return allBranches.filter((b) => {
+      if (hideClosedBranches && getBranchScheduleStatus(b, workloads[b.id]).isClosed) return false;
+
       // Отделение по умолчанию всегда остаётся в результатах поиска
       if (effectiveDefaultBranchId && b.id === effectiveDefaultBranchId) return true;
 
@@ -407,39 +411,35 @@ export function BranchMapModal({
       }
       return true;
     });
-  }, [allBranches, selectedFilter, searchQuery, effectiveDefaultBranchId]);
+  }, [allBranches, selectedFilter, searchQuery, effectiveDefaultBranchId, hideClosedBranches, workloads]);
 
-  // Сортировка: отделение по умолчанию всегда первое, открытые отделения сверху, закрытые снизу
+  // One canonical GPS point drives the marker, map viewport and distance sort.
+  // Without a real coordinate we preserve the filtered API order instead of
+  // pretending that a city centre/default branch is the user's location.
+  const userLocation = userCoordinates && Number.isFinite(userCoordinates[0]) && Math.abs(userCoordinates[0]) <= 90
+    && Number.isFinite(userCoordinates[1]) && Math.abs(userCoordinates[1]) <= 180 ? userCoordinates : null;
+
+  // Left-side branch list: strict nearest-to-farthest ordering from the user.
   const sortedFilteredBranches = useMemo(() => {
+    if (!userLocation) return filteredBranches;
     return [...filteredBranches].sort((a, b) => {
-      if (effectiveDefaultBranchId) {
-        const aIsDefault = a.id === effectiveDefaultBranchId;
-        const bIsDefault = b.id === effectiveDefaultBranchId;
-        if (aIsDefault && !bIsDefault) return -1;
-        if (bIsDefault && !aIsDefault) return 1;
-      }
-
-      const aClosed = getBranchScheduleStatus(a, workloads[a.id]).isClosed;
-      const bClosed = getBranchScheduleStatus(b, workloads[b.id]).isClosed;
-      if (aClosed && !bClosed) return 1;
-      if (!aClosed && bClosed) return -1;
-      return 0;
+      const aDistance = calculateHaversineDistance(userLocation[0], userLocation[1], a.coordinates[0], a.coordinates[1]);
+      const bDistance = calculateHaversineDistance(userLocation[0], userLocation[1], b.coordinates[0], b.coordinates[1]);
+      return aDistance - bDistance || a.name.localeCompare(b.name, 'ru');
     });
-  }, [filteredBranches, workloads, effectiveDefaultBranchId]);
+  }, [filteredBranches, userLocation]);
 
   // Выбранное активное отделение (null если ничего не выбрано или свернуто)
   const selectedBranch = useMemo(() => {
     if (!selectedBranchId) return null;
     return (
       filteredBranches.find((b) => b.id === selectedBranchId) ||
-      allBranches.find((b) => b.id === selectedBranchId) ||
+      (!hideClosedBranches ? allBranches.find((b) => b.id === selectedBranchId) : null) ||
       null
     );
-  }, [filteredBranches, allBranches, selectedBranchId]);
+  }, [filteredBranches, allBranches, selectedBranchId, hideClosedBranches]);
 
   // Состояние и логика кнопки геолокации
-  const userLocation = userCoordinates && Number.isFinite(userCoordinates[0]) && Math.abs(userCoordinates[0]) <= 90
-    && Number.isFinite(userCoordinates[1]) && Math.abs(userCoordinates[1]) <= 180 ? userCoordinates : null;
   const userPlacemarkRef = useRef<any>(null);
   const userLocationRef = useRef<[number, number] | null>(null);
   const hasAutoCenteredRef = useRef(false);
@@ -455,6 +455,7 @@ export function BranchMapModal({
     seenCenterRequestRef.current = locationCenterRequest;
     if (isOpen) {
       setSelectedFilter(initialFilter);
+      setHideClosedBranches(false);
       setSearchQuery('');
       setSelectedBranchId(null);
       // A visible search/list affordance is needed on first open; a gesture-only 80px sheet hides the product.
@@ -1005,6 +1006,12 @@ export function BranchMapModal({
                   icon={<Accessibility size={13} />}
                   label="Доступная среда"
                 />
+                <FilterChip
+                  active={hideClosedBranches}
+                  onClick={() => setHideClosedBranches(value => !value)}
+                  icon={<Clock size={13} />}
+                  label="Скрыть закрытые"
+                />
               </div>
             </div>
 
@@ -1018,6 +1025,7 @@ export function BranchMapModal({
                     type="button"
                     onClick={() => {
                       setSelectedFilter('all');
+                      setHideClosedBranches(false);
                       setSearchQuery('');
                     }}
                     className="text-xs text-[#052F85] font-bold underline"
@@ -1351,6 +1359,12 @@ export function BranchMapModal({
                   active={selectedFilter === 'accessible'}
                   onClick={() => setSelectedFilter('accessible')}
                   label="Доступная среда"
+                />
+                <FilterChip
+                  active={hideClosedBranches}
+                  onClick={() => setHideClosedBranches(value => !value)}
+                  icon={<Clock size={13} />}
+                  label="Скрыть закрытые"
                 />
               </div></>}
 

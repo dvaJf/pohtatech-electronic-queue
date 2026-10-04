@@ -89,7 +89,7 @@ export function AppointmentConfirmPage() {
     try {
       const scopes = ['anon', 'anonymous'];
       for (const scope of scopes) {
-        const key = `client.tickets:${scope}`;
+        const key = `client_active_ticket_ids:${scope}`;
         const raw = localStorage.getItem(key) || sessionStorage.getItem(key) || '[]';
         const parsed = JSON.parse(raw);
         const list = Array.isArray(parsed) ? parsed : [];
@@ -190,7 +190,12 @@ export function AppointmentConfirmPage() {
           <div className="flex flex-col sm:flex-row gap-3 pt-2">
             <button
               type="button"
-              onClick={() => navigateTo('/?action=my')}
+              onClick={() => {
+                const confirmedTicketId = ticket?.id || new URLSearchParams(window.location.search).get('ticketId');
+                navigateTo(confirmedTicketId
+                  ? `/?action=my&ticketId=${encodeURIComponent(confirmedTicketId)}`
+                  : '/?action=my');
+              }}
               className="flex-1 min-h-[48px] py-3 bg-[#003B73] hover:bg-[#054FA6] active:bg-[#00274D] text-white rounded-xl font-bold text-xs uppercase tracking-wider transition-all shadow-md flex items-center justify-center gap-2"
             >
               <span>Перейти к талону</span>

@@ -176,13 +176,25 @@ func (p *Postgres) CreateAppointment(ctx context.Context, cmd application.Create
 
 func (p *Postgres) ConfirmAppointment(ctx context.Context, ticketID, tokenOrCode string) (application.AppointmentView, error) {
 	var empty application.AppointmentView
-	id, err := uuid(ticketID)
-	if err != nil {
-		return empty, err
-	}
 	cleanInput := strings.TrimSpace(tokenOrCode)
 	if cleanInput == "" {
 		return empty, application.ErrInvalidState
+	}
+
+	if strings.TrimSpace(ticketID) == "" {
+		inputSum := sha256.Sum256([]byte(cleanInput))
+		hexHash := hex.EncodeToString(inputSum[:])
+		var foundID string
+		err := p.pool.QueryRow(ctx, `SELECT id::text FROM tickets WHERE confirmation_token_hash=$1 AND status IN ('PENDING_CONFIRMATION', 'SCHEDULED') ORDER BY created_at DESC LIMIT 1`, hexHash).Scan(&foundID)
+		if err != nil {
+			return empty, application.ErrForbidden
+		}
+		ticketID = foundID
+	}
+
+	id, err := uuid(ticketID)
+	if err != nil {
+		return empty, err
 	}
 
 	tx, err := p.pool.Begin(ctx)
@@ -266,6 +278,70 @@ func (p *Postgres) ConfirmAppointment(ctx context.Context, ticketID, tokenOrCode
 	}
 	if err = p.enqueueAppointmentNotificationsTx(ctx, tx, t.ID, *t.ScheduledAt, emailStr, phoneStr); err != nil {
 		return empty, err
+	}
+
+	if err = tx.Commit(ctx); err != nil {
+		return empty, dbError(err)
+	}
+	return appointmentView(t), nil
+}
+
+func (p *Postgres) ForceConfirmPendingAppointment(ctx context.Context, ticketID string) (application.AppointmentView, error) {
+	var empty application.AppointmentView
+	id, err := uuid(ticketID)
+	if err != nil {
+		return empty, err
+	}
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return empty, dbError(err)
+	}
+	defer tx.Rollback(context.Background())
+
+	t, err := scanTicket(tx.QueryRow(ctx, ticketSelect+`WHERE t.id=$1 FOR UPDATE OF t`, id))
+	if err != nil {
+		return empty, err
+	}
+	if t.Source != domain.TicketSourceAppointment {
+		return empty, application.ErrInvalidState
+	}
+	if t.Status == domain.TicketStatusScheduled {
+		return appointmentView(t), nil
+	}
+	if t.Status != domain.TicketStatusPendingConfirmation {
+		return empty, application.ErrInvalidState
+	}
+
+	fromStatus := t.Status
+	now := time.Now().UTC()
+	_, err = tx.Exec(ctx, `UPDATE tickets SET status='SCHEDULED', confirmed_at=$1 WHERE id=$2`, now, id)
+	if err != nil {
+		return empty, dbError(err)
+	}
+
+	t.Status = domain.TicketStatusScheduled
+	t.ConfirmedAt = &now
+
+	if err = insertEvent(ctx, tx, t, domain.TicketEventCreated, &fromStatus, nil, nil, EventExtra{
+		Actor:  "test_environment",
+		Reason: "forced test appointment confirmation",
+		DueAt:  t.DueAt,
+	}); err != nil {
+		return empty, err
+	}
+
+	var notifEmail, notifPhone *string
+	_ = tx.QueryRow(ctx, `SELECT notification_email, notification_phone FROM tickets WHERE id=$1`, id).Scan(&notifEmail, &notifPhone)
+	emailStr := ""
+	phoneStr := ""
+	if notifEmail != nil {
+		emailStr = *notifEmail
+	}
+	if notifPhone != nil {
+		phoneStr = *notifPhone
+	}
+	if t.ScheduledAt != nil {
+		_ = p.enqueueAppointmentNotificationsTx(ctx, tx, t.ID, *t.ScheduledAt, emailStr, phoneStr)
 	}
 
 	if err = tx.Commit(ctx); err != nil {
@@ -362,7 +438,7 @@ func (p *Postgres) CancelAppointment(ctx context.Context, ticketID string) (appl
 	if t.Status == domain.TicketStatusCancelled {
 		return appointmentView(t), nil
 	}
-	if t.Status != domain.TicketStatusScheduled {
+	if t.Status != domain.TicketStatusScheduled && t.Status != domain.TicketStatusPendingConfirmation {
 		return empty, application.ErrInvalidState
 	}
 	from := t.Status
@@ -415,7 +491,7 @@ func (p *Postgres) CancelTicket(ctx context.Context, ticketID string) (domain.Ti
 	if t.Status == domain.TicketStatusCancelled {
 		return t, nil
 	}
-	if t.Status != domain.TicketStatusWaiting && t.Status != domain.TicketStatusScheduled {
+	if t.Status != domain.TicketStatusWaiting && t.Status != domain.TicketStatusScheduled && t.Status != domain.TicketStatusPendingConfirmation {
 		return empty, application.ErrInvalidState
 	}
 	from := t.Status

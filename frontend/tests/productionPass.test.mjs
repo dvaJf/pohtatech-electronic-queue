@@ -269,3 +269,52 @@ test('Production Pass 10: Reactive telegram notification toggle with auto-pollin
   assert.match(clientWorkspaceSource, /Ожидание нажатия \/start в Telegram боте…/);
 });
 
+test('Production Pass 15: Centralized status mapper returns authentic Russian labels and never raw enums', async () => {
+  const mapperSource = await readFile(new URL('../src/utils/statusMapper.ts', import.meta.url), 'utf8');
+  assert.match(mapperSource, /export function getTicketStatusLabel/);
+  assert.match(mapperSource, /PENDING_CONFIRMATION['"]\s*:\s*return\s*['"]Ожидает подтверждения['"]/);
+  assert.match(mapperSource, /SCHEDULED['"]\s*:\s*return\s*source === 'APPOINTMENT'\s*\?\s*['"]Запись запланирована['"]\s*:\s*['"]Запись подтверждена['"]/);
+  assert.match(mapperSource, /WAITING['"]\s*:\s*return\s*['"]В очереди['"]/);
+  assert.match(mapperSource, /CALLED['"]\s*:\s*return\s*['"]Вас вызывают к окну['"]/);
+  assert.match(mapperSource, /SERVING['"]\s*:\s*return\s*['"]Идёт обслуживание['"]/);
+  assert.match(mapperSource, /COMPLETED['"]\s*:\s*return\s*['"]Обслуживание завершено['"]/);
+  assert.match(mapperSource, /CANCELLED['"]\s*:\s*return\s*source === 'APPOINTMENT'\s*\?\s*['"]Запись отменена['"]\s*:\s*['"]Талон отменён['"]/);
+  assert.match(mapperSource, /NO_SHOW['"]\s*:\s*return\s*['"]Неявка['"]/);
+  assert.match(mapperSource, /default:\s*return\s*['"]Статус обновляется['"]/);
+});
+
+test('Production Pass 16: One-click confirmation page and route registered in App.tsx', async () => {
+  const appSource = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
+  const confirmPageSource = await readFile(new URL('../src/pages/AppointmentConfirmPage.tsx', import.meta.url), 'utf8');
+
+  assert.match(appSource, /import\s*\{\s*AppointmentConfirmPage\s*\}\s*from\s*['"]\.\/pages\/AppointmentConfirmPage['"]/);
+  assert.match(appSource, /path:\s*['"]\/appointments\/confirm['"]/);
+  assert.match(confirmPageSource, /export function AppointmentConfirmPage/);
+  assert.match(confirmPageSource, /api\.confirmAppointment/);
+  assert.match(confirmPageSource, /Запись успешно подтверждена/);
+  assert.match(confirmPageSource, /Срок подтверждения истёк/);
+  assert.match(confirmPageSource, /Ссылка недействительна/);
+});
+
+test('Production Pass 17: DEV/TEST guard, spam hint, and cancel option in AppointmentConfirmationCard', async () => {
+  const cardSource = await readFile(new URL('../src/features/client/AppointmentConfirmationCard.tsx', import.meta.url), 'utf8');
+
+  // Spam hint present
+  assert.match(cardSource, /Не нашли письмо\? Проверьте папку «Спам» или отправьте письмо ещё раз\./);
+
+  // Cancel action present
+  assert.match(cardSource, /Отменить запись/);
+  assert.match(cardSource, /api\.cancelTicket/);
+
+  // DEV/TEST guarded force confirmation
+  assert.match(cardSource, /isTestConfirmAllowed/);
+  assert.match(cardSource, /VITE_ALLOW_TEST_APPOINTMENT_CONFIRM/);
+  assert.match(cardSource, /Письмо не пришло — подтвердить тестово/);
+  assert.match(cardSource, /api\.testConfirmAppointment/);
+
+  // Segmented 6-digit input
+  assert.match(cardSource, /codeDigits/);
+  assert.match(cardSource, /ПОДТВЕРДИТЬ ЗАПИСЬ/);
+});
+
+

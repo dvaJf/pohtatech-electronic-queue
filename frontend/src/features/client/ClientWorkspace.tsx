@@ -169,18 +169,10 @@ function localDateTimeValue(date: Date): string {
   return toMoscowDatetimeLocal(date);
 }
 
+import { getTicketStatusLabel } from '../../utils/statusMapper';
+
 function statusMessage(status: TicketStatus, source?: TicketSource): string {
-  switch (status) {
-    case 'PENDING_CONFIRMATION': return 'Ожидает подтверждения';
-    case 'WAITING': return 'Вы в очереди';
-    case 'CALLED': return 'Вас вызывают';
-    case 'SERVING': return 'Идёт обслуживание';
-    case 'COMPLETED': return 'Обслуживание завершено';
-    case 'CANCELLED': return source === 'APPOINTMENT' ? 'Запись отменена' : 'Талон отменён';
-    case 'NO_SHOW': return 'Вы не подошли к окну';
-    case 'SCHEDULED': return 'Запись подтверждена';
-    default: return 'Статус обновляется';
-  }
+  return getTicketStatusLabel(status, source);
 }
 
 function friendlyError(error: unknown, fallback: string): string {
@@ -2878,7 +2870,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
               <div className="pt-2 border-t border-slate-100 space-y-1.5">
                 <label htmlFor="appointment-email-input" className="text-xs font-bold text-slate-700 flex items-center justify-between">
                   <span>Электронная почта для подтверждения</span>
-                  <span className="text-[11px] font-normal text-slate-500">15-минутная бронь</span>
+                  <span className="text-[11px] font-normal text-slate-500">15 минут на подтверждение</span>
                 </label>
                 <div className="relative">
                   <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
@@ -2893,7 +2885,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                   />
                 </div>
                 <p className="text-[11px] text-slate-500">
-                  На этот адрес придёт 6-значный код для подтверждения слота.
+                  На этот адрес придёт 6-значный код. У вас будет 15 минут, чтобы подтвердить запись.
                 </p>
               </div>
 
@@ -2906,12 +2898,12 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                 {creating ? (
                   <>
                     <span className="w-4 h-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
-                    <span>Оформляем...</span>
+                    <span>Отправляем код...</span>
                   </>
                 ) : isAppointmentDateDayOff ? (
                   <span>Выберите рабочий день</span>
                 ) : (
-                  <span>Подтвердить запись</span>
+                  <span>Получить код</span>
                 )}
               </button>
               </div>

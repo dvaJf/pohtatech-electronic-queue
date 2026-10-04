@@ -123,7 +123,7 @@ func StartTelegramPoller(ctx context.Context, store TelegramLinkConsumer, logger
 						if ticket.ServiceName != "" {
 							serviceStr = fmt.Sprintf("\nУслуга: <b>%s</b>", ticket.ServiceName)
 						}
-						sendTelegramBotText(ctx, client, token, chatID, fmt.Sprintf("🎫 <b>Активный талон %s</b>%s\nСтатус: <b>%s</b>%s\n\nДля отмены талона отправьте /cancel", ticket.PublicNumber, serviceStr, ticket.Status, winStr))
+						sendTelegramBotText(ctx, client, token, chatID, fmt.Sprintf("🎫 <b>Активный талон %s</b>%s\nСтатус: <b>%s</b>%s\n\nДля отмены талона отправьте /cancel", ticket.PublicNumber, serviceStr, ticket.Status.RussianLabel(), winStr))
 					}
 				} else if strings.HasPrefix(text, "/cancel") {
 					cancelled, err := store.CancelTicketByTelegram(ctx, chatID)

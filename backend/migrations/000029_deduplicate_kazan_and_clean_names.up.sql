@@ -2,6 +2,7 @@
 BEGIN;
 
 -- 1. Remove duplicate Kazan branch c1a06492-4d5b-6923-0d2b-3906a43b0001 (keeping 11111111-1111-1111-1111-111111111111 as the canonical default branch)
+UPDATE tickets SET branch_id = '11111111-1111-1111-1111-111111111111' WHERE branch_id = 'c1a06492-4d5b-6923-0d2b-3906a43b0001';
 DELETE FROM window_services WHERE branch_id = 'c1a06492-4d5b-6923-0d2b-3906a43b0001';
 DELETE FROM windows WHERE branch_id = 'c1a06492-4d5b-6923-0d2b-3906a43b0001';
 DELETE FROM branch_services WHERE branch_id = 'c1a06492-4d5b-6923-0d2b-3906a43b0001';

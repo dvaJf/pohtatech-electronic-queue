@@ -57,6 +57,7 @@ export type Ticket = {
   arrivedAt?: string | null;
   managementToken?: string | null;
   operatorName?: string | null;
+  scheduledAt?: string | null;
   confirmationExpiresAt?: string | null;
   notificationEmail?: string | null;
   notificationPhone?: string | null;

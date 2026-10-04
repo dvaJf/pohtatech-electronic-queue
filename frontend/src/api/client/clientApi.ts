@@ -98,6 +98,7 @@ const sources = new Set(['APPOINTMENT', 'QR', 'LIVE']);
 
 function parseTicket(value: unknown): Ticket {
   if (!isRecord(value)) throw new ClientApiError('Некорректный формат талона');
+  if (isRecord(value.ticket)) return parseTicket(value.ticket);
   if (!statuses.has(value.status as string) || !sources.has(value.source as string)) {
     throw new ClientApiError('Некорректный статус или источник талона');
   }
@@ -123,6 +124,7 @@ function parseTicket(value: unknown): Ticket {
     completedAt: value.completedAt === null ? null : requireString(value.completedAt, 'completedAt'),
     arrivedAt: typeof value.arrivedAt === 'string' ? value.arrivedAt : undefined,
     managementToken: typeof value.managementToken === 'string' ? value.managementToken : undefined,
+    scheduledAt: typeof value.scheduledAt === 'string' ? value.scheduledAt : undefined,
     confirmationExpiresAt: typeof value.confirmationExpiresAt === 'string' ? value.confirmationExpiresAt : undefined,
     notificationEmail: typeof value.notificationEmail === 'string' ? value.notificationEmail : undefined,
     notificationPhone: typeof value.notificationPhone === 'string' ? value.notificationPhone : undefined,
@@ -284,15 +286,40 @@ export async function createAppointment(
 }
 
 export async function confirmAppointment(
-  ticketId: string,
-  code: string,
+  ticketId: string | undefined,
+  codeOrToken: string | { code?: string; token?: string },
   signal?: AbortSignal,
 ): Promise<Ticket> {
-  return request(`/appointments/${encodeURIComponent(ticketId)}/confirm`, {
+  const payload: Record<string, string> = {};
+  if (typeof codeOrToken === 'string') {
+    if (codeOrToken.length === 6 && /^\d+$/.test(codeOrToken)) {
+      payload.code = codeOrToken;
+    } else {
+      payload.token = codeOrToken;
+    }
+  } else {
+    if (codeOrToken.code) payload.code = codeOrToken.code;
+    if (codeOrToken.token) payload.token = codeOrToken.token;
+  }
+  if (ticketId) {
+    payload.ticketId = ticketId;
+  }
+  const path = ticketId ? `/appointments/${encodeURIComponent(ticketId)}/confirm` : '/appointments/confirm';
+  return request(path, {
     method: 'POST',
     signal,
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ code }),
+    body: JSON.stringify(payload),
+  }, parseTicket);
+}
+
+export async function testConfirmAppointment(
+  ticketId: string,
+  signal?: AbortSignal,
+): Promise<Ticket> {
+  return request(`/appointments/${encodeURIComponent(ticketId)}/test-confirm`, {
+    method: 'POST',
+    signal,
   }, parseTicket);
 }
 

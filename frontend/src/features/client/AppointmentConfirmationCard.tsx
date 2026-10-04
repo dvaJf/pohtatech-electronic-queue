@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Mail, Clock, ShieldCheck, RefreshCw, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Mail, Clock, ShieldCheck, RefreshCw, AlertCircle, CheckCircle2, XCircle, Bug } from 'lucide-react';
 import type { Ticket, Branch } from '../../api/client/types';
 import * as api from '../../api/client/clientApi';
 
@@ -25,12 +25,21 @@ export function AppointmentConfirmationCard({
   onConfirmed,
   onCancelled,
 }: AppointmentConfirmationCardProps) {
-  const [code, setCode] = useState('');
+  const [codeDigits, setCodeDigits] = useState<string[]>(['', '', '', '', '', '']);
+  const inputRefs = useRef<Array<HTMLInputElement | null>>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
   const [isResending, setIsResending] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
   const [resendNotice, setResendNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // DEV/TEST feature flag guard:
+  // In production builds, this is strictly false unless explicitly overridden by env.
+  const isTestConfirmAllowed =
+    import.meta.env.VITE_ALLOW_TEST_APPOINTMENT_CONFIRM === 'true' ||
+    import.meta.env.MODE === 'test' ||
+    import.meta.env.DEV;
 
   // Expiration calculation: 15 minutes from createdAt or confirmationExpiresAt
   const expiresAtMs = ticket.confirmationExpiresAt
@@ -64,7 +73,7 @@ export function AppointmentConfirmationCard({
     return () => window.clearInterval(timer);
   }, [resendCooldown]);
 
-  // Polling to detect if confirmed via email link in another tab
+  // Polling to detect if confirmed via email 1-click in another tab
   useEffect(() => {
     let active = true;
     const checkStatus = async () => {
@@ -95,25 +104,73 @@ export function AppointmentConfirmationCard({
     };
   }, [ticket.id, onConfirmed]);
 
+  const handleDigitChange = (index: number, val: string) => {
+    const cleaned = val.replace(/\D/g, '');
+    if (!cleaned) {
+      const next = [...codeDigits];
+      next[index] = '';
+      setCodeDigits(next);
+      return;
+    }
+
+    if (cleaned.length > 1) {
+      // Pasted multi-digit string
+      const pasted = cleaned.slice(0, 6).split('');
+      const next = [...codeDigits];
+      for (let i = 0; i < 6; i++) {
+        if (i < pasted.length) {
+          next[i] = pasted[i];
+        }
+      }
+      setCodeDigits(next);
+      const focusIndex = Math.min(5, pasted.length);
+      inputRefs.current[focusIndex]?.focus();
+      return;
+    }
+
+    const next = [...codeDigits];
+    next[index] = cleaned[cleaned.length - 1];
+    setCodeDigits(next);
+    if (error) setError(null);
+
+    // Jump to next input
+    if (index < 5) {
+      inputRefs.current[index + 1]?.focus();
+    }
+  };
+
+  const handleKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Backspace' && !codeDigits[index] && index > 0) {
+      inputRefs.current[index - 1]?.focus();
+    }
+  };
+
+  const fullCode = codeDigits.join('');
+
   const handleConfirm = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    const cleanCode = code.trim().replace(/\D/g, '');
-    if (cleanCode.length !== 6) {
+    if (fullCode.length !== 6) {
       setError('Введите 6 цифр кода подтверждения');
       return;
     }
     if (timeLeftSec <= 0) {
-      setError('Срок действия бронирования истёк. Пожалуйста, оформите запись заново.');
+      setError('Время на подтверждение истекло. Пожалуйста, оформите запись заново.');
       return;
     }
 
     setIsSubmitting(true);
     setError(null);
     try {
-      const confirmedTicket = await api.confirmAppointment(ticket.id, cleanCode);
+      const confirmedTicket = await api.confirmAppointment(ticket.id, fullCode);
       onConfirmed(confirmedTicket);
     } catch (err: any) {
-      setError(err?.message || 'Неверный код подтверждения или срок действия истёк');
+      if (err?.code === 'INVALID_CODE') {
+        setError('Неверный код подтверждения.');
+      } else if (err?.code === 'APPOINTMENT_EXPIRED') {
+        setError('Время подтверждения истекло. Выберите время повторно.');
+      } else {
+        setError(err?.message || 'Неверный код подтверждения или срок действия истёк');
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -135,6 +192,37 @@ export function AppointmentConfirmationCard({
     }
   };
 
+  const handleCancel = async () => {
+    if (isCancelling || isSubmitting) return;
+    const confirmed = window.confirm('Вы действительно хотите отменить эту предварительную запись?');
+    if (!confirmed) return;
+
+    setIsCancelling(true);
+    setError(null);
+    try {
+      await api.cancelTicket(ticket.id, ticket.managementToken || undefined);
+      if (onCancelled) onCancelled();
+    } catch (err: any) {
+      setError(err?.message || 'Не удалось отменить запись');
+    } finally {
+      setIsCancelling(false);
+    }
+  };
+
+  const handleTestConfirm = async () => {
+    if (isSubmitting || timeLeftSec <= 0) return;
+    setIsSubmitting(true);
+    setError(null);
+    try {
+      const confirmedTicket = await api.testConfirmAppointment(ticket.id);
+      onConfirmed(confirmedTicket);
+    } catch (err: any) {
+      setError(err?.message || 'Ошибка тестового подтверждения');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const minutes = Math.floor(timeLeftSec / 60);
   const seconds = timeLeftSec % 60;
   const formattedTime = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
@@ -145,14 +233,15 @@ export function AppointmentConfirmationCard({
       data-testid="appointment-confirmation-card"
       className="p-5 sm:p-6 rounded-3xl bg-white border-2 border-[#003B73]/20 shadow-md space-y-5"
     >
+      {/* Top Header */}
       <div className="flex items-start justify-between gap-3">
         <div className="space-y-1">
           <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold tracking-wide uppercase bg-amber-100 text-amber-900 border border-amber-200">
             <Clock size={12} className="animate-spin-slow" />
-            <span>Ожидает подтверждения</span>
+            <span>15 минут на подтверждение</span>
           </div>
           <h3 className="text-lg font-black text-[#031E56]">
-            Подтвердите вашу запись
+            Подтвердите запись
           </h3>
           <p className="text-xs text-slate-600">
             {branch?.name || 'Почтовое отделение'} · Талон{' '}
@@ -177,17 +266,18 @@ export function AppointmentConfirmationCard({
         </div>
       </div>
 
+      {/* Email Info */}
       <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200/80 flex items-center gap-3 text-xs text-slate-700">
         <Mail size={20} className="shrink-0 text-[#054FA6]" />
         <div className="min-w-0">
           <p className="leading-snug">
-            Мы отправили письмо с кодом и ссылкой на{' '}
+            Мы отправили письмо на:{' '}
             <strong className="font-semibold text-slate-900">
               {maskEmail(ticket.notificationEmail || '') || 'ваш email'}
             </strong>
           </p>
           <p className="text-[11px] text-slate-500 mt-0.5">
-            Слот забронирован на 15 минут. Если не подтвердить, он освободится.
+            Подтвердите запись в течение 15 минут. После подтверждения запись будет оформлена.
           </p>
         </div>
       </div>
@@ -206,35 +296,35 @@ export function AppointmentConfirmationCard({
         </div>
       )}
 
-      <form onSubmit={handleConfirm} className="space-y-3">
-        <div className="space-y-1.5">
-          <label
-            htmlFor="verification-code-input"
-            className="block text-xs font-bold text-slate-700"
-          >
-            6-значный код из письма
+      {/* Code Confirmation Form with 6 Segmented Digit Boxes */}
+      <form onSubmit={handleConfirm} className="space-y-4">
+        <div className="space-y-2">
+          <label className="block text-xs font-bold text-slate-700 text-center sm:text-left">
+            Введите код из письма:
           </label>
-          <input
-            id="verification-code-input"
-            type="text"
-            inputMode="numeric"
-            pattern="[0-9]*"
-            maxLength={6}
-            value={code}
-            disabled={isSubmitting || isExpired}
-            onChange={(e) => {
-              const val = e.target.value.replace(/\D/g, '').slice(0, 6);
-              setCode(val);
-              if (error) setError(null);
-            }}
-            placeholder="000000"
-            className="w-full h-12 px-4 rounded-xl border-2 border-slate-200 text-center font-mono text-xl tracking-[0.4em] font-bold text-slate-900 placeholder:text-slate-300 focus:outline-none focus:border-[#003B73] transition-colors"
-          />
+          <div className="flex items-center justify-center gap-2 sm:gap-3">
+            {codeDigits.map((digit, idx) => (
+              <input
+                key={idx}
+                ref={(el) => { inputRefs.current[idx] = el; }}
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength={1}
+                value={digit}
+                disabled={isSubmitting || isExpired}
+                onChange={(e) => handleDigitChange(idx, e.target.value)}
+                onKeyDown={(e) => handleKeyDown(idx, e)}
+                className="w-11 h-14 sm:w-12 sm:h-14 text-center font-mono text-2xl font-black rounded-xl border-2 border-slate-300 focus:border-[#003B73] focus:bg-blue-50/30 text-[#031E56] shadow-2xs outline-none transition-all"
+                aria-label={`Цифра ${idx + 1} кода подтверждения`}
+              />
+            ))}
+          </div>
         </div>
 
         <button
           type="submit"
-          disabled={isSubmitting || code.trim().length !== 6 || isExpired}
+          disabled={isSubmitting || fullCode.length !== 6 || isExpired}
           className="w-full min-h-[48px] py-3 bg-[#003B73] hover:bg-[#054FA6] active:bg-[#00274D] text-white rounded-xl font-bold text-xs uppercase tracking-wider transition-all shadow-md active:scale-[0.99] disabled:opacity-50 flex items-center justify-center gap-2"
         >
           {isSubmitting ? (
@@ -245,31 +335,65 @@ export function AppointmentConfirmationCard({
           ) : (
             <>
               <ShieldCheck size={16} />
-              <span>Подтвердить бронь</span>
+              <span>ПОДТВЕРДИТЬ ЗАПИСЬ</span>
             </>
           )}
         </button>
       </form>
 
-      <div className="pt-2 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs">
-        <button
-          type="button"
-          onClick={handleResend}
-          disabled={resendCooldown > 0 || isResending || isExpired}
-          className="text-[#054FA6] hover:underline font-semibold disabled:text-slate-400 disabled:no-underline flex items-center gap-1.5"
-        >
-          <RefreshCw size={13} className={isResending ? 'animate-spin' : ''} />
-          <span>
-            {resendCooldown > 0
-              ? `Отправить код повторно (${resendCooldown}с)`
-              : 'Отправить код повторно'}
-          </span>
-        </button>
+      {/* Spam Hint and Resend & Cancel Actions */}
+      <div className="pt-3 border-t border-slate-100 space-y-3">
+        <p className="text-xs text-slate-600 text-center leading-relaxed">
+          Не нашли письмо? Проверьте папку «Спам» или отправьте письмо ещё раз.
+        </p>
 
-        <span className="text-[11px] text-slate-500">
-          Или нажмите кнопку в письме
-        </span>
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-2 text-xs">
+          <button
+            type="button"
+            onClick={handleResend}
+            disabled={resendCooldown > 0 || isResending || isExpired}
+            className="text-[#054FA6] hover:underline font-semibold disabled:text-slate-400 disabled:no-underline flex items-center gap-1.5"
+          >
+            <RefreshCw size={13} className={isResending ? 'animate-spin' : ''} />
+            <span>
+              {resendCooldown > 0
+                ? `Отправить ещё раз (${resendCooldown}с)`
+                : 'Отправить ещё раз'}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleCancel}
+            disabled={isCancelling || isSubmitting}
+            className="text-rose-600 hover:text-rose-700 hover:underline font-semibold flex items-center gap-1.5"
+          >
+            <XCircle size={13} />
+            <span>{isCancelling ? 'Отменяем...' : 'Отменить запись'}</span>
+          </button>
+        </div>
       </div>
+
+      {/* DEV / TEST ONLY Guarded Block */}
+      {isTestConfirmAllowed && (
+        <div className="pt-3 border-t-2 border-dashed border-amber-300/80 bg-amber-50/60 p-3 rounded-2xl text-center space-y-2">
+          <div className="inline-flex items-center gap-1 text-[10px] font-mono font-bold uppercase tracking-wider text-amber-800">
+            <Bug size={12} />
+            <span>DEV / TEST ONLY</span>
+          </div>
+          <p className="text-[11px] text-amber-900 leading-tight">
+            Окружение для тестирования: если почтовый сервис недоступен, можно подтвердить запись напрямую.
+          </p>
+          <button
+            type="button"
+            onClick={handleTestConfirm}
+            disabled={isSubmitting || isExpired}
+            className="w-full py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs"
+          >
+            Письмо не пришло — подтвердить тестово
+          </button>
+        </div>
+      )}
     </div>
   );
 }

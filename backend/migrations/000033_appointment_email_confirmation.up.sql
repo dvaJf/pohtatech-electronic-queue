@@ -18,3 +18,17 @@ CREATE INDEX IF NOT EXISTS idx_tickets_pending_confirmation
 CREATE INDEX IF NOT EXISTS idx_tickets_confirmation_token
   ON tickets(id, confirmation_token_hash)
   WHERE status = 'PENDING_CONFIRMATION';
+
+ALTER TABLE ticket_events DROP CONSTRAINT IF EXISTS ticket_events_check;
+ALTER TABLE ticket_events ADD CONSTRAINT ticket_events_check CHECK (
+  (type = 'CREATED'::text AND (from_status IS NULL OR from_status = 'PENDING_CONFIRMATION'::text) AND (to_status = ANY (ARRAY['WAITING'::text, 'SCHEDULED'::text, 'PENDING_CONFIRMATION'::text])) AND window_id IS NULL)
+  OR (type = 'ARRIVED'::text AND from_status IS NOT NULL AND from_status = 'SCHEDULED'::text AND (to_status = ANY (ARRAY['SCHEDULED'::text, 'WAITING'::text])) AND window_id IS NULL)
+  OR (type = 'CALLED'::text AND from_status IS NOT NULL AND (from_status = ANY (ARRAY['WAITING'::text, 'SCHEDULED'::text, 'CALLED'::text])) AND to_status = 'CALLED'::text AND window_id IS NOT NULL)
+  OR (type = 'SERVICE_STARTED'::text AND from_status IS NOT NULL AND from_status = 'CALLED'::text AND to_status = 'SERVING'::text AND window_id IS NOT NULL)
+  OR (type = 'COMPLETED'::text AND from_status IS NOT NULL AND from_status = 'SERVING'::text AND to_status = 'COMPLETED'::text AND window_id IS NOT NULL)
+  OR (type = 'CANCELLED'::text AND from_status IS NOT NULL AND (from_status = ANY (ARRAY['SCHEDULED'::text, 'WAITING'::text, 'PENDING_CONFIRMATION'::text])) AND to_status = 'CANCELLED'::text AND window_id IS NULL)
+  OR (type = 'NO_SHOW'::text AND from_status IS NOT NULL AND from_status = 'CALLED'::text AND to_status = 'NO_SHOW'::text AND window_id IS NOT NULL)
+  OR ((type = ANY (ARRAY['RETURNED'::text, 'REDIRECTED'::text])) AND from_status IS NOT NULL AND (from_status = ANY (ARRAY['CALLED'::text, 'SERVING'::text])) AND to_status = 'WAITING'::text)
+  OR (type = 'QUEUE_RECALCULATED'::text AND from_status IS NULL AND (to_status = ANY (ARRAY['WAITING'::text, 'SCHEDULED'::text])) AND window_id IS NULL)
+);
+

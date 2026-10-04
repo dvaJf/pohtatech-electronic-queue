@@ -12,6 +12,7 @@ import { ClientQueueBoard } from './features/client/ClientQueueBoard';
 import { TVBoard } from './features/client/TVBoard';
 import { AIAssistantWidget } from './features/chat/AIAssistantWidget';
 import { FAQPage } from './pages/FAQPage';
+import { AppointmentConfirmPage } from './pages/AppointmentConfirmPage';
 import { ProductFooter } from './components/common/ProductFooter';
 
 export function App() {
@@ -69,6 +70,8 @@ export function App() {
     ...(tvMatch ? [{ path: currentPath, label: 'TV', page: <TVBoard branchId={decodeURIComponent(tvMatch[1])} /> }] : []),
     ...(currentPath.startsWith('/q/') ? [{ path: currentPath, label: 'QR', page: <PhysicalQRPage key={currentPath} branchId={currentPath.slice(3)} kiosk={new URLSearchParams(window.location.search).get('kiosk') === '1'} /> }] : []),
     ...(currentPath.startsWith('/kiosk/') ? [{ path: currentPath, label: 'Kiosk', page: <PhysicalQRPage key={currentPath} branchId={currentPath.slice(7)} kiosk /> }] : []),
+    ...(currentPath.startsWith('/appointments/confirm') ? [{ path: currentPath, label: 'Подтверждение записи', page: <AppointmentConfirmPage /> }] : []),
+    { path: '/appointments/confirm', label: 'Подтверждение записи', page: <AppointmentConfirmPage /> },
     { path: '/', label: 'Client', page: <ClientPage /> },
     { path: '/faq', label: 'FAQ', page: <FAQPage /> },
     { path: '/board', label: 'Board', page: <ClientQueueBoard onBack={() => navigate('/')} /> },

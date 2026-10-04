@@ -283,8 +283,9 @@ func (a *API) CreateAppointment(w http.ResponseWriter, r *http.Request) {
 }
 
 type ConfirmAppointmentRequest struct {
-	Code  string `json:"code"`
-	Token string `json:"token"`
+	TicketID string `json:"ticketId,omitempty"`
+	Code     string `json:"code,omitempty"`
+	Token    string `json:"token,omitempty"`
 }
 
 func (a *API) ConfirmAppointment(w http.ResponseWriter, r *http.Request) {
@@ -293,6 +294,9 @@ func (a *API) ConfirmAppointment(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSONError(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body")
 		return
+	}
+	if ticketID == "" {
+		ticketID = strings.TrimSpace(req.TicketID)
 	}
 	input := strings.TrimSpace(req.Code)
 	if input == "" {
@@ -326,19 +330,59 @@ func (a *API) ConfirmAppointment(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) ConfirmAppointment1Click(w http.ResponseWriter, r *http.Request) {
 	ticketID := chi.URLParam(r, "ticketId")
-	token := r.URL.Query().Get("token")
-	if strings.TrimSpace(token) == "" {
-		http.Redirect(w, r, "/?appointment_error=missing_token", http.StatusFound)
+	if ticketID == "" {
+		ticketID = strings.TrimSpace(r.URL.Query().Get("ticketId"))
+	}
+	token := strings.TrimSpace(r.URL.Query().Get("token"))
+	if token == "" {
+		http.Redirect(w, r, "/appointments/confirm?error=missing_token", http.StatusFound)
 		return
 	}
 
-	_, err := a.usecases.ConfirmAppointment(r.Context(), ticketID, token)
+	appView, err := a.usecases.ConfirmAppointment(r.Context(), ticketID, token)
 	if err != nil {
-		http.Redirect(w, r, "/?appointment_error=expired", http.StatusFound)
+		if errors.Is(err, application.ErrInvalidState) {
+			http.Redirect(w, r, "/appointments/confirm?error=expired", http.StatusFound)
+			return
+		}
+		http.Redirect(w, r, "/appointments/confirm?error=invalid", http.StatusFound)
 		return
 	}
 
-	http.Redirect(w, r, fmt.Sprintf("/?appointment_confirmed=%s", ticketID), http.StatusFound)
+	http.Redirect(w, r, fmt.Sprintf("/appointments/confirm?ticketId=%s&status=success", appView.Ticket.ID), http.StatusFound)
+}
+
+func (a *API) TestConfirmAppointment(w http.ResponseWriter, r *http.Request) {
+	allowTest := strings.TrimSpace(os.Getenv("ALLOW_TEST_APPOINTMENT_CONFIRM")) == "true"
+	env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
+	isNonProd := env == "test" || env == "development" || env == "dev" || env == "local"
+
+	if !allowTest && !isNonProd {
+		writeJSONError(w, r, http.StatusForbidden, "TEST_CONFIRM_DISABLED", "Тестовое подтверждение недоступно в данном окружении")
+		return
+	}
+
+	ticketID := chi.URLParam(r, "ticketId")
+	if ticketID == "" {
+		writeJSONError(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "ticketId is required")
+		return
+	}
+
+	appView, err := a.usecases.ForceConfirmPendingAppointment(r.Context(), ticketID)
+	if err != nil {
+		if errors.Is(err, application.ErrInvalidState) {
+			writeJSONError(w, r, http.StatusBadRequest, "APPOINTMENT_EXPIRED", "Срок действия бронирования истёк или запись уже не ожидает подтверждения")
+			return
+		}
+		a.respondError(w, r, err)
+		return
+	}
+
+	writeJSONResponse(w, http.StatusOK, AppointmentResponse{
+		Ticket:          mapTicket(appView.Ticket),
+		ScheduledAt:     appView.ScheduledAt,
+		ManagementToken: appView.Ticket.ManagementToken,
+	})
 }
 
 func (a *API) ResendAppointmentConfirmation(w http.ResponseWriter, r *http.Request) {

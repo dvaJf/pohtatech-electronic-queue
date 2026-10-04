@@ -147,6 +147,7 @@ type UseCases interface {
 
 	// Appointment Confirmation & Expiration
 	ConfirmAppointment(ctx context.Context, ticketID, tokenOrCode string) (AppointmentView, error)
+	ForceConfirmPendingAppointment(ctx context.Context, ticketID string) (AppointmentView, error)
 	ResendAppointmentConfirmation(ctx context.Context, ticketID string) (token, code string, expiresAt time.Time, err error)
 	ExpirePendingAppointments(ctx context.Context, cutoff time.Time) (int64, error)
 }

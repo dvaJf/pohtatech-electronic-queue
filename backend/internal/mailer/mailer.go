@@ -89,7 +89,7 @@ func (m *Mailer) SendAppointmentVerificationEmail(ctx context.Context, toEmail, 
 		baseURL = strings.TrimRight(customBaseURL, "/")
 	}
 
-	confirmURL := fmt.Sprintf("%s/api/v1/appointments/%s/confirm?token=%s", baseURL, ticketID, token)
+	confirmURL := fmt.Sprintf("%s/appointments/confirm?ticketId=%s&token=%s", baseURL, ticketID, token)
 
 	if m.cfg.User == "" || m.cfg.Password == "" {
 		slog.Warn("SMTP not configured, logging appointment confirmation to stdout",
@@ -97,8 +97,8 @@ func (m *Mailer) SendAppointmentVerificationEmail(ctx context.Context, toEmail, 
 		return nil
 	}
 
-	subject := fmt.Sprintf("Подтверждение записи %s — Почта России", publicNumber)
-	plainText := fmt.Sprintf("Здравствуйте!\r\n\r\nПодтвердите предварительную запись в отделение Почты России.\r\nНомер: %s\r\nОтделение: %s (%s)\r\nУслуга: %s\r\nДата и время: %s\r\n\r\nКод подтверждения: %s\r\nИли подтвердите в один клик:\r\n%s\r\n\r\nВнимание: бронь сохраняется 15 минут. Если не подтвердить запись, слот будет освобождён.\r\nАО «Почта России»\r\n", publicNumber, branchName, branchAddress, serviceName, scheduledAt, code, confirmURL)
+	subject := fmt.Sprintf("Подтвердите запись %s — Почта России", publicNumber)
+	plainText := fmt.Sprintf("Здравствуйте!\r\n\r\nПодтвердите предварительную запись в отделение Почты России.\r\nНомер: %s\r\nОтделение: %s\r\nАдрес: %s\r\nУслуга: %s\r\nДата и время: %s\r\n\r\nЧтобы завершить запись, подтвердите её в течение 15 минут.\r\n\r\nПодтвердить в один клик:\r\n%s\r\n\r\nИли введите код на сайте:\r\n%s\r\n\r\nПосле ввода кода или перехода по ссылке запись будет оформлена.\r\nАО «Почта России»\r\n", publicNumber, branchName, branchAddress, serviceName, scheduledAt, confirmURL, code)
 
 	htmlBody := fmt.Sprintf(`<!DOCTYPE html>
 <html lang="ru">
@@ -113,7 +113,7 @@ func (m *Mailer) SendAppointmentVerificationEmail(ctx context.Context, toEmail, 
       <div style="font-size: 13px; color: rgba(255,255,255,0.8); margin-top: 4px; font-weight: 500;">Цифровая очередь нового поколения</div>
     </div>
     <div style="padding: 32px;">
-      <h2 style="font-size: 20px; font-weight: 700; color: #0f172a; margin-top: 0; margin-bottom: 8px;">Подтверждение предварительной записи</h2>
+      <h2 style="font-size: 20px; font-weight: 700; color: #0f172a; margin-top: 0; margin-bottom: 8px;">Подтвердите запись</h2>
       <p style="font-size: 14px; color: #64748b; margin-top: 0; margin-bottom: 20px;">
         Талон предварительной записи: <b style="color: #054FA6; font-size: 16px;">%s</b>
       </p>
@@ -122,25 +122,28 @@ func (m *Mailer) SendAppointmentVerificationEmail(ctx context.Context, toEmail, 
           <tr><td style="color: #64748b; padding: 6px 0; width: 120px;">Отделение:</td><td style="color: #0f172a; font-weight: 600; padding: 6px 0;">%s</td></tr>
           <tr><td style="color: #64748b; padding: 6px 0;">Адрес:</td><td style="color: #334155; padding: 6px 0;">%s</td></tr>
           <tr><td style="color: #64748b; padding: 6px 0;">Услуга:</td><td style="color: #0f172a; font-weight: 600; padding: 6px 0;">%s</td></tr>
-          <tr><td style="color: #64748b; padding: 6px 0;">Время:</td><td style="color: #054FA6; font-weight: 700; padding: 6px 0;">%s</td></tr>
+          <tr><td style="color: #64748b; padding: 6px 0;">Время визита:</td><td style="color: #054FA6; font-weight: 700; padding: 6px 0;">%s</td></tr>
         </table>
       </div>
-      <div style="background: #eff6ff; border: 2px dashed #054FA6; border-radius: 12px; padding: 20px 24px; text-align: center; margin: 24px 0;">
-        <div style="font-size: 12px; font-weight: 600; text-transform: uppercase; color: #054FA6; letter-spacing: 1px; margin-bottom: 6px;">Код подтверждения</div>
-        <div style="font-size: 34px; font-weight: 800; letter-spacing: 8px; color: #054FA6; font-family: 'SF Mono', Consolas, Monaco, monospace;">%s</div>
-        <div style="font-size: 12px; color: #dc2626; margin-top: 6px; font-weight: 600;">⏱ Действует 15 минут. Если не подтвердить, слот освободится.</div>
+      <p style="font-size: 14px; color: #334155; margin: 0 0 16px 0; font-weight: 500;">
+        Чтобы завершить запись, подтвердите её в течение 15 минут. После подтверждения запись будет оформлена.
+      </p>
+      <div style="text-align: center; margin: 24px 0;">
+        <a href="%s" style="display: inline-block; background: #054FA6; color: #ffffff; text-decoration: none; padding: 14px 28px; font-size: 15px; font-weight: 700; border-radius: 10px; box-shadow: 0 4px 12px rgba(5,79,166,0.25);">Подтвердить в один клик &rarr;</a>
       </div>
-      <div style="text-align: center; margin: 28px 0 20px 0;">
-        <a href="%s" style="display: inline-block; background: #054FA6; color: #ffffff; text-decoration: none; padding: 14px 28px; font-size: 15px; font-weight: 700; border-radius: 10px; box-shadow: 0 4px 12px rgba(5,79,166,0.25);">Подтвердить запись в один клик &rarr;</a>
+      <div style="background: #eff6ff; border: 2px dashed #054FA6; border-radius: 12px; padding: 18px 24px; text-align: center; margin: 24px 0 16px 0;">
+        <div style="font-size: 12px; font-weight: 600; text-transform: uppercase; color: #054FA6; letter-spacing: 1px; margin-bottom: 6px;">или введите код из письма:</div>
+        <div style="font-size: 32px; font-weight: 800; letter-spacing: 8px; color: #054FA6; font-family: 'SF Mono', Consolas, Monaco, monospace;">%s</div>
+        <div style="font-size: 12px; color: #475569; margin-top: 6px; font-weight: 500;">⏱ 15 минут на подтверждение</div>
       </div>
-      <p style="font-size: 12px; line-height: 1.5; color: #94a3b8; text-align: center; margin: 24px 0 0 0;">Если вы не записывались на прием, просто проигнорируйте это письмо.</p>
+      <p style="font-size: 12px; line-height: 1.5; color: #94a3b8; text-align: center; margin: 24px 0 0 0;">Если вы не совершали запись, просто проигнорируйте это письмо.</p>
     </div>
     <div style="background: #f8fafc; border-top: 1px solid #f1f5f9; padding: 16px 32px; text-align: center; font-size: 12px; color: #94a3b8;">
       АО «Почта России» • Интеллектуальное управление клиентскими потоками
     </div>
   </div>
 </body>
-</html>`, publicNumber, branchName, branchAddress, serviceName, scheduledAt, code, confirmURL)
+</html>`, publicNumber, branchName, branchAddress, serviceName, scheduledAt, confirmURL, code)
 
 	return m.sendEmailInternal(toEmail, subject, plainText, htmlBody)
 }
@@ -247,10 +250,14 @@ func (m *Mailer) sendEmailInternal(toEmail, subject, plainText, htmlBody string)
 	var msgBuilder strings.Builder
 	msgBuilder.WriteString(fmt.Sprintf("From: %s\r\n", fromHeader))
 	msgBuilder.WriteString(fmt.Sprintf("To: %s\r\n", toEmail))
+	msgBuilder.WriteString(fmt.Sprintf("Reply-To: %s\r\n", fromEmail))
 	msgBuilder.WriteString(fmt.Sprintf("Subject: %s\r\n", encodedSubject))
 	msgBuilder.WriteString(fmt.Sprintf("Date: %s\r\n", dateHeader))
 	msgBuilder.WriteString(fmt.Sprintf("Message-ID: %s\r\n", msgID))
 	msgBuilder.WriteString("MIME-Version: 1.0\r\n")
+	msgBuilder.WriteString("Auto-Submitted: auto-generated\r\n")
+	msgBuilder.WriteString("X-Auto-Response-Suppress: All\r\n")
+	msgBuilder.WriteString("X-Mailer: Pointers Postcode Mailer\r\n")
 	msgBuilder.WriteString(fmt.Sprintf("Content-Type: multipart/alternative; boundary=\"%s\"\r\n\r\n", boundary))
 
 	// Plain text

@@ -9,7 +9,7 @@ spec:
   project: default
   source:
     repoURL: 'https://git.codenrock.com/codenrock/khakaton-postcode-challenge-ot-pochtatekha/5-ukazateley/tsifrovaya-ochered-novogo-pokoleniya.git'
-    targetRevision: main
+    targetRevision: infra/k8s-gitops
     path: helm/queue-chart
     helm:
       valueFiles:

@@ -328,7 +328,7 @@ main
 frontend изменился? → docker build → docker push → обновляет frontend image tag
 backend изменился?  → docker build → docker push → обновляет backend image tag
  ↓
-GitOps commit в ветку gitops (только helm/queue-chart/values.yaml)
+GitOps commit в ветку infra/k8s-gitops (только helm/queue-chart/values.yaml)
  ↓ ArgoCD видит изменение
  ↓ Kubernetes RollingUpdate
  ↓ production обновлён
@@ -345,12 +345,11 @@ Image tags: `vacuumxvx/queue-frontend:v-<sha>` / `vacuumxvx/queue-backend:v-<sha
 
 | Компонент | Описание |
 |-----------|----------|
-| **ArgoCD** | Отслеживает ветку `gitops`, путь `helm/queue-chart`, `automated sync` включён |
+| **ArgoCD** | Отслеживает ветку `infra/k8s-gitops`, путь `helm/queue-chart`, `automated sync` включён |
 | **systemd timer** | `pointers-deploy.timer` — запускает watcher каждые 30 секунд |
 | **State file** | `/var/lib/pointers-deploy/last-deployed-sha` |
 | **Secrets** | `/etc/pointers-deploy.env` (chmod 600, не в Git) |
 | **Script** | `scripts/gitops-autodeploy.sh` |
 
 Логи: `journalctl -u pointers-deploy.service -n 100`
-
 

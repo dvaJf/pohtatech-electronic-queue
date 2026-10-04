@@ -24,11 +24,11 @@ GitLab CI Pipeline (.gitlab-ci.yml):
          └── gitops:update:
                - обновляет теги в helm/queue-chart/values.yaml через yq
                - фиксирует коммит "chore(gitops): update Helm image tags [skip ci]"
-               - пушит в ветку main c флагом -o ci.skip (исключая CI loop)
+               - пушит в ветку infra/k8s-gitops с флагом -o ci.skip (исключая CI loop)
                │
                ▼
 ArgoCD (Application: queue-system):
-   - обнаруживает коммит в ветке main (path: helm/queue-chart)
+   - обнаруживает коммит в ветке infra/k8s-gitops (path: helm/queue-chart)
    - автоматический Sync (automated: selfHeal: true)
                │
                ▼
@@ -48,7 +48,7 @@ Kubernetes (K3s кластер, namespace: queue-system):
 | Компонент | Расположение / Значение |
 |---|---|
 | **Helm Source of Truth** | `helm/queue-chart/` (`values.yaml`, `templates/`) |
-| **ArgoCD Application** | `queue-system` в namespace `argocd`, отслеживает `main` |
+| **ArgoCD Application** | `queue-system` в namespace `argocd`, отслеживает `infra/k8s-gitops` |
 | **Frontend Production Dockerfile** | `frontend/Dockerfile.prod` (Node build -> Nginx runtime) |
 | **Backend Production Dockerfile** | `backend/Dockerfile` (Go multi-stage -> Alpine) |
 | **Реестр образов** | GitLab Container Registry (`$CI_REGISTRY_IMAGE/frontend`, `$CI_REGISTRY_IMAGE/backend`) или Docker Hub (`vacuumxvx/queue-frontend`, `vacuumxvx/queue-backend`) |
@@ -105,8 +105,8 @@ kubectl get application -n argocd queue-system
 # 1. Откатить коммит обновления тегов в Git:
 git revert HEAD
 
-# 2. Отправить изменения в ветку main:
-git push origin main
+# 2. Отправить изменение Helm values в GitOps-ветку:
+git push origin HEAD:infra/k8s-gitops
 ```
 ArgoCD сразу обнаружит предыдущую версию тега в `helm/queue-chart/values.yaml` и выполнит обратный RollingUpdate.
 

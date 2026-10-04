@@ -19,7 +19,14 @@ type AliceMeta struct {
 }
 
 type AliceInterfaces struct {
-	Screen *struct{} `json:"screen,omitempty"`
+	Screen      *struct{} `json:"screen,omitempty"`
+	Geolocation *struct{} `json:"geolocation,omitempty"`
+}
+
+type AliceLocation struct {
+	Lat      float64 `json:"lat"`
+	Lon      float64 `json:"lon"`
+	Accuracy float64 `json:"accuracy,omitempty"`
 }
 
 type AliceSession struct {
@@ -29,6 +36,7 @@ type AliceSession struct {
 	User        *AliceUser       `json:"user,omitempty"`
 	Application AliceApplication `json:"application"`
 	New         bool             `json:"new"`
+	Location    *AliceLocation   `json:"location,omitempty"`
 }
 
 type AliceUser struct {

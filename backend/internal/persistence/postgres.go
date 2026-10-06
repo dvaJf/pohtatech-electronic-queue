@@ -1101,7 +1101,47 @@ func (p *Postgres) FindActiveTicketByClient(ctx context.Context, clientID string
 	if clientID == "" {
 		return nil, nil
 	}
-	query := ticketSelect + `WHERE t.client_id = $1 AND t.status IN ('PENDING_CONFIRMATION', 'SCHEDULED', 'WAITING', 'CALLED', 'SERVING') ORDER BY t.created_at DESC LIMIT 1`
+	query := ticketSelect + `
+		WHERE (
+			t.client_id = $1 
+			OR t.client_id IN (
+				SELECT ea.user_id::text FROM external_accounts ea
+				WHERE ea.external_user_id IN (
+					SELECT ea2.external_user_id FROM external_accounts ea2 WHERE ea2.user_id::text = $1
+				)
+			)
+			OR t.client_id IN (
+				SELECT ea.external_user_id FROM external_accounts ea WHERE ea.user_id::text = $1
+			)
+			OR (
+				EXISTS (
+					SELECT 1 FROM users u 
+					WHERE u.id::text = $1 AND (u.email LIKE '%@yandex.ru' OR u.password_hash = 'OAUTH_ACCOUNT')
+				)
+				AND (
+					t.client_id IN (
+						SELECT ea3.user_id::text FROM external_accounts ea3 WHERE ea3.provider = 'yandex_alice'
+					)
+					OR t.client_id IN (
+						SELECT u2.id::text FROM users u2 WHERE u2.email LIKE 'yandex_alice_%'
+					)
+				)
+			)
+			OR (
+				$1 IN (SELECT u3.id::text FROM users u3 WHERE u3.email LIKE 'yandex_alice_%')
+				AND (
+					t.client_id IN (
+						SELECT ea4.user_id::text FROM external_accounts ea4 WHERE ea4.provider = 'yandex_alice'
+					)
+					OR t.client_id IN (
+						SELECT u4.id::text FROM users u4 WHERE u4.email NOT LIKE 'yandex_alice_%' AND u4.role = 'client'
+					)
+				)
+			)
+		)
+		AND t.status IN ('PENDING_CONFIRMATION', 'SCHEDULED', 'WAITING', 'CALLED', 'SERVING')
+		ORDER BY t.created_at DESC LIMIT 1
+	`
 	t, err := scanTicket(p.pool.QueryRow(ctx, query, clientID))
 	if errors.Is(err, application.ErrNotFound) {
 		return nil, nil

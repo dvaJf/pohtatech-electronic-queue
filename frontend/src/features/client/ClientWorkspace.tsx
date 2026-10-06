@@ -3268,7 +3268,19 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                     <div className="cx-ticket-details">
                       <div className="cx-ticket-row">
                         <span>Услуга</span>
-                        <strong>{services.find(s => s.id === ticket.serviceId)?.name || ticket.serviceId}</strong>
+                        <strong>
+                          {(() => {
+                            const found = (ticket as any).serviceName || services.find(s => s.id === ticket.serviceId)?.name;
+                            if (ticket.source === 'APPOINTMENT') {
+                              if (found && !found.includes('-')) return `Онлайн-запись: ${found}`;
+                              if (ticket.serviceId?.includes('2222')) return 'Онлайн-запись: Посылки';
+                              return 'Онлайн-запись';
+                            }
+                            if (found && !found.includes('-')) return found;
+                            if (ticket.serviceId?.includes('2222')) return 'Посылки';
+                            return 'Почтовые услуги';
+                          })()}
+                        </strong>
                       </div>
                       <div className="cx-ticket-row">
                         <span>Отделение</span>

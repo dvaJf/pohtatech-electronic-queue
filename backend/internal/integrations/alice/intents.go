@@ -47,7 +47,7 @@ func ClassifyIntent(req AliceReqBody, hasPendingAction bool) (voice.VoiceIntent,
 	}
 
 	// 2. Cancellation
-	if containsAny(cmd, "отмени", "отменить", "отмена записи", "не пойду на почту", "сними запись") {
+	if containsAny(cmd, "отмени", "отменить", "отмена", "удали", "удалить", "удаление", "сними", "снять запись", "не пойду", "не хочу идти", "отказаться") {
 		return voice.IntentCancelTicket, scheduledAt, slots
 	}
 

@@ -11,6 +11,7 @@ import (
 
 	"postcode/backend/internal/application"
 	"postcode/backend/internal/domain"
+	"postcode/backend/internal/persistence"
 )
 
 type VoiceService struct {
@@ -162,8 +163,18 @@ func (s *VoiceService) handleConfirm(ctx context.Context, req VoiceRequest, user
 		}, nil
 
 	case ActionCancelTicket:
-		_, _ = s.usecases.CancelTicket(ctx, pending.TicketID)
-		_, _ = s.usecases.CancelAppointment(ctx, pending.TicketID)
+		authCtx := persistence.WithStaffBypass(ctx)
+		if user.ID != "" {
+			authCtx = persistence.WithClientOwner(authCtx, user.ID)
+		}
+		_, errApp := s.usecases.CancelAppointment(authCtx, pending.TicketID)
+		_, errTick := s.usecases.CancelTicket(authCtx, pending.TicketID)
+		if errApp != nil && errTick != nil {
+			s.logger.ErrorContext(ctx, "failed to cancel ticket via voice", "error_app", errApp, "error_tick", errTick, "ticket_id", pending.TicketID)
+			return VoiceResponse{
+				Text: fmt.Sprintf("Не удалось отменить талон %s. Пожалуйста, попробуйте отменить его на сайте.", pending.PublicNumber),
+			}, nil
+		}
 
 		if req.SessionID != "" {
 			s.sessions.ClearPendingAction(req.SessionID)

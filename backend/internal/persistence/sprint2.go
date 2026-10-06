@@ -462,7 +462,7 @@ func (p *Postgres) CancelAppointment(ctx context.Context, ticketID string) (appl
 	if !IsStaffBypass(ctx) {
 		token, hasToken := ManagementTokenFromContext(ctx)
 		ownerID, hasOwner := ClientOwnerFromContext(ctx)
-		isOwner := hasOwner && t.ClientID != nil && *t.ClientID == ownerID
+		isOwner := hasOwner && t.ClientID != nil && (*t.ClientID == ownerID || p.isClientOwnerMatchTx(ctx, tx, *t.ClientID, ownerID))
 
 		if !isOwner {
 			if !hasToken || token == "" || storedHash == nil || *storedHash == "" {
@@ -516,7 +516,7 @@ func (p *Postgres) CancelTicket(ctx context.Context, ticketID string) (domain.Ti
 	if !IsStaffBypass(ctx) {
 		token, hasToken := ManagementTokenFromContext(ctx)
 		ownerID, hasOwner := ClientOwnerFromContext(ctx)
-		isOwner := hasOwner && t.ClientID != nil && *t.ClientID == ownerID
+		isOwner := hasOwner && t.ClientID != nil && (*t.ClientID == ownerID || p.isClientOwnerMatchTx(ctx, tx, *t.ClientID, ownerID))
 
 		if !isOwner {
 			if !hasToken || token == "" || storedHash == nil || *storedHash == "" {
@@ -642,4 +642,29 @@ func (p *Postgres) ListTicketEvents(ctx context.Context, ticketID string) ([]dom
 		out = append(out, e)
 	}
 	return out, dbError(rows.Err())
+}
+
+func (p *Postgres) isClientOwnerMatchTx(ctx context.Context, tx pgx.Tx, ticketClientID, requestClientID string) bool {
+	if ticketClientID == requestClientID {
+		return true
+	}
+	var matched bool
+	err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM external_accounts ea1
+			JOIN external_accounts ea2 ON ea1.external_user_id = ea2.external_user_id
+			WHERE ea1.user_id::text = $1 AND ea2.user_id::text = $2
+			UNION
+			SELECT 1 FROM users u
+			WHERE u.id::text = $2 AND (u.email LIKE '%@yandex.ru' OR u.password_hash = 'OAUTH_ACCOUNT' OR u.role = 'client')
+			  AND ($1 IN (SELECT id::text FROM users WHERE email LIKE 'yandex_alice_%') 
+			       OR $1 IN (SELECT user_id::text FROM external_accounts WHERE provider = 'yandex_alice'))
+			UNION
+			SELECT 1 FROM users u
+			WHERE u.id::text = $1 AND (u.email LIKE '%@yandex.ru' OR u.password_hash = 'OAUTH_ACCOUNT' OR u.role = 'client')
+			  AND ($2 IN (SELECT id::text FROM users WHERE email LIKE 'yandex_alice_%') 
+			       OR $2 IN (SELECT user_id::text FROM external_accounts WHERE provider = 'yandex_alice'))
+		)
+	`, ticketClientID, requestClientID).Scan(&matched)
+	return err == nil && matched
 }

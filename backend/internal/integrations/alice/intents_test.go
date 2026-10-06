@@ -20,6 +20,8 @@ func TestClassifyIntent_BasicPhrases(t *testing.T) {
 		{"take ticket queue", "встань за меня в очередь", false, voice.IntentTakeTicket},
 		{"cancel ticket", "отмени запись", false, voice.IntentCancelTicket},
 		{"cancel ticket alias", "отмени талон", false, voice.IntentCancelTicket},
+		{"cancel ticket udali", "удали талон", false, voice.IntentCancelTicket},
+		{"cancel ticket otkaz", "отказаться от талона", false, voice.IntentCancelTicket},
 		{"status remaining", "сколько мне осталось ждать", false, voice.IntentTicketStatus},
 		{"status my ticket", "какой у меня номер", false, voice.IntentTicketStatus},
 		{"fastest branch", "где быстрее", false, voice.IntentFastestBranch},

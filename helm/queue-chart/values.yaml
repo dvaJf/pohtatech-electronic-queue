@@ -23,7 +23,7 @@ backend:
   replicaCount: 2
   image:
     repository: vacuumxvx/queue-backend
-    tag: "v-2cd6d32"
+    tag: "v-ec88d37"
     pullPolicy: IfNotPresent
   service:
     port: 8080
@@ -49,7 +49,7 @@ frontend:
   replicaCount: 2
   image:
     repository: vacuumxvx/queue-frontend
-    tag: "v-bdd9e17"
+    tag: "v-ec88d37"
     pullPolicy: IfNotPresent
   service:
     port: 80

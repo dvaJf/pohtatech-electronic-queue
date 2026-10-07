@@ -25,9 +25,16 @@ import {
   AlertTriangle,
   X,
   Lock,
-  Tv
+  Tv,
+  Calendar,
 } from 'lucide-react';
+import { formatMoscowTime } from '../../utils/time';
 import { SearchableBranchSelect } from '../../components/common/SearchableBranchSelect';
+
+interface NextAppointmentSlot {
+  scheduledAt: string;
+  count: number;
+}
 
 export function OperatorWorkspace() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -47,6 +54,7 @@ export function OperatorWorkspace() {
   // Side panel TV queue state
   const [tvQueue, setTvQueue] = useState<Array<{ publicNumber: string; source?: string; serviceName?: string }>>([]);
   const [queueTotal, setQueueTotal] = useState(0);
+  const [nextAppointment, setNextAppointment] = useState<NextAppointmentSlot | null>(null);
 
   // Elapsed timer for active service
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -188,7 +196,7 @@ export function OperatorWorkspace() {
   useEffect(() => {
     let active = true;
     setWindowId(''); setWindows([]); setServices([]); setServiceId(''); setCurrent(null); setReady(false);
-    setTvQueue([]); setQueueTotal(0);
+    setTvQueue([]); setQueueTotal(0); setNextAppointment(null);
     if (!branchId) return;
     localStorage.setItem('operator.branch', branchId);
     Promise.all([api.listWindows(branchId), listServices(branchId)]).then(([items, catalog]) => {
@@ -224,9 +232,12 @@ export function OperatorWorkspace() {
             const tvRes = await fetch(`/api/v1/admin/branches/${encodeURIComponent(branchId)}/queue`, { credentials: 'include' });
             if (tvRes.ok) {
               const tvData = await tvRes.json();
-              if (epoch.current === generation && Array.isArray(tvData?.items)) {
-                setTvQueue(tvData.items);
-                setQueueTotal(tvData.total);
+              if (epoch.current === generation) {
+                if (Array.isArray(tvData?.items)) {
+                  setTvQueue(tvData.items);
+                  setQueueTotal(tvData.total);
+                }
+                setNextAppointment(tvData?.nextAppointment ?? null);
               }
             }
           } catch {}
@@ -529,6 +540,37 @@ export function OperatorWorkspace() {
                     <Tv className="w-4 h-4 text-[#003B73]" />
                     <span>Табло зала (ТВ)</span>
                   </a>
+                </div>
+              </div>
+            )}
+
+            {/* Ближайший слот предварительной записи */}
+            {branchId && (
+              <div className="flex flex-col shrink-0">
+                <span className="text-[10px] font-bold uppercase tracking-wider mb-1 pl-1 text-slate-500">
+                  Ближайшая запись
+                </span>
+                <div className={`${containerHeightClass} flex items-center`}>
+                  {nextAppointment ? (
+                    <div
+                      className="h-10 px-3 rounded-xl border border-blue-200 bg-blue-50/70 text-[#003B73] flex items-center gap-2 text-xs font-bold transition-all shadow-xs"
+                      title={`Ближайший слот предварительной записи: ${formatMoscowTime(nextAppointment.scheduledAt, { second: undefined })}, записано: ${nextAppointment.count} чел.`}
+                    >
+                      <Calendar className="w-4 h-4 text-[#003B73] shrink-0" />
+                      <span>{formatMoscowTime(nextAppointment.scheduledAt, { second: undefined })}</span>
+                      <span className="bg-[#003B73] text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                        {nextAppointment.count} чел.
+                      </span>
+                    </div>
+                  ) : (
+                    <div
+                      className="h-10 px-3 rounded-xl border border-slate-200 bg-slate-50 text-slate-500 flex items-center gap-1.5 text-xs font-medium transition-all shadow-xs"
+                      title="Нет предстоящих предварительных записей"
+                    >
+                      <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
+                      <span>Записей нет</span>
+                    </div>
+                  )}
                 </div>
               </div>
             )}

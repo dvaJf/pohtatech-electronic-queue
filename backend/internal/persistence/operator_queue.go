@@ -48,5 +48,25 @@ func (p *Postgres) GetOperatorQueue(ctx context.Context, branchID string) (domai
 		}
 		result.Items = append(result.Items, item)
 	}
-	return result, dbError(rows.Err())
+	if err = rows.Err(); err != nil {
+		return result, dbError(err)
+	}
+
+	var nextSlot domain.NextAppointmentSlot
+	errSlot := p.pool.QueryRow(ctx, `
+		SELECT t.scheduled_at, COUNT(*)
+		FROM tickets t
+		WHERE t.branch_id = $1
+		  AND t.source = 'APPOINTMENT'
+		  AND t.status = 'SCHEDULED'
+		  AND t.scheduled_at >= $2
+		GROUP BY t.scheduled_at
+		ORDER BY t.scheduled_at ASC
+		LIMIT 1
+	`, id, now).Scan(&nextSlot.ScheduledAt, &nextSlot.Count)
+	if errSlot == nil && nextSlot.Count > 0 {
+		result.NextAppointment = &nextSlot
+	}
+
+	return result, nil
 }

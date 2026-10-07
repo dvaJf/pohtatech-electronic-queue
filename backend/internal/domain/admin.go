@@ -34,9 +34,15 @@ type AdminQueueTicket struct {
 	Status          TicketStatus `json:"status"`
 }
 
+type NextAppointmentSlot struct {
+	ScheduledAt time.Time `json:"scheduledAt"`
+	Count       int       `json:"count"`
+}
+
 type OperatorQueue struct {
-	Items []AdminQueueTicket `json:"items"`
-	Total int                `json:"total"`
+	Items           []AdminQueueTicket   `json:"items"`
+	Total           int                  `json:"total"`
+	NextAppointment *NextAppointmentSlot `json:"nextAppointment,omitempty"`
 }
 
 type PriorityRule struct {

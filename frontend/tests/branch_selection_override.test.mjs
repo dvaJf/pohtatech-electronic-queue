@@ -29,14 +29,15 @@ test('SearchableBranchSelect does not render duplicate Building2 icon in trigger
   assert.match(source, /\{disabled && \(\s*<Lock className=/);
 });
 
-test('UserProfileModal removes profile notifications and keeps scrollbar-none without ugly scrollbar thumb', async () => {
+test('UserProfileModal uses clean switch toggle and scrollbar-none without ugly scrollbar thumb', async () => {
   const source = await readFile(profileModalUrl, 'utf8');
 
-  // Duplicate status badges and notification section should be gone from profile
+  // Duplicate status badges should be gone
   assert.doesNotMatch(source, /✓ Включено/);
   assert.doesNotMatch(source, /✓ Системные уведомления активны/);
-  assert.doesNotMatch(source, /Уведомления и оповещения/);
-  assert.doesNotMatch(source, /aria-label="Включить или отключить уведомления в браузере"/);
+
+  // Switch toggle should be present
+  assert.match(source, /aria-label="Включить или отключить уведомления в браузере"/);
 
   // Native scrollbar thumb should be hidden with scrollbar-none
   assert.match(source, /scrollbar-none/);

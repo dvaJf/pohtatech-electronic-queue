@@ -228,7 +228,7 @@ func (p *Postgres) GetAdminOverview(ctx context.Context, branchID string) (domai
 		JOIN services s ON s.id = t.service_id
 		WHERE t.branch_id = $1 AND (
 			t.status IN ('WAITING', 'CALLED', 'SERVING')
-			OR (t.status = 'SCHEDULED' AND (t.scheduled_at <= NOW() + INTERVAL '15 minutes' OR t.arrived_at IS NOT NULL))
+			OR (t.status = 'SCHEDULED' AND (t.scheduled_at AT TIME ZONE 'Europe/Moscow')::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Moscow')::date AND (t.scheduled_at <= NOW() + INTERVAL '15 minutes' OR t.arrived_at IS NOT NULL))
 		)
 		ORDER BY t.queue_entered_at ASC
 	`, id)

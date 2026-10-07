@@ -332,7 +332,8 @@ func (p *Postgres) CloseShift(ctx context.Context, branchID string) (domain.Shif
 	return result, nil
 }
 
-// UpdateBranchSchedule sets the working hours for a branch.
+// UpdateBranchSchedule sets the working hours for a branch to take effect starting from the next calendar day
+// to avoid breaking active queues, feasibility calculations and scheduled appointments.
 func (p *Postgres) UpdateBranchSchedule(ctx context.Context, branchID string, workHours string) (domain.Branch, error) {
 	id, err := p.branch(ctx, branchID)
 	if err != nil {
@@ -345,14 +346,20 @@ func (p *Postgres) UpdateBranchSchedule(ctx context.Context, branchID string, wo
 	}
 
 	var b domain.Branch
+	var scheduledDate *time.Time
 	err = p.pool.QueryRow(ctx, `
 		UPDATE branches
-		SET work_hours = $2
+		SET scheduled_work_hours = $2,
+		    scheduled_work_hours_effective_date = ((CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Moscow')::date + interval '1 day')
 		WHERE id = $1
-		RETURNING id::text, name, address, work_hours, timezone_offset
-	`, id, cleanHours).Scan(&b.ID, &b.Name, &b.Address, &b.WorkHours, &b.TimezoneOffset)
+		RETURNING id::text, name, address, work_hours, timezone_offset, scheduled_work_hours, scheduled_work_hours_effective_date
+	`, id, cleanHours).Scan(&b.ID, &b.Name, &b.Address, &b.WorkHours, &b.TimezoneOffset, &b.ScheduledWorkHours, &scheduledDate)
 	if err != nil {
 		return domain.Branch{}, dbError(err)
+	}
+	if scheduledDate != nil {
+		dStr := scheduledDate.Format("2006-01-02")
+		b.ScheduledEffectiveDate = &dStr
 	}
 	return b, nil
 }

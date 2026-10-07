@@ -115,9 +115,22 @@ func scanTicket(row pgx.Row) (domain.Ticket, error) {
 	return t, nil
 }
 func (p *Postgres) ListBranches(ctx context.Context) ([]domain.Branch, error) {
-	rows, err := p.pool.Query(ctx, `SELECT b.id::text,b.name,b.address,b.work_hours,b.timezone_offset,b.latitude,b.longitude,b.is_demo,AVG(f.rating)::double precision,COUNT(f.id)
+	// Promote scheduled work hours that have reached their effective date
+	_, _ = p.pool.Exec(ctx, `
+		UPDATE branches
+		SET work_hours = scheduled_work_hours,
+		    scheduled_work_hours = NULL,
+		    scheduled_work_hours_effective_date = NULL
+		WHERE scheduled_work_hours IS NOT NULL
+		  AND (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Moscow')::date >= scheduled_work_hours_effective_date
+	`)
+
+	rows, err := p.pool.Query(ctx, `SELECT b.id::text,b.name,b.address,b.work_hours,b.timezone_offset,b.latitude,b.longitude,b.is_demo,
+		AVG(f.rating)::double precision,COUNT(f.id),
+		b.scheduled_work_hours,
+		to_char(b.scheduled_work_hours_effective_date, 'YYYY-MM-DD')
 		FROM branches b LEFT JOIN tickets t ON t.branch_id=b.id AND t.status='COMPLETED' LEFT JOIN ticket_feedback f ON f.ticket_id=t.id
-		GROUP BY b.id,b.name,b.address,b.work_hours,b.timezone_offset,b.latitude,b.longitude,b.is_demo ORDER BY b.name,b.id`)
+		GROUP BY b.id,b.name,b.address,b.work_hours,b.timezone_offset,b.latitude,b.longitude,b.is_demo,b.scheduled_work_hours,b.scheduled_work_hours_effective_date ORDER BY b.name,b.id`)
 	if err != nil {
 		return nil, dbError(err)
 	}
@@ -125,7 +138,7 @@ func (p *Postgres) ListBranches(ctx context.Context) ([]domain.Branch, error) {
 	out := []domain.Branch{}
 	for rows.Next() {
 		var b domain.Branch
-		if err = rows.Scan(&b.ID, &b.Name, &b.Address, &b.WorkHours, &b.TimezoneOffset, &b.Latitude, &b.Longitude, &b.IsDemo, &b.RatingAverage, &b.RatingCount); err != nil {
+		if err = rows.Scan(&b.ID, &b.Name, &b.Address, &b.WorkHours, &b.TimezoneOffset, &b.Latitude, &b.Longitude, &b.IsDemo, &b.RatingAverage, &b.RatingCount, &b.ScheduledWorkHours, &b.ScheduledEffectiveDate); err != nil {
 			return nil, dbError(err)
 		}
 		out = append(out, b)
@@ -397,11 +410,12 @@ func (p *Postgres) CallNextAt(ctx context.Context, windowID string, decisionTime
 		`+tierRankingLateral("t", "$3::timestamptz", "$4::int", "$5::int")+`
 		WHERE t.branch_id = $1::uuid
 		  AND (t.window_id IS NULL OR t.window_id = $2::uuid)
-		  AND EXISTS (SELECT 1 FROM window_services ws WHERE ws.window_id = $2::uuid AND ws.service_id = t.service_id)
+		  AND (t.window_id = $2::uuid OR EXISTS (SELECT 1 FROM window_services ws WHERE ws.window_id = $2::uuid AND ws.service_id = t.service_id))
 		  AND (t.status = 'WAITING' OR (t.source = 'APPOINTMENT' AND t.status = 'SCHEDULED'))
 		  AND t.ready_at <= $3::timestamptz
 		  AND k.effective_tier >= 0
-		ORDER BY k.effective_tier ASC, k.tier_entered_at ASC, t.created_at ASC, t.id ASC
+		ORDER BY (CASE WHEN t.window_id = $2::uuid THEN 0 ELSE 1 END) ASC,
+		         k.effective_tier ASC, k.tier_entered_at ASC, t.created_at ASC, t.id ASC
 		LIMIT 1
 		FOR NO KEY UPDATE OF t SKIP LOCKED
 	`, branch, windowID, decisionTime, policy.AntiStarvationThresholdMinutes, policy.AppointmentGraceMinutes)
@@ -455,7 +469,7 @@ func (p *Postgres) CallNextAt(ctx context.Context, windowID string, decisionTime
 				`+tierRankingLateral("t", "$3::timestamptz", "$4::int", "$5::int")+`
 				WHERE t.branch_id = $1::uuid
 				  AND (t.window_id IS NULL OR t.window_id = $2::uuid)
-				  AND EXISTS (SELECT 1 FROM window_services ws WHERE ws.window_id = $2::uuid AND ws.service_id = t.service_id)
+				  AND (t.window_id = $2::uuid OR EXISTS (SELECT 1 FROM window_services ws WHERE ws.window_id = $2::uuid AND ws.service_id = t.service_id))
 				  AND (t.status = 'WAITING' OR (t.source = 'APPOINTMENT' AND t.status = 'SCHEDULED'))
 				  AND t.ready_at <= $3::timestamptz + interval '1 second'
 				  AND k.effective_tier >= 0
@@ -475,7 +489,7 @@ func (p *Postgres) CallNextAt(ctx context.Context, windowID string, decisionTime
 				`+tierRankingLateral("t", "$3::timestamptz", "$4::int", "$5::int")+`
 				WHERE t.branch_id = $1::uuid
 				  AND (t.window_id IS NULL OR t.window_id = $2::uuid)
-				  AND EXISTS (SELECT 1 FROM window_services ws WHERE ws.window_id = $2::uuid AND ws.service_id = t.service_id)
+				  AND (t.window_id = $2::uuid OR EXISTS (SELECT 1 FROM window_services ws WHERE ws.window_id = $2::uuid AND ws.service_id = t.service_id))
 				  AND (t.status = 'WAITING' OR (t.source = 'APPOINTMENT' AND t.status = 'SCHEDULED'))
 				  AND (t.ready_at > $3::timestamptz + interval '1 second' OR k.effective_tier < 0)
 			)
@@ -1052,7 +1066,7 @@ func (p *Postgres) RedirectTicket(ctx context.Context, cmd application.RedirectT
 		}
 	} else {
 		if nw != nil {
-			tag, err = tx.Exec(ctx, `UPDATE tickets SET status='WAITING', window_id=$1, service_id=$2 WHERE id=$3 AND status IN ('CALLED', 'SERVING')`, nw, ns, id)
+			tag, err = tx.Exec(ctx, `UPDATE tickets SET status='WAITING', window_id=$1, service_id=$2, ready_at=LEAST(ready_at, clock_timestamp()), requeued_at=clock_timestamp() WHERE id=$3 AND status IN ('CALLED', 'SERVING')`, nw, ns, id)
 		} else {
 			tag, err = tx.Exec(ctx, `UPDATE tickets SET status='WAITING', window_id=NULL, service_id=$1 WHERE id=$2 AND status IN ('CALLED', 'SERVING')`, ns, id)
 		}

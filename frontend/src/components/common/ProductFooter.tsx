@@ -51,10 +51,10 @@ export function ProductFooter({ currentPath = '/', onNavigate }: ProductFooterPr
             <div className="flex items-center gap-1.5">
               <Phone className="w-3.5 h-3.5 text-blue-400 shrink-0" />
               <a
-                href="tel:8000000000"
+                href="tel:80000000000"
                 className="whitespace-nowrap font-bold text-white hover:text-blue-300 transition-colors"
               >
-                8 000 000 000
+                8 000 000 00 00
               </a>
             </div>
             <span aria-hidden="true" className="hidden text-slate-500 sm:inline">•</span>

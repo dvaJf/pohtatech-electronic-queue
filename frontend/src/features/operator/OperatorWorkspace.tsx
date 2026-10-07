@@ -500,7 +500,7 @@ export function OperatorWorkspace() {
               </div>
             </div>
 
-            {/* Shift Open/Close Button (полноразмерная кнопка) */}
+            {/* Shift Open/Close Button */}
             {selected && (
               <div className="flex flex-col shrink-0">
                 <span aria-hidden="true" className="text-[10px] font-bold uppercase tracking-wider mb-1 pl-1 invisible select-none">Смена</span>
@@ -513,7 +513,7 @@ export function OperatorWorkspace() {
                         changeWindowStatus(windowId, selected.status === 'OPEN' ? 'CLOSED' : 'OPEN')
                       )
                     }
-                    className={`h-12 px-5 rounded-xl border shadow-sm text-sm font-semibold flex items-center justify-center whitespace-nowrap overflow-visible shrink-0 transition-all focus:outline-none focus:ring-2 focus:ring-offset-1 ${
+                    className={`h-10 px-4 rounded-xl border shadow-xs text-xs font-bold flex items-center justify-center whitespace-nowrap overflow-visible shrink-0 transition-all focus:outline-none focus:ring-2 focus:ring-offset-1 ${
                       selected.status === 'OPEN'
                         ? 'text-red-700 border-red-200 bg-red-50 hover:bg-red-100 focus:ring-red-500'
                         : 'text-emerald-700 border-emerald-200 bg-emerald-50 hover:bg-emerald-100 focus:ring-emerald-500'
@@ -534,10 +534,10 @@ export function OperatorWorkspace() {
                     href={`/tv/${getBranchPostalCode(branchId, branches.find(b => b.id === branchId)?.name)}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="h-10 px-3 rounded-xl border border-blue-200 bg-blue-50/70 hover:bg-blue-100/80 text-[#003B73] flex items-center gap-1.5 text-xs font-bold transition-all shadow-xs"
+                    className="h-10 px-4 rounded-xl border border-blue-200 bg-blue-50/70 hover:bg-blue-100/80 text-[#003B73] flex items-center justify-center gap-1.5 text-xs font-bold transition-all shadow-xs shrink-0"
                     title={`Открыть табло вызова зала (ТВ) для отделения ${branches.find(b => b.id === branchId)?.name || ''} в отдельной вкладке`}
                   >
-                    <Tv className="w-4 h-4 text-[#003B73]" />
+                    <Tv className="w-4 h-4 text-[#003B73] shrink-0" />
                     <span>Табло зала (ТВ)</span>
                   </a>
                 </div>
@@ -553,7 +553,7 @@ export function OperatorWorkspace() {
                 <div className={`${containerHeightClass} flex items-center`}>
                   {nextAppointment ? (
                     <div
-                      className="h-10 px-3 rounded-xl border border-blue-200 bg-blue-50/70 text-[#003B73] flex items-center gap-2 text-xs font-bold transition-all shadow-xs"
+                      className="h-10 px-4 rounded-xl border border-blue-200 bg-blue-50/70 text-[#003B73] flex items-center justify-center gap-2 text-xs font-bold transition-all shadow-xs shrink-0"
                       title={`Ближайший слот предварительной записи: ${formatMoscowTime(nextAppointment.scheduledAt, { second: undefined })}, записано: ${nextAppointment.count} чел.`}
                     >
                       <Calendar className="w-4 h-4 text-[#003B73] shrink-0" />
@@ -564,7 +564,7 @@ export function OperatorWorkspace() {
                     </div>
                   ) : (
                     <div
-                      className="h-10 px-3 rounded-xl border border-slate-200 bg-slate-50 text-slate-500 flex items-center gap-1.5 text-xs font-medium transition-all shadow-xs"
+                      className="h-10 px-4 rounded-xl border border-slate-200 bg-slate-50 text-slate-500 flex items-center justify-center gap-1.5 text-xs font-bold transition-all shadow-xs shrink-0"
                       title="Нет предстоящих предварительных записей"
                     >
                       <Calendar className="w-4 h-4 text-slate-400 shrink-0" />

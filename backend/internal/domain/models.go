@@ -56,16 +56,18 @@ const (
 )
 
 type Branch struct {
-	Latitude       *float64 `json:"latitude,omitempty"`
-	Longitude      *float64 `json:"longitude,omitempty"`
-	IsDemo         bool     `json:"isDemo"`
-	ID             string   `json:"id"`
-	Name           string   `json:"name"`
-	Address        string   `json:"address"`
-	WorkHours      string   `json:"workHours"`
-	TimezoneOffset int      `json:"timezoneOffset"`
-	RatingAverage  *float64 `json:"ratingAverage"`
-	RatingCount    int      `json:"ratingCount"`
+	Latitude               *float64 `json:"latitude,omitempty"`
+	Longitude              *float64 `json:"longitude,omitempty"`
+	IsDemo                 bool     `json:"isDemo"`
+	ID                     string   `json:"id"`
+	Name                   string   `json:"name"`
+	Address                string   `json:"address"`
+	WorkHours              string   `json:"workHours"`
+	ScheduledWorkHours     *string  `json:"scheduledWorkHours,omitempty"`
+	ScheduledEffectiveDate *string  `json:"scheduledEffectiveDate,omitempty"`
+	TimezoneOffset         int      `json:"timezoneOffset"`
+	RatingAverage          *float64 `json:"ratingAverage"`
+	RatingCount            int      `json:"ratingCount"`
 }
 
 type BranchQuality struct {

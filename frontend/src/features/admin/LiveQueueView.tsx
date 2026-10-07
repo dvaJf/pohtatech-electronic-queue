@@ -45,13 +45,15 @@ export const LiveQueueView: React.FC<LiveQueueViewProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('ALL');
 
-  // Distinct strictly WAITING tickets that are not currently at a window
+  // Distinct waiting/scheduled tickets that are not currently at a window
   const waitingQueue = useMemo(() => {
     const activeWindowTicketNumbers = new Set(
       windows.map((w) => w.currentTicketNumber).filter(Boolean)
     );
     return queue.filter(
-      (item) => item.status === 'WAITING' && !activeWindowTicketNumbers.has(item.publicNumber)
+      (item) =>
+        (item.status === 'WAITING' || item.status === 'SCHEDULED') &&
+        !activeWindowTicketNumbers.has(item.publicNumber)
     );
   }, [queue, windows]);
 
@@ -76,15 +78,15 @@ export const LiveQueueView: React.FC<LiveQueueViewProps> = ({
     return filtered.slice(0, 50);
   }, [queue, sourceFilter, searchQuery]);
 
-  // Source counters
+  // Source counters for operational register
   const counts = useMemo(() => {
     return {
-      all: waitingQueue.length,
-      appointment: waitingQueue.filter((t) => t.source === 'APPOINTMENT').length,
-      qr: waitingQueue.filter((t) => t.source === 'QR').length,
-      live: waitingQueue.filter((t) => t.source === 'LIVE').length,
+      all: queue.length,
+      appointment: queue.filter((t) => t.source === 'APPOINTMENT').length,
+      qr: queue.filter((t) => t.source === 'QR').length,
+      live: queue.filter((t) => t.source === 'LIVE').length,
     };
-  }, [waitingQueue]);
+  }, [queue]);
 
   const activeServingWindows = windows.filter(
     (w) => w.status === 'OPEN' && w.currentTicketNumber
@@ -440,12 +442,12 @@ export const LiveQueueView: React.FC<LiveQueueViewProps> = ({
           </div>
 
           {/* Results Summary */}
-          {filteredQueue.length > 0 && filteredQueue.length < waitingQueue.length && (
+          {filteredQueue.length > 0 && filteredQueue.length < queue.length && (
             <div className="flex items-center justify-between px-4 py-2.5 bg-blue-50 border border-blue-200 rounded-xl text-xs">
               <div className="flex items-center gap-2 text-blue-800 font-semibold">
                 <AlertCircle className="w-4 h-4" />
                 <span>
-                  Показано {filteredQueue.length} из {waitingQueue.length} талонов
+                  Показано {filteredQueue.length} из {queue.length} талонов
                   {searchQuery || sourceFilter !== 'ALL' ? ' (применены фильтры)' : ' (лимит отображения)'}
                 </span>
               </div>

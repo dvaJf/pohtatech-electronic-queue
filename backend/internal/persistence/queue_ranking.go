@@ -149,11 +149,11 @@ const rankedCandidates = `SELECT t.id, t.status, k.tier_entered_at, k.effective_
  ) k
  WHERE t.branch_id = $2::uuid
    AND (t.window_id IS NULL OR t.window_id = $1::uuid)
-   AND EXISTS (SELECT 1 FROM window_services ws WHERE ws.window_id = $1::uuid AND ws.service_id = t.service_id)
+   AND (t.window_id = $1::uuid OR EXISTS (SELECT 1 FROM window_services ws WHERE ws.window_id = $1::uuid AND ws.service_id = t.service_id))
    AND (t.status = 'WAITING' OR (t.source = 'APPOINTMENT' AND t.status = 'SCHEDULED'))
    AND t.ready_at <= $3::timestamptz
    AND k.effective_tier >= 0`
-const rankingOrder = `k.effective_tier ASC, k.tier_entered_at ASC, t.created_at ASC, t.id ASC`
+const rankingOrder = `(CASE WHEN t.window_id = $1::uuid THEN 0 ELSE 1 END) ASC, k.effective_tier ASC, k.tier_entered_at ASC, t.created_at ASC, t.id ASC`
 const canonicalOrder = ` ORDER BY ` + rankingOrder
 
 func rankingArgs(window, branch string, at time.Time, p domain.QueuePolicy) []any {

@@ -965,7 +965,7 @@ export function OperatorWorkspace() {
             </div>
 
             <p className="text-xs text-slate-500">
-              Выберите целевое окно или услугу для перевода клиента. Талон будет направлен на обслуживание.
+              Выберите целевое окно или услугу для перевода клиента. При перенаправлении в конкретное окно клиент гарантированно будет вызван первым сразу после текущего талона.
             </p>
 
             <div className="space-y-3">
@@ -1030,7 +1030,8 @@ export function OperatorWorkspace() {
                     );
                     const targetText = targetWin ? `в Окно №${targetWin.number}` : 'в очередь';
                     const svcText = targetSvc ? ` на услугу «${targetSvc.name}»` : '';
-                    setNotice(`Талон ${current.publicNumber} успешно перенаправлен ${targetText}${svcText}`);
+                    const priorityText = targetWin ? '. Клиент будет вызван следующим сразу после текущего талона.' : '';
+                    setNotice(`Талон ${current.publicNumber} успешно перенаправлен ${targetText}${svcText}${priorityText}`);
                   });
                 }}
                 className="px-4 py-2 text-xs font-bold rounded-xl bg-[#003B73] hover:bg-[#054FA6] text-white shadow-sm transition-colors"

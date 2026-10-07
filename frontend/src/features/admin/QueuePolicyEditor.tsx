@@ -246,7 +246,7 @@ export const QueuePolicyEditor: React.FC<QueuePolicyEditorProps> = ({
       });
       setNotice({
         type: 'success',
-        message: `Правила очереди успешно сохранены и вступят в силу со следующего календарного дня! (Версия: v${updated.version})`,
+        message: 'Правила очереди успешно сохранены и вступят в силу со следующего календарного дня!',
       });
     } catch (err) {
       if (id !== requestId.current) return;
@@ -289,13 +289,7 @@ export const QueuePolicyEditor: React.FC<QueuePolicyEditorProps> = ({
             </div>
           </div>
 
-          {policy && (
-            <div className="flex items-center gap-2">
-              <span className="font-mono text-xs font-bold bg-blue-50 text-[#054FA6] px-3 py-1 rounded-full border border-blue-200">
-                Версия правил: v{policy.version}
-              </span>
-            </div>
-          )}
+          {/* Policy version badge removed by user request */}
         </div>
 
         {policy && policy.scheduledEffectiveOn && (

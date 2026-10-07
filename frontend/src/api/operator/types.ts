@@ -2,6 +2,8 @@ export type Branch = {
   id: string;
   name: string;
   workHours?: string;
+  scheduledWorkHours?: string;
+  scheduledEffectiveDate?: string;
 };
 
 export type BranchListResponse = {

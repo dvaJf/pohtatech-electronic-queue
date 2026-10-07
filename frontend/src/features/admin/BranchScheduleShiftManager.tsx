@@ -104,8 +104,9 @@ export const BranchScheduleShiftManager: React.FC<BranchScheduleShiftManagerProp
     try {
       const updated = await api.updateBranchSchedule(branch.id, workHours.trim());
       onBranchUpdated(updated);
-      setScheduleSuccess('Режим работы отделения успешно сохранён и вступил в силу.');
-      setTimeout(() => setScheduleSuccess(null), 5000);
+      const effectiveDateText = updated.scheduledEffectiveDate ? ` с ${updated.scheduledEffectiveDate}` : ' со следующего дня';
+      setScheduleSuccess(`Новый график (${workHours.trim()}) вступит в силу${effectiveDateText}. Сегодня отделение работает по прежнему графику (${branch.workHours || '08:00–20:00'}), чтобы не нарушать активную очередь и запись.`);
+      setTimeout(() => setScheduleSuccess(null), 8000);
     } catch (err: any) {
       setScheduleError(err.message || 'Ошибка сохранения режима работы');
       setTimeout(() => setScheduleError(null), 6000);
@@ -175,13 +176,20 @@ export const BranchScheduleShiftManager: React.FC<BranchScheduleShiftManagerProp
                 Режим работы отделения (ОПС)
               </h2>
               <p className="text-xs text-slate-500 font-medium">
-                Начальник отделения сам устанавливает график приёма клиентов для корректного расчёта очередей и времени закрытия
+                Начальник отделения сам устанавливает график приёма клиентов. Изменения вступают в силу со следующего дня для стабильности очереди
               </p>
             </div>
           </div>
-          <span className="font-mono text-xs font-bold px-3 py-1 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
-            Текущий: {branch.workHours || '08:00–20:00'}
-          </span>
+          <div className="flex flex-col items-end gap-1">
+            <span className="font-mono text-xs font-bold px-3 py-1 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
+              Сегодня: {branch.workHours || '08:00–20:00'}
+            </span>
+            {branch.scheduledWorkHours && (
+              <span className="font-mono text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">
+                Со след. дня ({branch.scheduledEffectiveDate}): {branch.scheduledWorkHours}
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Предустановленные шаблоны Почты России */}

@@ -1,0 +1,7 @@
+ALTER TABLE queue_policies
+ DROP CONSTRAINT queue_policy_schedule_complete,
+ DROP CONSTRAINT queue_policy_scheduled_grace_allowed,
+ DROP CONSTRAINT queue_policy_scheduled_promotion_allowed,
+ DROP COLUMN scheduled_effective_date,
+ DROP COLUMN scheduled_appointment_grace_minutes,
+ DROP COLUMN scheduled_promotion_interval_minutes;

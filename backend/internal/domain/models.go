@@ -176,17 +176,20 @@ type Ticket struct {
 }
 
 type QueuePolicy struct {
-	BranchID                        string
-	AppointmentDuePriority          int
-	QRPriority                      int
-	LivePriority                    int
-	AntiStarvationThresholdMinutes  int
-	AntiStarvationPointsPerMinute   int
-	AppointmentGraceMinutes         int
-	AppointmentLatePenaltyPerMinute int
-	AppointmentLatePenaltyMaxPoints int
-	Version                         int64
-	UpdatedAt                       time.Time
+	BranchID                                string
+	AppointmentDuePriority                  int
+	QRPriority                              int
+	LivePriority                            int
+	AntiStarvationThresholdMinutes          int
+	AntiStarvationPointsPerMinute           int
+	AppointmentGraceMinutes                 int
+	AppointmentLatePenaltyPerMinute         int
+	AppointmentLatePenaltyMaxPoints         int
+	ScheduledAntiStarvationThresholdMinutes *int
+	ScheduledAppointmentGraceMinutes        *int
+	ScheduledEffectiveDate                  *time.Time
+	Version                                 int64
+	UpdatedAt                               time.Time
 }
 type TicketEventType string
 

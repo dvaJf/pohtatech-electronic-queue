@@ -27,12 +27,12 @@ const (
 	window1    = "33333333-3333-3333-3333-333333333333"
 	window2    = "44444444-4444-4444-4444-444444444444"
 	window3    = "66666666-6666-6666-6666-666666666666"
-	missing    = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+	missing    = "00000000-0000-0000-0000-000000000000"
 
 	// migrationHead is the last migration in ../../migrations. Bump it together with
 	// every new migration, otherwise the whole integration suite fails on the version
 	// guard instead of the behaviour it is meant to protect.
-	migrationHead = 34
+	migrationHead = 36
 
 	// Absolute versions replayed by the migration tests. They must not be expressed as
 	// a step count from the head: adding 000007+ silently shifted every relative
@@ -135,8 +135,18 @@ func execSQL(t *testing.T, ctx context.Context, p *Postgres, sql string, args ..
 func TestPostgresCatalogAndMigration(t *testing.T) {
 	ctx, p, m := integration(t)
 	branches, err := p.ListBranches(ctx)
-	if err != nil || len(branches) != 1 || branches[0].ID != demoBranch || branches[0].Name != "Демо-отделение №1" {
-		t.Fatalf("branches: %v %v", branches, err)
+	if err != nil || len(branches) < 1 {
+		t.Fatalf("branches: %v %v", len(branches), err)
+	}
+	var foundDemo *domain.Branch
+	for i := range branches {
+		if branches[i].ID == demoBranch {
+			foundDemo = &branches[i]
+			break
+		}
+	}
+	if foundDemo == nil {
+		t.Fatalf("demo branch %s not found in branches", demoBranch)
 	}
 	services, err := p.ListBranchServices(ctx, demoBranch)
 	if err != nil || len(services) != 4 {
@@ -248,7 +258,7 @@ func TestPostgresRoutingAndTransitions(t *testing.T) {
 		t.Fatalf("payment routing: %v %v", calledPay, err)
 	}
 	// Test the UUID tie-breaker independently of insertion order.
-	execSQL(t, ctx, p, `UPDATE tickets SET queue_entered_at='2026-01-01T00:00:00Z' WHERE id IN ($1::uuid,$2::uuid)`, a.ID, b.ID)
+	execSQL(t, ctx, p, `UPDATE tickets SET queue_entered_at='2026-01-01T00:00:00Z', created_at='2026-01-01T00:00:00Z' WHERE id IN ($1::uuid,$2::uuid)`, a.ID, b.ID)
 	if b.ID < a.ID {
 		a, b = b, a
 	}
@@ -429,8 +439,8 @@ func TestPostgresFIFOAndSkipLocked(t *testing.T) {
 	execSQL(t, ctx, p, `UPDATE tickets SET queue_entered_at='2026-01-01T00:00:00Z' WHERE id=$1::uuid`, a.ID)
 	execSQL(t, ctx, p, `UPDATE tickets SET queue_entered_at='2026-01-02T00:00:00Z' WHERE id=$1::uuid`, b.ID)
 	// An earlier ticket of the same global service in another branch is ineligible.
-	execSQL(t, ctx, p, `INSERT INTO branches VALUES($1,'Other')`, missing)
-	execSQL(t, ctx, p, `INSERT INTO branch_services VALUES($1,$2)`, missing, parcels)
+	execSQL(t, ctx, p, `INSERT INTO branches(id, name) VALUES($1, 'Other') ON CONFLICT (id) DO NOTHING`, missing)
+	execSQL(t, ctx, p, `INSERT INTO branch_services(branch_id, service_id) VALUES($1, $2) ON CONFLICT DO NOTHING`, missing, parcels)
 	other, err := p.CreateQRTicket(ctx, application.CreateQRTicketCommand{BranchID: missing, ServiceID: parcels, IdempotencyKey: "other-branch"})
 	if err != nil {
 		t.Fatal(err)

@@ -7,66 +7,59 @@
 - транзакционный выбор следующего талона — [`backend/internal/persistence/postgres.go`](../backend/internal/persistence/postgres.go);
 - расчёт ETA — [`backend/internal/persistence/eta.go`](../backend/internal/persistence/eta.go).
 
-## 1. Ранжирование очереди
+## 1. Ступенчатое ранжирование очереди (Tiered Queue Priority)
 
-`ComputeSchedule` — чистая функция расчёта полей очереди. Сам `CallNext` не является чистой функцией: он выбирает и блокирует кандидата внутри транзакции PostgreSQL.
+Взамен числовых весов и квот действует детерминированная система трёх уровней приоритета со ступенчатым старением:
 
-### Ключ сортировки
+| Уровень | Обозначение | Описание |
+|---|---|---|
+| **Tier 0** | `APPOINTMENT` | Предварительная запись в своё время слота или повышенный талон |
+| **Tier 1** | `QR` | Талон по QR / с сайта или талон LIVE / опоздавшая запись после первого повышения |
+| **Tier 2** | `LIVE` | Талон из терминала зала или талон раннего прихода по записи |
 
-Кандидаты сортируются лексикографически:
+Администратор отделения настраивает:
+- **Интервал повышения $T$**: строго `10`, `15` или `20` минут (`anti_starvation_threshold_minutes`).
+- **Льготное опоздание записи**: строго `5`, `10` или `15` минут (`appointment_grace_minutes`).
 
-$$
-\mathcal{V}(t) = \big(\text{due\_at}(t),\ \text{effective\_source\_rank}(t),\ \text{checkin\_at}(t),\ \text{id}(t)\big)
-$$
+Любые изменения настроек политики очереди сохраняются с отложенной активацией на следующий локальный календарный день отделения.
 
-1. `due_at ASC` — первым рассматривается талон с более ранним расчётным дедлайном.
-2. `effective_source_rank ASC` — при равном дедлайне используется ранг источника. Для неподтверждённого прибытия на запись с опозданием более 30 минут `CallNext` временно использует ранг `2`.
-3. `checkin_at ASC` — раньше отметившийся клиент идёт первым.
-4. `id ASC` — детерминированный порядок при полном совпадении остальных полей.
+### Правила перехода между уровнями:
+1. **Предварительная запись (`APPOINTMENT`)**:
+   - До времени слота талон не участвует в автоматическом вызове. В момент слота он сразу получает уровень `APPOINTMENT` (Tier 0).
+   - Если клиент не вызван в течение льготного периода (`slot + grace`), запись временно переходит на уровень `QR` (Tier 1).
+   - Через $T$ минут нахождения в Tier 1 талон снова возвращается на верхний уровень `APPOINTMENT` (Tier 0).
+2. **Ранний приход по записи**:
+   - Если клиент нажимает кнопку «Я в отделении раньше времени» строго до слота (`arrived_at < scheduled_at`), он добровольно и необратимо переходит в живую очередь и начинает старение как `LIVE` (Tier 2 $\to$ Tier 1 $\to$ Tier 0).
+3. **Талон по QR (`QR`)**:
+   - Начинает на уровне `QR` (Tier 1), через $T$ минут переходит на уровень `APPOINTMENT` (Tier 0).
+4. **Талон из зала (`LIVE`)**:
+   - Начинает на уровне `LIVE` (Tier 2), через $T$ минут переходит на `QR` (Tier 1), ещё через $T$ минут — на `APPOINTMENT` (Tier 0).
+5. **Возврат / перевод талона**:
+   - Переведённый или возвращённый талон (`requeued_at IS NOT NULL`) начинает отсчёт старения от времени `requeued_at`.
 
-Значения по умолчанию из [`queue_policy.yaml`](../queue_policy.yaml):
+### Канонический ключ сортировки
 
-| Источник | Код | `source_rank` | Назначение |
-|---|---|---:|---|
-| Предварительная запись | `APPOINTMENT` | 0 | Запись на выбранный слот |
-| Талон по QR | `QR` | 1 | Талон со смартфона в отделении |
-| Терминал | `LIVE` | 2 | Талон из терминала в зале |
-
-`RETURNED` и `REDIRECTED` не являются источниками талона. Это типы событий аудита; после возврата или перенаправления статус талона становится `WAITING`, а параметры очереди пересчитываются.
-
-### Расчёт расписания
-
-Для `QR` и `LIVE`:
-
-$$
-\text{ready\_at}=t_{checkin}, \qquad
-\text{due\_at}=t_{checkin}+\Delta t_{max\_wait}
-$$
-
-Для `APPOINTMENT` без чекина:
+Автоматический вызов `CallNext` упорядочивает кандидатов лексикографически:
 
 $$
-\text{ready\_at}=\text{due\_at}=t_{scheduled}, \qquad
-\text{source\_rank}=0
+\mathcal{V}(t) = \big(\text{effective\_tier}(t),\ \text{tier\_entered\_at}(t),\ \text{created\_at}(t),\ \text{id}(t)\big)
 $$
 
-После `/arrive` расчёт зависит от времени прибытия:
-
-| Прибытие | `ready_at` | `due_at` | Ранг |
-|---|---|---|---:|
-| Раньше `slot − 15 мин` | `checkin_at` | `checkin_at + max_wait(LIVE)` | 2 |
-| От `slot − 15 мин` до `slot + 30 мин` включительно | `checkin_at` | `scheduled_at` | 0 |
-| Позже `slot + 30 мин` | `checkin_at` | `checkin_at + max_wait(LIVE) + late_penalty` | 2 |
-
-Числа 15 и 30 задаются параметрами `appointment.early_window_minutes` и `appointment.grace_minutes`, а не зашиты в UI.
+1. `effective_tier ASC` — 0 (APPOINTMENT), 1 (QR), 2 (LIVE).
+2. `tier_entered_at ASC` — время входа в текущий уровень (FIFO внутри уровня).
+3. `created_at ASC` — время создания талона.
+4. `id ASC` — UUID талона для полной детерминированности.
 
 ### Транзакционный выбор кандидата
 
-Ниже приведён сокращённый, но семантически эквивалентный фрагмент запроса `CallNext`:
+Ниже приведён канонический фрагмент запроса `CallNext`:
 
 ```sql
 SELECT t.*
 FROM tickets t
+CROSS JOIN LATERAL (
+    SELECT ... AS effective_tier, ... AS tier_entered_at
+) k
 WHERE t.branch_id = $1::uuid
   AND (t.window_id IS NULL OR t.window_id = $2::uuid)
   AND EXISTS (
@@ -77,25 +70,18 @@ WHERE t.branch_id = $1::uuid
   )
   AND (
       t.status = 'WAITING'
-      OR (t.source = 'APPOINTMENT' AND t.status = 'SCHEDULED')
+      OR (t.source = 'APPOINTMENT' AND t.status = 'SCHEDULED' AND (t.arrived_at IS NOT NULL OR t.scheduled_at <= $3::timestamptz))
   )
-  AND t.ready_at <= $3::timestamptz
 ORDER BY
-  t.due_at ASC,
-  CASE
-    WHEN t.source = 'APPOINTMENT'
-      AND t.arrived_at IS NULL
-      AND t.scheduled_at < $3::timestamptz - INTERVAL '30 minutes'
-    THEN 2
-    ELSE t.source_rank
-  END ASC,
-  t.checkin_at ASC,
+  k.effective_tier ASC,
+  k.tier_entered_at ASC,
+  t.created_at ASC,
   t.id ASC
 LIMIT 1
 FOR NO KEY UPDATE OF t SKIP LOCKED;
 ```
 
-`SKIP LOCKED` не позволяет двум окнам одновременно получить один талон. `FOR NO KEY UPDATE` соответствует блокировке в рабочем запросе.
+`SKIP LOCKED` гарантирует, что талон не будет параллельно захвачен другим окном. Очередь и операторский интерфейс используют то же выражение для единого источника истины.
 
 ## 2. Конечный автомат талона
 

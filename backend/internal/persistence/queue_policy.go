@@ -13,31 +13,59 @@ import (
 
 const policyColumns = `branch_id::text,appointment_due_priority,qr_priority,live_priority,
  anti_starvation_threshold_minutes,anti_starvation_points_per_minute,appointment_grace_minutes,
- appointment_late_penalty_per_minute,appointment_late_penalty_max_points,version,updated_at`
+ appointment_late_penalty_per_minute,appointment_late_penalty_max_points,version,updated_at,
+ scheduled_promotion_interval_minutes,scheduled_appointment_grace_minutes,scheduled_effective_date`
 const policySelect = `SELECT ` + policyColumns + ` FROM queue_policies`
+
+// timezone_offset is stored in hours. Explicit UTC conversion makes the local
+// date independent of the PostgreSQL connection's session timezone.
+const policyAtSelect = `WITH policy_at AS (
+ SELECT qp.*, scheduled_effective_date <=
+  (timezone('UTC',$2::timestamptz) + make_interval(hours => b.timezone_offset))::date AS schedule_due
+ FROM queue_policies qp JOIN branches b ON b.id=qp.branch_id WHERE qp.branch_id=$1
+)
+SELECT branch_id::text,appointment_due_priority,qr_priority,live_priority,
+ CASE WHEN schedule_due THEN scheduled_promotion_interval_minutes ELSE anti_starvation_threshold_minutes END,
+ anti_starvation_points_per_minute,
+ CASE WHEN schedule_due THEN scheduled_appointment_grace_minutes ELSE appointment_grace_minutes END,
+ appointment_late_penalty_per_minute,appointment_late_penalty_max_points,version,updated_at,
+ CASE WHEN schedule_due THEN NULL ELSE scheduled_promotion_interval_minutes END,
+ CASE WHEN schedule_due THEN NULL ELSE scheduled_appointment_grace_minutes END,
+ CASE WHEN schedule_due THEN NULL ELSE scheduled_effective_date END
+FROM policy_at`
 
 func scanPolicy(row pgx.Row) (domain.QueuePolicy, error) {
 	var p domain.QueuePolicy
 	err := row.Scan(&p.BranchID, &p.AppointmentDuePriority, &p.QRPriority, &p.LivePriority,
 		&p.AntiStarvationThresholdMinutes, &p.AntiStarvationPointsPerMinute, &p.AppointmentGraceMinutes,
-		&p.AppointmentLatePenaltyPerMinute, &p.AppointmentLatePenaltyMaxPoints, &p.Version, &p.UpdatedAt)
+		&p.AppointmentLatePenaltyPerMinute, &p.AppointmentLatePenaltyMaxPoints, &p.Version, &p.UpdatedAt,
+		&p.ScheduledAntiStarvationThresholdMinutes, &p.ScheduledAppointmentGraceMinutes, &p.ScheduledEffectiveDate)
 	p.UpdatedAt = p.UpdatedAt.UTC()
 	return p, dbError(err)
 }
+
 func (p *Postgres) GetQueuePolicy(ctx context.Context, branchID string) (domain.QueuePolicy, error) {
+	return p.getQueuePolicyAt(ctx, nil, branchID, time.Now())
+}
+
+func (p *Postgres) getQueuePolicyAt(ctx context.Context, tx pgx.Tx, branchID string, at time.Time) (domain.QueuePolicy, error) {
 	id, err := uuid(branchID)
 	if err != nil {
 		return domain.QueuePolicy{}, err
 	}
-	return scanPolicy(p.pool.QueryRow(ctx, policySelect+` WHERE branch_id=$1`, id))
+	if tx != nil {
+		return scanPolicy(tx.QueryRow(ctx, policyAtSelect, id, at))
+	}
+	return scanPolicy(p.pool.QueryRow(ctx, policyAtSelect, id, at))
 }
+
 func validPolicy(c application.UpdateQueuePolicyCommand) bool {
 	return c.AppointmentDuePriority >= 0 && c.AppointmentDuePriority <= 1000 &&
 		c.QRPriority >= 0 && c.QRPriority <= 1000 && c.LivePriority >= 0 && c.LivePriority <= 1000 &&
 		c.AppointmentDuePriority > c.QRPriority && c.AppointmentDuePriority > c.LivePriority &&
-		c.AntiStarvationThresholdMinutes >= 0 && c.AntiStarvationThresholdMinutes <= 240 &&
+		(c.AntiStarvationThresholdMinutes == 10 || c.AntiStarvationThresholdMinutes == 15 || c.AntiStarvationThresholdMinutes == 20) &&
 		c.AntiStarvationPointsPerMinute >= 1 && c.AntiStarvationPointsPerMinute <= 600 &&
-		c.AppointmentGraceMinutes >= 0 && c.AppointmentGraceMinutes <= 120 &&
+		(c.AppointmentGraceMinutes == 5 || c.AppointmentGraceMinutes == 10 || c.AppointmentGraceMinutes == 15) &&
 		c.AppointmentLatePenaltyPerMinute >= 0 && c.AppointmentLatePenaltyPerMinute <= 600 &&
 		c.AppointmentLatePenaltyMaxPoints >= 0 && c.AppointmentLatePenaltyMaxPoints <= 1000 &&
 		c.AppointmentLatePenaltyMaxPoints <= c.AppointmentDuePriority
@@ -45,45 +73,27 @@ func validPolicy(c application.UpdateQueuePolicyCommand) bool {
 
 func (p *Postgres) getBranchPolicyTx(ctx context.Context, tx pgx.Tx, branchID pgtype.UUID) domain.QueuePolicyConfig {
 	base := p.GetPolicy()
-	var qrPri, livePri, graceMin, starveMin, latePenaltyMin, latePenaltyMax int
-	var err error
-	if tx != nil {
-		err = tx.QueryRow(ctx, `SELECT qr_priority, live_priority, appointment_grace_minutes, anti_starvation_threshold_minutes, appointment_late_penalty_per_minute, appointment_late_penalty_max_points FROM queue_policies WHERE branch_id=$1`, branchID).Scan(&qrPri, &livePri, &graceMin, &starveMin, &latePenaltyMin, &latePenaltyMax)
-	} else {
-		err = p.pool.QueryRow(ctx, `SELECT qr_priority, live_priority, appointment_grace_minutes, anti_starvation_threshold_minutes, appointment_late_penalty_per_minute, appointment_late_penalty_max_points FROM queue_policies WHERE branch_id=$1`, branchID).Scan(&qrPri, &livePri, &graceMin, &starveMin, &latePenaltyMin, &latePenaltyMax)
-	}
+	policy, err := p.getQueuePolicyAt(ctx, tx, branchID.String(), time.Now())
 	if err == nil {
-		qrRank := 1
-		liveRank := 2
-		if livePri > qrPri {
-			qrRank = 2
-			liveRank = 1
+		qrRank, liveRank := 1, 2
+		if policy.LivePriority > policy.QRPriority {
+			qrRank, liveRank = 2, 1
 		}
-		if graceMin >= 0 {
-			base.Appointment.GraceMinutes = graceMin
-		}
-		if latePenaltyMin >= 0 {
-			base.Appointment.LatePenaltyPerMinute = latePenaltyMin
-		}
-		if latePenaltyMax >= 0 {
-			base.Appointment.LatePenaltyMaxPoints = latePenaltyMax
-		}
+		base.Appointment.GraceMinutes = policy.AppointmentGraceMinutes
+		base.Appointment.LatePenaltyPerMinute = policy.AppointmentLatePenaltyPerMinute
+		base.Appointment.LatePenaltyMaxPoints = policy.AppointmentLatePenaltyMaxPoints
 		newSources := make(map[string]domain.SourcePolicy, len(base.Sources))
 		for k, v := range base.Sources {
 			newSources[k] = v
 		}
 		if qr, ok := newSources["qr"]; ok {
 			qr.Rank = qrRank
-			if starveMin >= 0 {
-				qr.MaxWaitMinutes = &starveMin
-			}
+			qr.MaxWaitMinutes = &policy.AntiStarvationThresholdMinutes
 			newSources["qr"] = qr
 		}
 		if live, ok := newSources["live"]; ok {
 			live.Rank = liveRank
-			if starveMin >= 0 {
-				live.MaxWaitMinutes = &starveMin
-			}
+			live.MaxWaitMinutes = &policy.AntiStarvationThresholdMinutes
 			newSources["live"] = live
 		}
 		base.Sources = newSources
@@ -92,6 +102,10 @@ func (p *Postgres) getBranchPolicyTx(ctx context.Context, tx pgx.Tx, branchID pg
 }
 
 func (p *Postgres) UpdateQueuePolicy(ctx context.Context, c application.UpdateQueuePolicyCommand) (domain.QueuePolicy, error) {
+	return p.updateQueuePolicyAt(ctx, c, time.Now())
+}
+
+func (p *Postgres) updateQueuePolicyAt(ctx context.Context, c application.UpdateQueuePolicyCommand, at time.Time) (domain.QueuePolicy, error) {
 	var empty domain.QueuePolicy
 	id, err := uuid(c.BranchID)
 	if err != nil {
@@ -101,157 +115,31 @@ func (p *Postgres) UpdateQueuePolicy(ctx context.Context, c application.UpdateQu
 		return empty, application.ErrInvalidState
 	}
 
-	tx, err := p.pool.Begin(ctx)
-	if err != nil {
-		return empty, dbError(err)
-	}
-	defer tx.Rollback(context.Background())
-
-	result, err := scanPolicy(tx.QueryRow(ctx, `UPDATE queue_policies SET
+	// One optimistic UPDATE both folds any due schedule and replaces tomorrow's
+	// schedule. Concurrent administrators cannot overwrite the winning version.
+	result, err := scanPolicy(p.pool.QueryRow(ctx, `UPDATE queue_policies qp SET
  appointment_due_priority=$2,qr_priority=$3,live_priority=$4,
- anti_starvation_threshold_minutes=$5,anti_starvation_points_per_minute=$6,
- appointment_grace_minutes=$7,appointment_late_penalty_per_minute=$8,
- appointment_late_penalty_max_points=$9,version=version+1,updated_at=transaction_timestamp()
- WHERE branch_id=$1 AND version=$10 RETURNING `+policyColumns,
+ anti_starvation_threshold_minutes=CASE WHEN scheduled_effective_date <=
+  (timezone('UTC',$11::timestamptz)+make_interval(hours => b.timezone_offset))::date
+  THEN scheduled_promotion_interval_minutes ELSE anti_starvation_threshold_minutes END,
+ anti_starvation_points_per_minute=$6,
+ appointment_grace_minutes=CASE WHEN scheduled_effective_date <=
+  (timezone('UTC',$11::timestamptz)+make_interval(hours => b.timezone_offset))::date
+  THEN scheduled_appointment_grace_minutes ELSE appointment_grace_minutes END,
+ appointment_late_penalty_per_minute=$8,appointment_late_penalty_max_points=$9,
+ scheduled_promotion_interval_minutes=$5,scheduled_appointment_grace_minutes=$7,
+ scheduled_effective_date=(timezone('UTC',$11::timestamptz)+make_interval(hours => b.timezone_offset))::date+1,
+ version=version+1,updated_at=$11
+ FROM branches b WHERE qp.branch_id=b.id AND qp.branch_id=$1 AND version=$10
+ RETURNING `+policyColumns,
 		id, c.AppointmentDuePriority, c.QRPriority, c.LivePriority, c.AntiStarvationThresholdMinutes,
 		c.AntiStarvationPointsPerMinute, c.AppointmentGraceMinutes, c.AppointmentLatePenaltyPerMinute,
-		c.AppointmentLatePenaltyMaxPoints, c.ExpectedVersion))
-	if err != nil {
-		if errors.Is(err, application.ErrNotFound) {
-			if _, errChk := p.GetQueuePolicy(ctx, c.BranchID); errChk != nil {
-				return empty, errChk
-			}
-			return empty, application.ErrPolicyVersionConflict
+		c.AppointmentLatePenaltyMaxPoints, c.ExpectedVersion, at))
+	if errors.Is(err, application.ErrNotFound) {
+		if _, lookupErr := p.getQueuePolicyAt(ctx, nil, c.BranchID, at); lookupErr != nil {
+			return empty, lookupErr
 		}
-		return empty, err
+		return empty, application.ErrPolicyVersionConflict
 	}
-
-	qrRank := 1
-	liveRank := 2
-	if c.LivePriority > c.QRPriority {
-		qrRank = 2
-		liveRank = 1
-	}
-
-	// Canonical schedule recalculation using shared domain.ComputeSchedule boundary
-	branchPolicy := p.getBranchPolicyTx(ctx, tx, id)
-
-	type ticketRecalc struct {
-		id             string
-		source         domain.TicketSource
-		scheduledAt    *time.Time
-		serviceID      string
-		checkinAt      *time.Time
-		arrivedAt      *time.Time
-		queueEnteredAt time.Time
-		status         domain.TicketStatus
-		oldDueAt       *time.Time
-		oldSourceRank  int
-		requeuedAt     *time.Time
-	}
-
-	rows, err := tx.Query(ctx, `
-		SELECT t.id::text, t.source, t.scheduled_at, t.service_id::text, t.checkin_at, t.arrived_at, t.queue_entered_at, t.status, t.due_at, t.source_rank, t.requeued_at
-		FROM tickets t
-		WHERE t.branch_id = $1 AND (t.status = 'WAITING' OR (t.source = 'APPOINTMENT' AND t.status = 'SCHEDULED'))
-		FOR UPDATE SKIP LOCKED
-	`, id)
-	if err != nil {
-		return empty, dbError(err)
-	}
-
-	var candidates []ticketRecalc
-	for rows.Next() {
-		var item ticketRecalc
-		var srcStr, statusStr string
-		if err = rows.Scan(&item.id, &srcStr, &item.scheduledAt, &item.serviceID, &item.checkinAt, &item.arrivedAt, &item.queueEnteredAt, &statusStr, &item.oldDueAt, &item.oldSourceRank, &item.requeuedAt); err != nil {
-			rows.Close()
-			return empty, dbError(err)
-		}
-		item.source = domain.TicketSource(srcStr)
-		item.status = domain.TicketStatus(statusStr)
-		candidates = append(candidates, item)
-	}
-	if err = rows.Err(); err != nil {
-		rows.Close()
-		return empty, dbError(err)
-	}
-	rows.Close()
-
-	for _, item := range candidates {
-		var checkin time.Time
-		if item.source == domain.TicketSourceAppointment {
-			if item.checkinAt != nil {
-				checkin = *item.checkinAt
-			} else if item.arrivedAt != nil {
-				checkin = *item.arrivedAt
-			}
-		} else {
-			if item.checkinAt != nil {
-				checkin = *item.checkinAt
-			} else {
-				checkin = item.queueEnteredAt
-			}
-		}
-
-		newDueAt, newReadyAt, newSourceRank := domain.ComputeSchedule(branchPolicy, domain.ScheduleTicketInput{
-			Source:      item.source,
-			ScheduledAt: item.scheduledAt,
-			ServiceID:   item.serviceID,
-			IsRequeued:  item.requeuedAt != nil,
-		}, checkin)
-
-		_, err = tx.Exec(ctx, `UPDATE tickets SET due_at = $1, ready_at = $2, source_rank = $3, policy_version = $4 WHERE id = $5::uuid`,
-			newDueAt, newReadyAt, newSourceRank, result.Version, item.id)
-		if err != nil {
-			return empty, dbError(err)
-		}
-
-		// Audit record: immutable scheduling-change event if persisted values changed
-		if item.oldDueAt == nil || !newDueAt.Equal(*item.oldDueAt) || newSourceRank != item.oldSourceRank {
-			tkt := domain.Ticket{
-				ID:     item.id,
-				Status: item.status,
-				DueAt:  &newDueAt,
-			}
-			recalcExtra := EventExtra{
-				Actor:  "policy_update",
-				Reason: "policy recalculation: due_at or source_rank updated",
-				DueAt:  &newDueAt,
-			}
-			if err = insertEvent(ctx, tx, tkt, domain.TicketEventQueueRecalculated, nil, &result.Version, nil, recalcExtra); err != nil {
-				return empty, err
-			}
-		}
-	}
-
-	if err = tx.Commit(ctx); err != nil {
-		return empty, dbError(err)
-	}
-
-	// Update in-memory fallback policy as well
-	p.policyMu.Lock()
-	if p.policy.Sources != nil {
-		p.policy.Appointment.GraceMinutes = c.AppointmentGraceMinutes
-		p.policy.Appointment.LatePenaltyPerMinute = c.AppointmentLatePenaltyPerMinute
-		p.policy.Appointment.LatePenaltyMaxPoints = c.AppointmentLatePenaltyMaxPoints
-		if qr, ok := p.policy.Sources["qr"]; ok {
-			qr.Rank = qrRank
-			if c.AntiStarvationThresholdMinutes >= 0 {
-				qr.MaxWaitMinutes = &c.AntiStarvationThresholdMinutes
-			}
-			p.policy.Sources["qr"] = qr
-		}
-		if live, ok := p.policy.Sources["live"]; ok {
-			live.Rank = liveRank
-			if c.AntiStarvationThresholdMinutes >= 0 {
-				live.MaxWaitMinutes = &c.AntiStarvationThresholdMinutes
-			}
-			p.policy.Sources["live"] = live
-		}
-	}
-	p.policyMu.Unlock()
-
-	return result, nil
+	return result, err
 }
-

@@ -3372,17 +3372,19 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                       {ticket.status === 'SCHEDULED' && ticket.source === 'APPOINTMENT' && (
                         (ticket.arrivedAt || arrivalAcknowledgedTicketIds.has(ticket.id)) ? (
                           <div className="cx-ticket-alert cx-ticket-alert-success">
-                            Ожидайте вызова, ваше прибытие отмечено
+                            Ранний приход отмечен: талон ожидает вызова в живой очереди
                           </div>
                         ) : (
-                          <button
-                            type="button"
-                            className="cx-btn cx-btn-primary cx-btn-block"
-                            onClick={() => arrive(ticket)}
-                            disabled={arriving}
-                          >
-                            {arriving ? 'Отмечаем...' : 'Я уже в отделении'}
-                          </button>
+                          ticket.scheduledAt && new Date(ticket.scheduledAt).getTime() > Date.now() ? (
+                            <button
+                              type="button"
+                              className="cx-btn cx-btn-primary cx-btn-block"
+                              onClick={() => arrive(ticket)}
+                              disabled={arriving}
+                            >
+                              {arriving ? 'Отмечаем...' : 'Я в отделении раньше времени'}
+                            </button>
+                          ) : null
                         )
                       )}
                       {(ticket.status === 'SCHEDULED' || ticket.status === 'WAITING' || ticket.status === 'PENDING_CONFIRMATION') && (

@@ -70,27 +70,29 @@ DECLARE
     rec RECORD;
     v_ticket_id uuid;
     v_service_id uuid;
+    v_window_id uuid;
 BEGIN
     SELECT id INTO v_service_id FROM services LIMIT 1;
     IF v_service_id IS NOT NULL THEN
         FOR rec IN SELECT id, name FROM demo_catalog WHERE id NOT IN ('9e364b61-0543-5502-b048-50b2e65879a3') LOOP
+            SELECT id INTO v_window_id FROM windows WHERE branch_id = rec.id LIMIT 1;
             v_ticket_id := md5(rec.id::text || ':seed_feedback:1')::uuid;
-            INSERT INTO tickets (id, branch_id, service_id, source, public_number, status, queue_entered_at, called_at, served_at)
-            VALUES (v_ticket_id, rec.id, v_service_id, 'QR', 'А-01', 'COMPLETED', NOW() - INTERVAL '4 hours', NOW() - INTERVAL '235 minutes', NOW() - INTERVAL '225 minutes')
+            INSERT INTO tickets (id, branch_id, service_id, window_id, source, idempotency_key, public_number, status, queue_entered_at, called_at, service_started_at, completed_at)
+            VALUES (v_ticket_id, rec.id, v_service_id, v_window_id, 'QR', md5(rec.id::text || ':seed_feedback:1'), 'Q-' || substring(replace(v_ticket_id::text, '-', '') from 1 for 10), 'COMPLETED', NOW() - INTERVAL '4 hours', NOW() - INTERVAL '235 minutes', NOW() - INTERVAL '225 minutes', NOW() - INTERVAL '220 minutes')
             ON CONFLICT (id) DO NOTHING;
 
-            INSERT INTO ticket_feedback (ticket_id, rating, comment, created_at)
-            VALUES (v_ticket_id, 5, 'Отличное обслуживание, оператор помог быстро оформить отправку.', NOW() - INTERVAL '220 minutes')
-            ON CONFLICT (ticket_id) DO NOTHING;
+            INSERT INTO ticket_feedback (id, ticket_id, rating, comment, created_at)
+            VALUES (md5(rec.id::text || ':seed_feedback_row:1')::uuid, v_ticket_id, 5, 'Отличное обслуживание, оператор помог быстро оформить отправку.', NOW() - INTERVAL '220 minutes')
+            ON CONFLICT (id) DO NOTHING;
 
             v_ticket_id := md5(rec.id::text || ':seed_feedback:2')::uuid;
-            INSERT INTO tickets (id, branch_id, service_id, source, public_number, status, queue_entered_at, called_at, served_at)
-            VALUES (v_ticket_id, rec.id, v_service_id, 'APPOINTMENT', 'П-03', 'COMPLETED', NOW() - INTERVAL '1 day', NOW() - INTERVAL '1 day', NOW() - INTERVAL '1 day')
+            INSERT INTO tickets (id, branch_id, service_id, window_id, source, scheduled_at, idempotency_key, public_number, status, queue_entered_at, called_at, service_started_at, completed_at)
+            VALUES (v_ticket_id, rec.id, v_service_id, v_window_id, 'APPOINTMENT', NOW() - INTERVAL '1 day', md5(rec.id::text || ':seed_feedback:2'), 'A-' || substring(replace(v_ticket_id::text, '-', '') from 1 for 10), 'COMPLETED', NOW() - INTERVAL '1 day', NOW() - INTERVAL '1 day', NOW() - INTERVAL '1 day', NOW() - INTERVAL '1 day')
             ON CONFLICT (id) DO NOTHING;
 
-            INSERT INTO ticket_feedback (ticket_id, rating, comment, created_at)
-            VALUES (v_ticket_id, 5, 'Записался на сайте, пришел и сразу подошел к окну. Никаких очередей.', NOW() - INTERVAL '1 day')
-            ON CONFLICT (ticket_id) DO NOTHING;
+            INSERT INTO ticket_feedback (id, ticket_id, rating, comment, created_at)
+            VALUES (md5(rec.id::text || ':seed_feedback_row:2')::uuid, v_ticket_id, 5, 'Записался на сайте, пришел и сразу подошел к окну. Никаких очередей.', NOW() - INTERVAL '1 day')
+            ON CONFLICT (id) DO NOTHING;
         END LOOP;
     END IF;
 END $$;

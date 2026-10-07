@@ -1661,7 +1661,7 @@ components:
         status: { type: string, enum: [ok] }
     QueuePolicy:
       type: object
-      description: Legacy-баллы и параметры аудита; автоматический CallNext сортирует по сохранённым due_at, source_rank, checkin_at, id из YAML-планирования.
+      description: Параметры ступенчатого приоритета очереди (Tiered Queue Priority; APPOINTMENT Tier 0, QR Tier 1, LIVE Tier 2). Автоматический CallNext сортирует по effective_tier ASC, tier_entered_at ASC, created_at ASC, id ASC. Изменения политики вступают в силу со следующей локальной календарной даты отделения.
       additionalProperties: false
       required:
       - branchId
@@ -1693,6 +1693,7 @@ components:
           maximum: 1000
         antiStarvationThresholdMinutes:
           type: integer
+          description: Интервал ступенчатого повышения приоритета в минутах (10, 15 или 20).
           minimum: 0
           maximum: 240
         antiStarvationPointsPerMinute:
@@ -1701,6 +1702,7 @@ components:
           maximum: 600
         appointmentGraceMinutes:
           type: integer
+          description: Льготный период записи в минутах (5, 10 или 15).
           minimum: 0
           maximum: 120
         appointmentLatePenaltyPerMinute:
@@ -1717,16 +1719,24 @@ components:
         updatedAt:
           type: string
           format: date-time
+        scheduledPromotionIntervalMinutes:
+          type: integer
+          nullable: true
+          description: Запланированный интервал старения со следующего дня.
+        scheduledAppointmentGraceMinutes:
+          type: integer
+          nullable: true
+          description: Запланированная льгота записи со следующего дня.
+        scheduledEffectiveOn:
+          type: string
+          format: date
+          nullable: true
+          description: Локальная календарная дата отделения, когда вступят в силу запланированные параметры.
     UpdateQueuePolicyRequest:
       type: object
       additionalProperties: false
-      description: Core validates appointmentDuePriority > qrPriority and livePriority; appointmentLatePenaltyMaxPoints
-        <= appointmentDuePriority. Omitted new fields preserve the current policy only when expectedVersion
-        matches; concurrent changes return POLICY_VERSION_CONFLICT. Explicit null is invalid. Every successful
-        PUT increments version once, including unchanged values.
+      description: Обновление параметров политики очереди со следующего дня. Поддерживает оптимистическую блокировку по expectedVersion.
       required:
-      - appointmentDuePriority
-      - qrPriority
       - expectedVersion
       properties:
         appointmentDuePriority:

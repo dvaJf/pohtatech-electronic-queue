@@ -10,17 +10,22 @@ export interface QueuePolicy {
   appointmentLatePenaltyMaxPoints: number;
   version: number;
   updatedAt: string;
+  scheduledPromotionIntervalMinutes?: number | null;
+  scheduledAppointmentGraceMinutes?: number | null;
+  scheduledEffectiveOn?: string | null;
 }
 
 export interface UpdateQueuePolicyRequest {
-  appointmentDuePriority: number;
-  qrPriority: number;
-  livePriority: number;
-  antiStarvationThresholdMinutes: number;
-  antiStarvationPointsPerMinute: number;
-  appointmentGraceMinutes: number;
-  appointmentLatePenaltyPerMinute: number;
-  appointmentLatePenaltyMaxPoints: number;
+  appointmentDuePriority?: number;
+  qrPriority?: number;
+  livePriority?: number;
+  antiStarvationThresholdMinutes?: number;
+  scheduledPromotionIntervalMinutes?: number;
+  antiStarvationPointsPerMinute?: number;
+  appointmentGraceMinutes?: number;
+  scheduledAppointmentGraceMinutes?: number;
+  appointmentLatePenaltyPerMinute?: number;
+  appointmentLatePenaltyMaxPoints?: number;
   expectedVersion: number;
 }
 

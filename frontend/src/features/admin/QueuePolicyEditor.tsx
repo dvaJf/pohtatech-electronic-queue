@@ -246,7 +246,7 @@ export const QueuePolicyEditor: React.FC<QueuePolicyEditorProps> = ({
       });
       setNotice({
         type: 'success',
-        message: `Правила очереди успешно сохранены! Версия обновлена: v${updated.version}`,
+        message: `Правила очереди успешно сохранены и вступят в силу со следующего календарного дня! (Версия: v${updated.version})`,
       });
     } catch (err) {
       if (id !== requestId.current) return;
@@ -297,6 +297,25 @@ export const QueuePolicyEditor: React.FC<QueuePolicyEditorProps> = ({
             </div>
           )}
         </div>
+
+        {policy && policy.scheduledEffectiveOn && (
+          <div
+            role="status"
+            className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-start gap-3 shadow-sm"
+          >
+            <Clock className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+            <div>
+              <div className="font-bold">
+                Запланировано изменение со следующего дня ({policy.scheduledEffectiveOn})
+              </div>
+              <div className="text-[11px] text-amber-800 mt-0.5">
+                Интервал повышения: {policy.scheduledPromotionIntervalMinutes ?? policy.antiStarvationThresholdMinutes} мин,
+                льготный период записи: {policy.scheduledAppointmentGraceMinutes ?? policy.appointmentGraceMinutes} мин.
+                Текущие настройки активны до конца дня.
+              </div>
+            </div>
+          </div>
+        )}
 
         {notice && (
           <div
@@ -474,33 +493,33 @@ export const QueuePolicyEditor: React.FC<QueuePolicyEditorProps> = ({
                 </div>
               </div>
 
-              {/* Параметр 2: Защита от долгого ожидания */}
+              {/* Параметр 2: Повышать приоритет каждые (ступенчатое старение) */}
               <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-sm space-y-3">
                 <div className="flex items-start justify-between">
                   <div>
-                    <h3 className="text-xs font-bold text-slate-900">Защита от долгого ожидания</h3>
+                    <h3 className="text-xs font-bold text-slate-900">Повышать приоритет каждые</h3>
                     <p className="text-[11px] text-slate-500 mt-0.5">
-                      Порог времени, после которого талон форсированно продвигается к вызову
+                      Интервал перехода талонов на следующий уровень (LIVE → QR → APPOINTMENT)
                     </p>
                   </div>
                 </div>
                 <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-100 rounded-xl text-xs font-bold">
                   <button
                     type="button"
-                    onClick={() => { setSelectedPreset(null); setValues(v => ({ ...v, antiStarvationThresholdMinutes: 25 })); }}
+                    onClick={() => { setSelectedPreset(null); setValues(v => ({ ...v, antiStarvationThresholdMinutes: 10 })); }}
                     className={`py-1.5 rounded-lg transition-all ${
-                      starvationGuardLevel === 'low'
-                        ? 'bg-white text-slate-900 shadow-sm'
+                      values.antiStarvationThresholdMinutes === 10
+                        ? 'bg-white text-[#003B73] shadow-sm font-black'
                         : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
-                    Мягкая (25 мин)
+                    10 минут
                   </button>
                   <button
                     type="button"
                     onClick={() => { setSelectedPreset(null); setValues(v => ({ ...v, antiStarvationThresholdMinutes: 15 })); }}
                     className={`py-1.5 rounded-lg transition-all ${
-                      starvationGuardLevel === 'medium'
+                      values.antiStarvationThresholdMinutes === 15
                         ? 'bg-white text-[#003B73] shadow-sm font-black'
                         : 'text-slate-600 hover:text-slate-900'
                     }`}
@@ -509,25 +528,25 @@ export const QueuePolicyEditor: React.FC<QueuePolicyEditorProps> = ({
                   </button>
                   <button
                     type="button"
-                    onClick={() => { setSelectedPreset(null); setValues(v => ({ ...v, antiStarvationThresholdMinutes: 10 })); }}
+                    onClick={() => { setSelectedPreset(null); setValues(v => ({ ...v, antiStarvationThresholdMinutes: 20 })); }}
                     className={`py-1.5 rounded-lg transition-all ${
-                      starvationGuardLevel === 'high'
-                        ? 'bg-white text-amber-700 shadow-sm font-black'
+                      values.antiStarvationThresholdMinutes === 20
+                        ? 'bg-white text-[#003B73] shadow-sm font-black'
                         : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
-                    10 мин (Жёсткая)
+                    20 минут
                   </button>
                 </div>
               </div>
 
-              {/* Параметр 3: Льготный период для записи */}
+              {/* Параметр 3: Льготное опоздание записи */}
               <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-sm space-y-3">
                 <div className="flex items-start justify-between">
                   <div>
-                    <h3 className="text-xs font-bold text-slate-900">Льготное окно для записи</h3>
+                    <h3 className="text-xs font-bold text-slate-900">Льготное опоздание записи</h3>
                     <p className="text-[11px] text-slate-500 mt-0.5">
-                      Сколько времени после наступления слота клиент сохраняет максимальный приоритет
+                      Время после наступления слота до понижения на уровень QR
                     </p>
                   </div>
                 </div>
@@ -536,8 +555,8 @@ export const QueuePolicyEditor: React.FC<QueuePolicyEditorProps> = ({
                     type="button"
                     onClick={() => { setSelectedPreset(null); setValues(v => ({ ...v, appointmentGraceMinutes: 5 })); }}
                     className={`py-1.5 rounded-lg transition-all ${
-                      gracePeriodLevel === 'low'
-                        ? 'bg-white text-slate-900 shadow-sm'
+                      values.appointmentGraceMinutes === 5
+                        ? 'bg-white text-[#003B73] shadow-sm font-black'
                         : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
@@ -545,25 +564,25 @@ export const QueuePolicyEditor: React.FC<QueuePolicyEditorProps> = ({
                   </button>
                   <button
                     type="button"
+                    onClick={() => { setSelectedPreset(null); setValues(v => ({ ...v, appointmentGraceMinutes: 10 })); }}
+                    className={`py-1.5 rounded-lg transition-all ${
+                      values.appointmentGraceMinutes === 10
+                        ? 'bg-white text-[#003B73] shadow-sm font-black'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    10 минут
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => { setSelectedPreset(null); setValues(v => ({ ...v, appointmentGraceMinutes: 15 })); }}
                     className={`py-1.5 rounded-lg transition-all ${
-                      gracePeriodLevel === 'medium'
+                      values.appointmentGraceMinutes === 15
                         ? 'bg-white text-[#003B73] shadow-sm font-black'
                         : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
                     15 минут ★
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { setSelectedPreset(null); setValues(v => ({ ...v, appointmentGraceMinutes: 30 })); }}
-                    className={`py-1.5 rounded-lg transition-all ${
-                      gracePeriodLevel === 'high'
-                        ? 'bg-white text-emerald-700 shadow-sm font-black'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    30 минут
                   </button>
                 </div>
               </div>
@@ -634,11 +653,11 @@ export const QueuePolicyEditor: React.FC<QueuePolicyEditorProps> = ({
                 <div className="p-4 border-t border-slate-200 bg-white space-y-4">
                   <div className="p-3 bg-slate-100 rounded-xl space-y-1 font-mono text-[11px] text-slate-700">
                     <div className="font-bold text-[#003B73]">
-                      Канонический порядок вызова (Queue Engine):
+                      Канонический порядок вызова (Tiered Queue Engine):
                     </div>
-                    <div>ORDER BY due_at ASC, source_rank ASC, checkin_at ASC, id ASC</div>
+                    <div>ORDER BY effective_tier ASC, tier_entered_at ASC, created_at ASC, id ASC</div>
                     <div className="text-[10px] text-slate-500 font-sans mt-0.5">
-                      Талоны упорядочиваются по целевому сроку обслуживания (дедлайну due_at). Защита от стагнации сдвигает расчетный дедлайн ожидания.
+                      Ступенчатый приоритет: APPOINTMENT (0) → QR (1) → LIVE (2). Старение каждые T минут. Сохранение активируется со следующего календарного дня.
                     </div>
                   </div>
 

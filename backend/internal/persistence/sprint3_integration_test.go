@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"postcode/backend/internal/application"
@@ -94,9 +95,20 @@ func TestSprint3LiveIdempotency(t *testing.T) {
 		}
 		numbers[r.Ticket.PublicNumber] = true
 	}
-	_, err = p.CallNext(ctx, window1)
+	firstCalled, err := p.CallNext(ctx, window1)
 	if err != nil {
 		t.Fatal(err)
+	}
+	// qr-first was called first because QR has higher tier than LIVE.
+	_, _ = p.StartService(ctx, firstCalled.ID)
+	_, _ = p.CompleteService(ctx, firstCalled.ID)
+
+	secondCalled, err := p.CallNext(ctx, window1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if secondCalled.ID != ticket.ID {
+		t.Fatalf("expected ticket %s, got %s", ticket.ID, secondCalled.ID)
 	}
 	_, err = p.MarkNoShow(ctx, ticket.ID)
 	if err != nil {
@@ -118,35 +130,62 @@ func TestSprint3RankingArithmetic(t *testing.T) {
 	}
 	at := time.Date(2200, 1, 1, 0, 0, 0, 0, time.UTC)
 	a := book(t, ctx, p, "ranking", parcels).Appointment.Ticket
-	// Golden cases exercise the production SQL primitive, not a Go copy of it.
 	cases := []struct {
-		name                               string
-		source                             string
-		wait, late                         int64
-		arrival                            bool
-		grace, rate, cap, threshold, boost int
-		want                               int64
+		name          string
+		source        string
+		wait          int64
+		late          int64
+		arrival       bool
+		grace         int
+		threshold     int
+		wantTier      int64
+		wantEnteredAt time.Time
+		wantRow       bool
 	}{
-		{"legacy", "APPOINTMENT", 0, 0, false, 15, 5, 90, 15, 10, 100},
-		{"early", "APPOINTMENT", 0, -300, true, 15, 5, 90, 15, 10, 100},
-		{"grace boundary", "APPOINTMENT", 0, 900, true, 15, 5, 90, 15, 10, 100},
-		{"floor penalty", "APPOINTMENT", 0, 911, true, 15, 5, 90, 15, 10, 100},
-		{"first penalty point", "APPOINTMENT", 0, 912, true, 15, 5, 90, 15, 10, 99},
-		{"late", "APPOINTMENT", 0, 1020, true, 15, 5, 90, 15, 10, 90},
-		{"maximum penalty", "APPOINTMENT", 0, 9000, true, 15, 5, 90, 15, 10, 10},
-		{"zero grace", "APPOINTMENT", 0, 60, true, 0, 5, 90, 15, 10, 95},
-		{"zero penalty", "APPOINTMENT", 0, 9000, true, 0, 0, 90, 15, 10, 100},
-		{"zero cap", "APPOINTMENT", 0, 9000, true, 0, 5, 0, 15, 10, 100},
-		{"branch delay", "APPOINTMENT", 1200, 1020, true, 15, 5, 90, 15, 10, 140},
-		{"legacy aging", "APPOINTMENT", 1200, 0, false, 15, 5, 90, 15, 10, 150},
-		{"QR threshold", "QR", 900, 0, false, 15, 5, 90, 15, 10, 10},
-		{"QR floor", "QR", 905, 0, false, 15, 5, 90, 15, 10, 10},
-		{"QR first boost", "QR", 906, 0, false, 15, 5, 90, 15, 10, 11},
-		{"QR outranks fresh appointment", "QR", 1500, 0, false, 15, 5, 90, 15, 10, 110},
-		{"LIVE outranks fresh appointment", "LIVE", 1500, 0, false, 15, 5, 90, 15, 10, 110},
-		{"zero threshold", "LIVE", 60, 0, false, 15, 5, 90, 0, 600, 610},
-		{"large integer", "QR", 4000000000, 0, false, 15, 5, 90, 0, 600, 40000000010},
-		{"negative waiting clamps", "QR", -60, 0, false, 15, 5, 90, 0, 600, 10},
+		{
+			name: "appointment_on_time", source: "APPOINTMENT", wait: 0, late: 0, arrival: true, grace: 15, threshold: 15,
+			wantTier: 0, wantEnteredAt: at, wantRow: true,
+		},
+		{
+			name: "appointment_early_arrival", source: "APPOINTMENT", wait: 0, late: -300, arrival: true, grace: 15, threshold: 15,
+			wantTier: 2, wantEnteredAt: at.Add(-300 * time.Second), wantRow: true,
+		},
+		{
+			name: "appointment_grace_boundary", source: "APPOINTMENT", wait: 0, late: 900, arrival: true, grace: 15, threshold: 15,
+			wantTier: 0, wantEnteredAt: at, wantRow: true,
+		},
+		{
+			name: "appointment_demoted_to_tier1", source: "APPOINTMENT", wait: 16 * 60, late: 0, arrival: true, grace: 15, threshold: 15,
+			wantTier: 1, wantEnteredAt: at.Add(-16*time.Minute + 15*time.Minute), wantRow: true,
+		},
+		{
+			name: "appointment_repromoted_to_tier0", source: "APPOINTMENT", wait: 35 * 60, late: 0, arrival: true, grace: 15, threshold: 15,
+			wantTier: 0, wantEnteredAt: at.Add(-35*time.Minute + 30*time.Minute), wantRow: true,
+		},
+		{
+			name: "qr_fresh_tier1", source: "QR", wait: 60, late: 0, arrival: false, grace: 15, threshold: 15,
+			wantTier: 1, wantEnteredAt: at.Add(-60 * time.Second), wantRow: true,
+		},
+		{
+			name: "qr_promoted_tier0", source: "QR", wait: 20 * 60, late: 0, arrival: false, grace: 15, threshold: 15,
+			wantTier: 0, wantEnteredAt: at.Add(-20*time.Minute + 15*time.Minute), wantRow: true,
+		},
+		{
+			name: "live_fresh_tier2", source: "LIVE", wait: 60, late: 0, arrival: false, grace: 15, threshold: 15,
+			wantTier: 2, wantEnteredAt: at.Add(-60 * time.Second), wantRow: true,
+		},
+		{
+			name: "live_promoted_tier1", source: "LIVE", wait: 20 * 60, late: 0, arrival: false, grace: 15, threshold: 15,
+			wantTier: 1, wantEnteredAt: at.Add(-20*time.Minute + 15*time.Minute), wantRow: true,
+		},
+		{
+			name: "live_promoted_tier0", source: "LIVE", wait: 35 * 60, late: 0, arrival: false, grace: 15, threshold: 15,
+			wantTier: 0, wantEnteredAt: at.Add(-35*time.Minute + 30*time.Minute), wantRow: true,
+		},
+		{
+			name: "future_appointment_ineligible", source: "APPOINTMENT", wait: -60, late: 0, arrival: true, grace: 15, threshold: 15,
+			wantTier: -1, wantRow: false,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -154,9 +193,6 @@ func TestSprint3RankingArithmetic(t *testing.T) {
 			scheduled := effective
 			var arrived any
 			if tc.arrival {
-				if tc.late > 0 {
-					scheduled = effective.Add(-time.Duration(tc.late) * time.Second)
-				}
 				arrived = scheduled.Add(time.Duration(tc.late) * time.Second)
 			}
 			var scheduledArg any = scheduled
@@ -169,16 +205,19 @@ func TestSprint3RankingArithmetic(t *testing.T) {
 			execSQL(t, ctx, p, `UPDATE tickets SET source=$2,status=$3,scheduled_at=$4,queue_entered_at=$5,arrived_at=$6 WHERE id=$1::uuid`, a.ID, tc.source, status, scheduledArg, scheduled, arrived)
 			pol := policy
 			pol.AppointmentGraceMinutes = tc.grace
-			pol.AppointmentLatePenaltyPerMinute = tc.rate
-			pol.AppointmentLatePenaltyMaxPoints = tc.cap
 			pol.AntiStarvationThresholdMinutes = tc.threshold
-			pol.AntiStarvationPointsPerMinute = tc.boost
 			var id, st string
 			var eq time.Time
 			var priority int64
 			err := p.pool.QueryRow(ctx, rankedCandidates, rankingArgs(window1, demoBranch, at, pol)...).Scan(&id, &st, &eq, &priority)
-			if err != nil || priority != tc.want || !eq.Equal(effective) {
-				t.Fatalf("priority=%d want=%d time=%s want=%s err=%v", priority, tc.want, eq, effective, err)
+			if !tc.wantRow {
+				if !errors.Is(err, pgx.ErrNoRows) {
+					t.Fatalf("expected ErrNoRows, got %v", err)
+				}
+				return
+			}
+			if err != nil || priority != tc.wantTier || !eq.Equal(tc.wantEnteredAt) {
+				t.Fatalf("tier=%d wantTier=%d time=%s wantTime=%s err=%v", priority, tc.wantTier, eq, tc.wantEnteredAt, err)
 			}
 		})
 	}
@@ -284,7 +323,7 @@ func TestSprint3PositionAndMixedOrdering(t *testing.T) {
 		t.Fatal(called, err)
 	}
 	e := events(t, ctx, p, called.ID, 2)[1]
-	if *e.DecisionPriority < *pos.EffectivePriority || *e.PolicyVersion != 2 || !e.OccurredAt.Equal(*called.CalledAt) {
+	if *e.DecisionPriority != *pos.EffectivePriority || *e.PolicyVersion != 2 || !e.OccurredAt.Equal(*called.CalledAt) {
 		t.Fatal(e)
 	}
 	// Busy window #1 is still the reference; its next candidate ranks first.
@@ -485,9 +524,9 @@ func TestSprint3PolicyValidation(t *testing.T) {
 	}
 	changes := []func(*application.UpdateQueuePolicyCommand){
 		func(c *application.UpdateQueuePolicyCommand) { c.LivePriority = -1 }, func(c *application.UpdateQueuePolicyCommand) { c.LivePriority = 1001 }, func(c *application.UpdateQueuePolicyCommand) { c.LivePriority = 100 },
-		func(c *application.UpdateQueuePolicyCommand) { c.AntiStarvationThresholdMinutes = -1 }, func(c *application.UpdateQueuePolicyCommand) { c.AntiStarvationThresholdMinutes = 241 },
+		func(c *application.UpdateQueuePolicyCommand) { c.AntiStarvationThresholdMinutes = -1 }, func(c *application.UpdateQueuePolicyCommand) { c.AntiStarvationThresholdMinutes = 0 }, func(c *application.UpdateQueuePolicyCommand) { c.AntiStarvationThresholdMinutes = 12 }, func(c *application.UpdateQueuePolicyCommand) { c.AntiStarvationThresholdMinutes = 240 },
 		func(c *application.UpdateQueuePolicyCommand) { c.AntiStarvationPointsPerMinute = 0 }, func(c *application.UpdateQueuePolicyCommand) { c.AntiStarvationPointsPerMinute = 601 },
-		func(c *application.UpdateQueuePolicyCommand) { c.AppointmentGraceMinutes = -1 }, func(c *application.UpdateQueuePolicyCommand) { c.AppointmentGraceMinutes = 121 },
+		func(c *application.UpdateQueuePolicyCommand) { c.AppointmentGraceMinutes = -1 }, func(c *application.UpdateQueuePolicyCommand) { c.AppointmentGraceMinutes = 0 }, func(c *application.UpdateQueuePolicyCommand) { c.AppointmentGraceMinutes = 7 }, func(c *application.UpdateQueuePolicyCommand) { c.AppointmentGraceMinutes = 120 },
 		func(c *application.UpdateQueuePolicyCommand) { c.AppointmentLatePenaltyPerMinute = -1 }, func(c *application.UpdateQueuePolicyCommand) { c.AppointmentLatePenaltyPerMinute = 601 },
 		func(c *application.UpdateQueuePolicyCommand) { c.AppointmentLatePenaltyMaxPoints = -1 }, func(c *application.UpdateQueuePolicyCommand) { c.AppointmentLatePenaltyMaxPoints = 101 },
 	}
@@ -501,9 +540,9 @@ func TestSprint3PolicyValidation(t *testing.T) {
 	c.AppointmentDuePriority = 1000
 	c.QRPriority = 0
 	c.LivePriority = 999
-	c.AntiStarvationThresholdMinutes = 240
+	c.AntiStarvationThresholdMinutes = 20
 	c.AntiStarvationPointsPerMinute = 600
-	c.AppointmentGraceMinutes = 120
+	c.AppointmentGraceMinutes = 5
 	c.AppointmentLatePenaltyPerMinute = 600
 	c.AppointmentLatePenaltyMaxPoints = 1000
 	updated, err := p.UpdateQueuePolicy(ctx, c)
@@ -512,9 +551,9 @@ func TestSprint3PolicyValidation(t *testing.T) {
 	}
 	c = policyCommand(updated)
 	c.LivePriority = 0
-	c.AntiStarvationThresholdMinutes = 0
+	c.AntiStarvationThresholdMinutes = 10
 	c.AntiStarvationPointsPerMinute = 1
-	c.AppointmentGraceMinutes = 0
+	c.AppointmentGraceMinutes = 10
 	c.AppointmentLatePenaltyPerMinute = 0
 	c.AppointmentLatePenaltyMaxPoints = 0
 	updated, err = p.UpdateQueuePolicy(ctx, c)
@@ -640,7 +679,7 @@ func TestSprint3PositionConsistentSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	<-done
-	if positionErr != nil || pos.Reason != domain.QueuePositionAvailable || *pos.EffectivePriority != 10 || pos.ReferenceWindow.ID != window1 {
+	if positionErr != nil || pos.Reason != domain.QueuePositionAvailable || *pos.EffectivePriority != 1 || pos.ReferenceWindow.ID != window1 {
 		t.Fatal(pos, positionErr)
 	}
 	next, err := p.GetQueuePosition(ctx, ticket.ID)
@@ -678,8 +717,7 @@ func TestSprint3DecisionAuditExact(t *testing.T) {
 		t.Fatal(err)
 	}
 	ev := events(t, ctx, p, a.ID, 2)[1]
-	// 35 minutes late => capped penalty 90; 25 minutes waiting => boost 100.
-	if priority != 110 || *ev.DecisionPriority != priority || *ev.PolicyVersion != policy.Version || !ev.OccurredAt.Equal(*called.CalledAt) {
+	if priority != 0 || *ev.DecisionPriority != priority || *ev.PolicyVersion != policy.Version || !ev.OccurredAt.Equal(*called.CalledAt) {
 		t.Fatalf("priority=%d audit=%+v", priority, ev)
 	}
 }
@@ -691,29 +729,36 @@ func TestSprint3FractionalSeconds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	policy.AntiStarvationThresholdMinutes = 0
-	policy.AntiStarvationPointsPerMinute = 600
-	policy.AppointmentGraceMinutes = 0
-	policy.AppointmentLatePenaltyPerMinute = 600
+	policy.AntiStarvationThresholdMinutes = 15
+	policy.AppointmentGraceMinutes = 10
 	at := time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
 	for _, tc := range []struct {
-		late, wait time.Duration
+		name       string
+		timeOffset time.Duration
 		want       int64
+		wantRow    bool
 	}{
-		{999 * time.Millisecond, 999 * time.Millisecond, 100},
-		{time.Second, 999 * time.Millisecond, 90},
-		{999 * time.Millisecond, time.Second, 110},
-		{1900 * time.Millisecond, 2900 * time.Millisecond, 110},
+		{"1ms_before_slot", -time.Millisecond, -1, false},
+		{"exact_slot", 0, 0, true},
+		{"within_grace", 10*time.Minute - time.Millisecond, 0, true},
+		{"at_grace_boundary", 10 * time.Minute, 1, true},
+		{"within_promotion_window", 25*time.Minute - time.Millisecond, 1, true},
+		{"at_promotion_boundary", 25 * time.Minute, 0, true},
 	} {
-		arrived := at.Add(-tc.wait)
-		scheduled := arrived.Add(-tc.late)
-		execSQL(t, ctx, p, `UPDATE tickets SET scheduled_at=$2,queue_entered_at=$2,arrived_at=$3 WHERE id=$1::uuid`, a.ID, scheduled, arrived)
+		scheduled := at.Add(-tc.timeOffset)
+		execSQL(t, ctx, p, `UPDATE tickets SET scheduled_at=$2,queue_entered_at=$2,arrived_at=$2 WHERE id=$1::uuid`, a.ID, scheduled)
 		var id, status string
 		var eq time.Time
 		var priority int64
 		err = p.pool.QueryRow(ctx, rankedCandidates, rankingArgs(window1, demoBranch, at, policy)...).Scan(&id, &status, &eq, &priority)
+		if !tc.wantRow {
+			if !errors.Is(err, pgx.ErrNoRows) {
+				t.Fatalf("%s: expected ErrNoRows, got %v", tc.name, err)
+			}
+			continue
+		}
 		if err != nil || priority != tc.want {
-			t.Fatalf("fraction=%+v priority=%d err=%v", tc, priority, err)
+			t.Fatalf("%s: priority=%d want=%d err=%v", tc.name, priority, tc.want, err)
 		}
 	}
 }
@@ -775,7 +820,7 @@ func TestSprint3LivePersistenceAndNoShowReplay(t *testing.T) {
 		}
 	}
 	a := book(t, ctx, p, "cancel", parcels).Appointment.Ticket
-	if _, err = p.CancelAppointment(ctx, a.ID); err != nil {
+	if _, err = p.CancelAppointment(WithStaffBypass(ctx), a.ID); err != nil {
 		t.Fatal(err)
 	}
 	_, err = p.MarkNoShow(ctx, a.ID)

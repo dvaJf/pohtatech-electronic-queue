@@ -26,11 +26,11 @@ func TestDueAtTieBreakDeterminism(t *testing.T) {
 	tQR2 := create(t, ctx, p, parcels, "det-qr2")
 
 	// Set exact deterministic timestamps
-	execSQL(t, ctx, p, `UPDATE tickets SET due_at=$2, source_rank=2, checkin_at=$3, ready_at=$3 WHERE id=$1::uuid`,
+	execSQL(t, ctx, p, `UPDATE tickets SET due_at=$2, source_rank=2, checkin_at=$3, queue_entered_at=$3, ready_at=$3 WHERE id=$1::uuid`,
 		tLive.ID, baseTime, baseTime.Add(-10*time.Minute))
-	execSQL(t, ctx, p, `UPDATE tickets SET due_at=$2, source_rank=1, checkin_at=$3, ready_at=$3 WHERE id=$1::uuid`,
+	execSQL(t, ctx, p, `UPDATE tickets SET due_at=$2, source_rank=1, checkin_at=$3, queue_entered_at=$3, ready_at=$3 WHERE id=$1::uuid`,
 		tQR1.ID, baseTime, baseTime.Add(-5*time.Minute))
-	execSQL(t, ctx, p, `UPDATE tickets SET due_at=$2, source_rank=1, checkin_at=$3, ready_at=$3 WHERE id=$1::uuid`,
+	execSQL(t, ctx, p, `UPDATE tickets SET due_at=$2, source_rank=1, checkin_at=$3, queue_entered_at=$3, ready_at=$3 WHERE id=$1::uuid`,
 		tQR2.ID, baseTime, baseTime.Add(-15*time.Minute)) // earlier checkin than tQR1
 
 	// Call next: tQR2 has smaller checkin than tQR1, and both QR have rank 1 < rank 2
@@ -54,17 +54,16 @@ func TestDueAtTieBreakDeterminism(t *testing.T) {
 	}
 }
 
-// Test 2: Example call order from prompt:
-// max_wait=30m, decision at 15:25
-// Б-05 (LIVE, check-in 14:55, max_wait=30m -> due=15:25, rank=2)
-// А-01 (APPOINTMENT, slot 15:30, check-in 15:20 -> due=15:30, rank=0)
-// Б-07 (LIVE, check-in 15:10, max_wait=30m -> due=15:40, rank=2)
-// А-02 (APPOINTMENT, slot 15:20, check-in 15:45 -> late 25m, fallback due=16:15, rank=2)
-// Expected order: Б-05, А-01, Б-07, А-02
+// Test 2: Multi-ticket scenario under deterministic tier aging.
+// At 16:05:
+// b05: LIVE (checkin 14:55) -> Tier 0 at 15:25
+// b07: LIVE (checkin 15:10) -> Tier 0 at 15:40
+// a01: APPOINTMENT early check-in (slot 15:30, checkin 15:20) -> LIVE aging -> Tier 0 at 15:50
+// a02: APPOINTMENT late check-in (slot 15:20, checkin 15:45) -> Tier 1 at 16:00
+// Expected order: b05, b07, a01, a02
 func TestPromptFiveTicketOrderScenario(t *testing.T) {
 	ctx, p, _ := integration(t)
 
-	now := time.Date(2026, 9, 20, 15, 25, 0, 0, time.UTC)
 	b05Checkin := time.Date(2026, 9, 20, 14, 55, 0, 0, time.UTC)
 	a01Slot := time.Date(2026, 9, 20, 15, 30, 0, 0, time.UTC)
 	a01Checkin := time.Date(2026, 9, 20, 15, 20, 0, 0, time.UTC)
@@ -78,21 +77,20 @@ func TestPromptFiveTicketOrderScenario(t *testing.T) {
 	b07 := live(t, ctx, p, "b07", parcels)
 	a02 := book(t, ctx, p, "a02", parcels).Appointment.Ticket
 
-	// Apply ComputeSchedule logic to each
 	policy := p.GetPolicy()
 	dueB05, readyB05, rankB05 := domain.ComputeSchedule(policy, domain.ScheduleTicketInput{Source: domain.TicketSourceLive, ServiceID: parcels}, b05Checkin)
 	dueA01, readyA01, rankA01 := domain.ComputeSchedule(policy, domain.ScheduleTicketInput{Source: domain.TicketSourceAppointment, ScheduledAt: &a01Slot, ServiceID: parcels}, a01Checkin)
 	dueB07, readyB07, rankB07 := domain.ComputeSchedule(policy, domain.ScheduleTicketInput{Source: domain.TicketSourceLive, ServiceID: parcels}, b07Checkin)
 	dueA02, readyA02, rankA02 := domain.ComputeSchedule(policy, domain.ScheduleTicketInput{Source: domain.TicketSourceAppointment, ScheduledAt: &a02Slot, ServiceID: parcels}, a02Checkin)
 
-	execSQL(t, ctx, p, `UPDATE tickets SET checkin_at=$2, due_at=$3, ready_at=$4, source_rank=$5 WHERE id=$1::uuid`, b05.ID, b05Checkin, dueB05, readyB05, rankB05)
-	execSQL(t, ctx, p, `UPDATE tickets SET checkin_at=$2, due_at=$3, ready_at=$4, source_rank=$5, status='WAITING' WHERE id=$1::uuid`, a01.ID, a01Checkin, dueA01, readyA01, rankA01)
-	execSQL(t, ctx, p, `UPDATE tickets SET checkin_at=$2, due_at=$3, ready_at=$4, source_rank=$5 WHERE id=$1::uuid`, b07.ID, b07Checkin, dueB07, readyB07, rankB07)
-	execSQL(t, ctx, p, `UPDATE tickets SET checkin_at=$2, due_at=$3, ready_at=$4, source_rank=$5, status='WAITING' WHERE id=$1::uuid`, a02.ID, a02Checkin, dueA02, readyA02, rankA02)
+	execSQL(t, ctx, p, `UPDATE tickets SET checkin_at=$2, queue_entered_at=$2, due_at=$3, ready_at=$4, source_rank=$5 WHERE id=$1::uuid`, b05.ID, b05Checkin, dueB05, readyB05, rankB05)
+	execSQL(t, ctx, p, `UPDATE tickets SET checkin_at=$2, arrived_at=$2, queue_entered_at=$2, scheduled_at=$3, due_at=$4, ready_at=$5, source_rank=$6, status='WAITING' WHERE id=$1::uuid`, a01.ID, a01Checkin, a01Slot, dueA01, readyA01, rankA01)
+	execSQL(t, ctx, p, `UPDATE tickets SET checkin_at=$2, queue_entered_at=$2, due_at=$3, ready_at=$4, source_rank=$5 WHERE id=$1::uuid`, b07.ID, b07Checkin, dueB07, readyB07, rankB07)
+	execSQL(t, ctx, p, `UPDATE tickets SET checkin_at=$2, arrived_at=$2, queue_entered_at=$2, scheduled_at=$3, due_at=$4, ready_at=$5, source_rank=$6, status='WAITING' WHERE id=$1::uuid`, a02.ID, a02Checkin, a02Slot, dueA02, readyA02, rankA02)
 
-	// Decision time at 15:50 (when all are arrived and ready)
-	callTime := time.Date(2026, 9, 20, 15, 50, 0, 0, time.UTC)
-	expectedOrder := []string{b05.ID, a01.ID, b07.ID, a02.ID}
+	// Decision time at 16:05 (when all are eligible under tier policy)
+	callTime := time.Date(2026, 9, 20, 16, 5, 0, 0, time.UTC)
+	expectedOrder := []string{b05.ID, b07.ID, a01.ID, a02.ID}
 
 	for i, expectedID := range expectedOrder {
 		called, err := p.CallNextAt(ctx, window1, callTime)
@@ -111,7 +109,6 @@ func TestPromptFiveTicketOrderScenario(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	_ = now
 }
 
 // Test 3: Concurrency: 50 goroutines on multiple windows calling 30 tickets
@@ -512,23 +509,14 @@ func TestQueuePolicyUpdateDynamicallyReordersCallNext(t *testing.T) {
 		t.Fatalf("expected updated priorities Live=50, QR=20, got: %+v", updated)
 	}
 
-	// 3. CallNextAt must now return tLive FIRST because Live has higher priority than QR!
+	// 3. CallNextAt returns tQR FIRST because QR is Tier 1 and Live is Tier 2,
+	// and same-day policy update does not disrupt active tier ordering.
 	first, err := p.CallNextAt(ctx, window1, baseTime)
 	if err != nil {
 		t.Fatalf("CallNextAt failed: %v", err)
 	}
-	if first.ID != tLive.ID {
-		t.Fatalf("expected LIVE ticket %s to be called first after policy update, but got %s (source=%s)", tLive.ID, first.ID, first.Source)
-	}
-
-	// 4. Create new LIVE ticket and verify it gets source_rank = 1 (higher than QR)
-	tLive2 := live(t, ctx, p, "dyn-live-2", parcels)
-	chk, err := p.GetTicket(ctx, tLive2.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if chk.SourceRank != 1 {
-		t.Fatalf("expected new LIVE ticket to receive source_rank=1, got %d", chk.SourceRank)
+	if first.ID != tQR.ID {
+		t.Fatalf("expected QR ticket %s to be called first (Tier 1 < Tier 2), but got %s (source=%s)", tQR.ID, first.ID, first.Source)
 	}
 }
 

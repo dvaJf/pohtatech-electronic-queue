@@ -42,7 +42,7 @@ func TestLegacyLiveClaimCompatibility(t *testing.T) {
 	}
 	// Sprint 3 LIVE emits CREATED; the common CallNext still emits CALLED.
 	e := events(t, ctx, p, live.Ticket.ID, 2)[1]
-	if e.Type != domain.TicketEventCalled || e.FromStatus == nil || *e.FromStatus != domain.TicketStatusWaiting || e.PolicyVersion == nil || *e.PolicyVersion != 2 || e.DecisionPriority == nil || *e.DecisionPriority != 10 {
+	if e.Type != domain.TicketEventCalled || e.FromStatus == nil || *e.FromStatus != domain.TicketStatusWaiting || e.PolicyVersion == nil || *e.PolicyVersion != 2 || e.DecisionPriority == nil || *e.DecisionPriority != 2 {
 		t.Fatalf("LIVE event: %+v", e)
 	}
 	if _, err = p.StartService(ctx, live.Ticket.ID); err != nil {
@@ -64,8 +64,8 @@ func TestLegacyLiveSharesQRFIFO(t *testing.T) {
 	due(t, ctx, p, appointment.ID)
 	execSQL(t, ctx, p, `UPDATE tickets SET queue_entered_at=now()-interval '3 minutes' WHERE id=$1::uuid`, live.Ticket.ID)
 	execSQL(t, ctx, p, `UPDATE tickets SET queue_entered_at=now()-interval '2 minutes' WHERE id=$1::uuid`, qr.ID)
-	// Due appointment beats both older waiting tickets; LIVE and QR then share FIFO.
-	for _, id := range []string{appointment.ID, live.Ticket.ID, qr.ID} {
+	// Due appointment (Tier 0) beats QR (Tier 1) which beats LIVE (Tier 2).
+	for _, id := range []string{appointment.ID, qr.ID, live.Ticket.ID} {
 		got, err := p.CallNext(ctx, window1)
 		if err != nil || got.ID != id {
 			t.Fatalf("ordering: %+v %v want=%s", got, err, id)
@@ -77,14 +77,11 @@ func TestLegacyLiveSharesQRFIFO(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// Equal effective time across QR/LIVE uses the same UUID tie-breaker.
-	qr = create(t, ctx, p, parcels, "tie-qr")
-	live, err = p.CreateLiveTicket(ctx, application.CreateLiveTicketCommand{BranchID: demoBranch, ServiceID: parcels, IdempotencyKey: "tie-live"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	execSQL(t, ctx, p, `UPDATE tickets SET queue_entered_at='2012-01-01Z', source_rank=1 WHERE id IN ($1::uuid,$2::uuid)`, qr.ID, live.Ticket.ID)
-	first, second := qr.ID, live.Ticket.ID
+	// Equal tier and tier_entered_at uses UUID tie-breaker.
+	t1 := create(t, ctx, p, parcels, "tie-1")
+	t2 := create(t, ctx, p, parcels, "tie-2")
+	execSQL(t, ctx, p, `UPDATE tickets SET queue_entered_at='2012-01-01Z', created_at='2012-01-01Z' WHERE id IN ($1::uuid,$2::uuid)`, t1.ID, t2.ID)
+	first, second := t1.ID, t2.ID
 	if second < first {
 		first, second = second, first
 	}
@@ -163,7 +160,7 @@ func TestLegacyAssignedAppointmentNormalization(t *testing.T) {
 		t.Fatal(err)
 	}
 	var before, after string
-	const legacyCols = `(to_jsonb(t)-'arrived_at'-'no_show_at'-'checkin_at'-'ready_at'-'due_at'-'source_rank'-'policy_version'-'recall_count'-'client_id'-'management_token_hash'-'requeued_at'-'sms_reminder_sent')::text`
+	const legacyCols = `(to_jsonb(t)-'arrived_at'-'no_show_at'-'checkin_at'-'ready_at'-'due_at'-'source_rank'-'policy_version'-'recall_count'-'client_id'-'management_token_hash'-'requeued_at'-'sms_reminder_sent'-'confirmed_at'-'confirmation_code'-'notification_email'-'notification_phone'-'confirmation_expires_at'-'confirmation_token_hash')::text`
 	if err = p.pool.QueryRow(ctx, `SELECT `+legacyCols+` FROM tickets t WHERE id=$1::uuid`, completed).Scan(&before); err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +172,7 @@ func TestLegacyAssignedAppointmentNormalization(t *testing.T) {
 		t.Fatalf("normalized: %+v %v", got, err)
 	}
 	events(t, ctx, p, pending, 0)
-	cancelled, err := p.CancelAppointment(ctx, pending)
+	cancelled, err := p.CancelAppointment(WithStaffBypass(ctx), pending)
 	if err != nil || cancelled.Ticket.Status != domain.TicketStatusCancelled || cancelled.Ticket.Window != nil {
 		t.Fatalf("cancel normalized: %+v %v", cancelled, err)
 	}

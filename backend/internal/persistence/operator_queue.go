@@ -2,6 +2,8 @@ package persistence
 
 import (
 	"context"
+	"time"
+
 	"postcode/backend/internal/domain"
 )
 
@@ -12,20 +14,28 @@ func (p *Postgres) GetOperatorQueue(ctx context.Context, branchID string) (domai
 	if err != nil {
 		return result, err
 	}
+	now := time.Now().UTC()
+	policy, pErr := p.getQueuePolicyAt(ctx, nil, branchID, now)
+	threshold := 10
+	grace := 5
+	if pErr == nil {
+		threshold = policy.AntiStarvationThresholdMinutes
+		grace = policy.AppointmentGraceMinutes
+	}
 	rows, err := p.pool.Query(ctx, `
 		SELECT t.id::text, t.public_number, t.source, t.service_id::text,
 		       s.name, t.queue_entered_at, t.status, COUNT(*) OVER ()
 		FROM tickets t JOIN services s ON s.id = t.service_id
+		`+tierRankingLateral("t", "$2::timestamptz", "$3::int", "$4::int")+`
 		WHERE t.branch_id = $1 AND (
 			t.status = 'WAITING'
-			OR (t.source = 'APPOINTMENT' AND t.status = 'SCHEDULED' AND (
-				t.arrived_at IS NOT NULL
-				OR t.scheduled_at <= clock_timestamp() + INTERVAL '15 minutes'
-			))
+			OR (t.source = 'APPOINTMENT' AND t.status = 'SCHEDULED')
 		)
-		ORDER BY t.due_at ASC, t.source_rank ASC, COALESCE(t.checkin_at, t.queue_entered_at) ASC, t.id ASC
+		AND t.ready_at <= $2::timestamptz
+		AND k.effective_tier >= 0
+		ORDER BY k.effective_tier ASC, k.tier_entered_at ASC, t.created_at ASC, t.id ASC
 		LIMIT 25
-	`, id)
+	`, id, now, threshold, grace)
 	if err != nil {
 		return result, dbError(err)
 	}

@@ -381,7 +381,7 @@ func (p *Postgres) CallNextAt(ctx context.Context, windowID string, decisionTime
 		return empty, application.ErrWindowBusy
 	}
 
-	legacyPolicy, pErr := scanPolicy(tx.QueryRow(ctx, policySelect+` WHERE branch_id=$1::uuid`, branch))
+	policy, pErr := p.getQueuePolicyAt(ctx, tx, branch, decisionTime)
 	if errors.Is(pErr, application.ErrNotFound) {
 		return empty, errors.New("queue policy missing for branch")
 	}
@@ -390,73 +390,96 @@ func (p *Postgres) CallNextAt(ctx context.Context, windowID string, decisionTime
 	}
 
 	candidateRows, err := tx.Query(ctx, `
-		SELECT `+ticketColumns+`
+		SELECT `+ticketColumns+`, k.effective_tier, k.tier_entered_at
 		FROM tickets t
 		LEFT JOIN windows w ON w.id = t.window_id
 		LEFT JOIN services s ON s.id = t.service_id
+		`+tierRankingLateral("t", "$3::timestamptz", "$4::int", "$5::int")+`
 		WHERE t.branch_id = $1::uuid
 		  AND (t.window_id IS NULL OR t.window_id = $2::uuid)
 		  AND EXISTS (SELECT 1 FROM window_services ws WHERE ws.window_id = $2::uuid AND ws.service_id = t.service_id)
 		  AND (t.status = 'WAITING' OR (t.source = 'APPOINTMENT' AND t.status = 'SCHEDULED'))
 		  AND t.ready_at <= $3::timestamptz
-		ORDER BY t.due_at ASC,
-		         CASE
-		           WHEN t.source = 'APPOINTMENT' AND t.arrived_at IS NULL AND t.scheduled_at < $3::timestamptz - INTERVAL '30 minutes'
-		             THEN 2
-		           ELSE t.source_rank
-		         END ASC,
-		         t.checkin_at ASC, t.id ASC
+		  AND k.effective_tier >= 0
+		ORDER BY k.effective_tier ASC, k.tier_entered_at ASC, t.created_at ASC, t.id ASC
 		LIMIT 1
 		FOR NO KEY UPDATE OF t SKIP LOCKED
-	`, branch, windowID, decisionTime)
+	`, branch, windowID, decisionTime, policy.AntiStarvationThresholdMinutes, policy.AppointmentGraceMinutes)
 	if err != nil {
 		return empty, dbError(err)
 	}
 
 	var candidates []domain.Ticket
+	var candidateTiers []int
+	var candidateTierEnteredAts []time.Time
 	for candidateRows.Next() {
-		cand, scanErr := scanTicket(candidateRows)
+		var cand domain.Ticket
+		var wid *string
+		var number *int
+		var tier int
+		var tierEnteredAt time.Time
+		scanErr := candidateRows.Scan(
+			&cand.ID, &cand.PublicNumber, &cand.BranchID, &cand.ServiceID, &cand.Source, &cand.Status,
+			&wid, &number, &cand.CreatedAt, &cand.QueueEnteredAt,
+			&cand.CalledAt, &cand.ServiceStartedAt, &cand.CompletedAt, &cand.ScheduledAt, &cand.ArrivedAt, &cand.NoShowAt,
+			&cand.CheckinAt, &cand.ReadyAt, &cand.DueAt, &cand.SourceRank, &cand.PolicyVersion, &cand.RecallCount, &cand.ClientID,
+			&cand.ServiceName,
+			&cand.ConfirmationCode, &cand.ConfirmationExpiresAt, &cand.ConfirmedAt, &cand.NotificationEmail, &cand.NotificationPhone,
+			&tier, &tierEnteredAt,
+		)
 		if scanErr != nil {
 			candidateRows.Close()
-			return empty, scanErr
+			return empty, dbError(scanErr)
+		}
+		if wid != nil {
+			cand.Window = &domain.WindowRef{ID: *wid, Number: *number}
+		}
+		cand.CreatedAt = cand.CreatedAt.UTC()
+		cand.QueueEnteredAt = cand.QueueEnteredAt.UTC()
+		for _, v := range []*time.Time{cand.CalledAt, cand.ServiceStartedAt, cand.CompletedAt, cand.ScheduledAt, cand.ArrivedAt, cand.NoShowAt, cand.CheckinAt, cand.ReadyAt, cand.DueAt, cand.ConfirmationExpiresAt, cand.ConfirmedAt} {
+			if v != nil {
+				*v = v.UTC()
+			}
 		}
 		candidates = append(candidates, cand)
+		candidateTiers = append(candidateTiers, tier)
+		candidateTierEnteredAts = append(candidateTierEnteredAts, tierEnteredAt.UTC())
 	}
 	candidateRows.Close()
 
 	if len(candidates) == 0 {
-		// Check if any tickets have ready_at <= decisionTime + 1s (could be locked by concurrent tx or just arrived)
 		var anyReadyNow bool
 		err = tx.QueryRow(ctx, `
 			SELECT EXISTS(
 				SELECT 1 FROM tickets t
+				`+tierRankingLateral("t", "$3::timestamptz", "$4::int", "$5::int")+`
 				WHERE t.branch_id = $1::uuid
 				  AND (t.window_id IS NULL OR t.window_id = $2::uuid)
 				  AND EXISTS (SELECT 1 FROM window_services ws WHERE ws.window_id = $2::uuid AND ws.service_id = t.service_id)
 				  AND (t.status = 'WAITING' OR (t.source = 'APPOINTMENT' AND t.status = 'SCHEDULED'))
 				  AND t.ready_at <= $3::timestamptz + interval '1 second'
+				  AND k.effective_tier >= 0
 			)
-		`, branch, windowID, decisionTime).Scan(&anyReadyNow)
+		`, branch, windowID, decisionTime, policy.AntiStarvationThresholdMinutes, policy.AppointmentGraceMinutes).Scan(&anyReadyNow)
 		if err != nil {
 			return empty, dbError(err)
 		}
 		if anyReadyNow {
-			// Ready tickets exist right now, but were skipped/locked by another concurrent worker
 			return empty, application.ErrNoEligibleTickets
 		}
 
-		// No ready tickets. Check if any future tickets exist
 		var futureExists bool
 		err = tx.QueryRow(ctx, `
 			SELECT EXISTS(
 				SELECT 1 FROM tickets t
+				`+tierRankingLateral("t", "$3::timestamptz", "$4::int", "$5::int")+`
 				WHERE t.branch_id = $1::uuid
 				  AND (t.window_id IS NULL OR t.window_id = $2::uuid)
 				  AND EXISTS (SELECT 1 FROM window_services ws WHERE ws.window_id = $2::uuid AND ws.service_id = t.service_id)
 				  AND (t.status = 'WAITING' OR (t.source = 'APPOINTMENT' AND t.status = 'SCHEDULED'))
-				  AND t.ready_at > $3::timestamptz + interval '1 second'
+				  AND (t.ready_at > $3::timestamptz + interval '1 second' OR k.effective_tier < 0)
 			)
-		`, branch, windowID, decisionTime).Scan(&futureExists)
+		`, branch, windowID, decisionTime, policy.AntiStarvationThresholdMinutes, policy.AppointmentGraceMinutes).Scan(&futureExists)
 		if err != nil {
 			return empty, dbError(err)
 		}
@@ -486,12 +509,11 @@ func (p *Postgres) CallNextAt(ctx context.Context, windowID string, decisionTime
 		return empty, err
 	}
 
-	// Format top-candidate explanation for ticket_events audit log
-	explanation := fmt.Sprintf("chosen due_at=%v source_rank=%d checkin_at=%v",
-		winner.DueAt, winner.SourceRank, winner.CheckinAt)
+	explanation := fmt.Sprintf("chosen tier=%d tier_entered_at=%v created_at=%v due_at=%v source_rank=%d checkin_at=%v",
+		candidateTiers[0], candidateTierEnteredAts[0], winner.CreatedAt, winner.DueAt, winner.SourceRank, winner.CheckinAt)
 
-	policyVersion := legacyPolicy.Version
-	priority := calculateLegacyPriority(winner, decisionTime, legacyPolicy)
+	policyVersion := policy.Version
+	priority := int64(candidateTiers[0])
 
 	extra := EventExtra{
 		Actor:     "operator",
@@ -579,7 +601,7 @@ func (p *Postgres) CallSpecificTicketAt(ctx context.Context, windowID string, ti
 		return empty, application.ErrWindowBusy
 	}
 
-	legacyPolicy, pErr := scanPolicy(tx.QueryRow(ctx, policySelect+` WHERE branch_id=$1::uuid`, branch))
+	policy, pErr := p.getQueuePolicyAt(ctx, tx, branch, decisionTime)
 	if errors.Is(pErr, application.ErrNotFound) {
 		return empty, errors.New("queue policy missing for branch")
 	}
@@ -639,8 +661,18 @@ func (p *Postgres) CallSpecificTicketAt(ctx context.Context, windowID string, ti
 		return empty, err
 	}
 
-	policyVersion := legacyPolicy.Version
-	priority := calculateLegacyPriority(target, decisionTime, legacyPolicy)
+	policyVersion := policy.Version
+	eff := domain.EffectiveQueuePriority(domain.QueuePriorityInput{
+		Source:                   target.Source,
+		ScheduledAt:              target.ScheduledAt,
+		ArrivedAt:                target.ArrivedAt,
+		CheckinAt:                target.CheckinAt,
+		QueueEnteredAt:           target.QueueEnteredAt,
+		DecisionAt:               decisionTime,
+		PromotionIntervalMinutes: policy.AntiStarvationThresholdMinutes,
+		AppointmentGraceMinutes:  policy.AppointmentGraceMinutes,
+	})
+	priority := int64(eff.Tier)
 
 	extra := EventExtra{
 		Actor:     "operator",

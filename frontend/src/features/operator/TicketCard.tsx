@@ -39,18 +39,7 @@ function getTicketSourceConfig(source: Ticket['source']): { label: string; icon:
   }
 }
 
-function getTicketStatusLabel(status: Ticket['status']): string {
-  const labels: Record<Ticket['status'], string> = {
-    SCHEDULED: 'Запись подтверждена',
-    WAITING: 'В очереди',
-    CALLED: 'Вас вызывают',
-    SERVING: 'В обслуживании',
-    COMPLETED: 'Обслуживание завершено',
-    CANCELLED: 'Запись отменена',
-    NO_SHOW: 'Не явился',
-  };
-  return labels[status] || status;
-}
+import { getTicketStatusLabel } from '../../utils/statusMapper';
 
 export const TicketCard: React.FC<TicketCardProps> = ({ ticket, selectedWindow, services }) => {
   if (!ticket) {

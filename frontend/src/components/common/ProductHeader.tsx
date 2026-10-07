@@ -81,14 +81,14 @@ export function LiveClockIcon({ hours, minutes, className = 'w-5 h-5', size = 22
         <circle key={idx} cx={dot.cx} cy={dot.cy} r="0.5" fill="currentColor" fillOpacity="0.4" />
       ))}
 
-      {/* Часовая стрелка (короче, плотная белая) */}
+      {/* Часовая стрелка (короче, контрастная фирменная синяя) */}
       <line
         x1="11"
         y1="11"
         x2="11"
         y2="6.2"
-        stroke="white"
-        strokeWidth="1.9"
+        stroke="#003B73"
+        strokeWidth="2"
         strokeLinecap="round"
         transform={`rotate(${hourAngle.toFixed(1)} 11 11)`}
         style={{ transition: 'transform 0.4s cubic-bezier(0.4, 1.4, 0.6, 1)' }}
@@ -334,15 +334,33 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
 
   useEffect(() => {
     let active = true;
-    getMe()
-      .then((user) => {
-        if (active) setCurrentUser(user);
-      })
-      .catch(() => {
-        // Guest user
-      });
+    const fetchUser = () => {
+      getMe()
+        .then((user) => {
+          if (active) setCurrentUser(user);
+        })
+        .catch(() => {
+          if (active) setCurrentUser(null);
+        });
+    };
+    fetchUser();
+    const handleAuth = (e: Event) => {
+      const custom = e as CustomEvent<User | null>;
+      if (custom.detail !== undefined) {
+        if (active) setCurrentUser(custom.detail);
+      } else {
+        fetchUser();
+      }
+    };
+    const handleLogout = () => {
+      if (active) setCurrentUser(null);
+    };
+    window.addEventListener('pochta:auth', handleAuth);
+    window.addEventListener('pochta:logout', handleLogout);
     return () => {
       active = false;
+      window.removeEventListener('pochta:auth', handleAuth);
+      window.removeEventListener('pochta:logout', handleLogout);
     };
   }, []);
 
@@ -421,12 +439,12 @@ export function ProductHeader({ currentPath }: ProductHeaderProps) {
 
             <button type="button" onClick={handleRequestGeo} disabled={geoStatus === 'locating'}
               aria-busy={geoStatus === 'locating'} aria-pressed={geoStatus === 'granted'}
-              aria-label={geoStatus === 'locating' ? 'Определяем местоположение' : 'Определить местоположение'}
-              title={geoStatus === 'granted' ? 'Геолокация активна' : 'Определить местоположение'}
-              className={`inline-flex h-11 min-w-[92px] items-center justify-center gap-1.5 rounded-xl border px-2.5 text-xs font-semibold text-white transition-colors md:min-w-[104px] md:px-3 ${geoStatus === 'granted' ? 'border-emerald-300/45 bg-emerald-300/15' : 'border-white/25 bg-white/10 hover:bg-white/15'}`}>
+              aria-label={geoStatus === 'locating' ? 'Определяем местоположение' : geoStatus === 'granted' ? 'Геолокация: определена' : 'Геолокация: недоступна'}
+              title={geoStatus === 'granted' ? 'Геолокация: определена' : geoStatus === 'locating' ? 'Геолокация: поиск…' : 'Геолокация: недоступна'}
+              className={`inline-flex h-11 min-w-[92px] items-center justify-center gap-1.5 rounded-xl border px-2.5 text-xs font-semibold text-white transition-colors md:min-w-[104px] md:px-3 ${geoStatus === 'granted' ? 'border-[#003B73]/45 bg-[#003B73]/20' : 'border-white/25 bg-white/10 hover:bg-white/15'}`}>
               {geoStatus === 'locating' ? <RestartIcon className="h-5 w-5 animate-spin" /> : <MapPointIcon className="h-5 w-5" />}
               <span>{geoStatus === 'locating' ? 'Поиск…' : 'Гео'}</span>
-              <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${geoStatus === 'granted' ? 'bg-emerald-300' : 'bg-white/45'}`} />
+              <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${geoStatus === 'granted' ? 'bg-[#003B73]' : geoStatus === 'locating' ? 'bg-amber-400 animate-pulse' : 'bg-[#D92534]'}`} />
             </button>
 
             {/* Часы: точное московское время (Europe/Moscow) */}

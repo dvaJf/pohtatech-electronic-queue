@@ -1,9 +1,13 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"log/slog"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -21,7 +25,10 @@ func (a *API) ListBranches(w http.ResponseWriter, r *http.Request) {
 		a.respondError(w, r, err)
 		return
 	}
-	res := ListBranchesResponse{Items: make([]BranchDTO, len(branches))}
+	res := ListBranchesResponse{
+		Items: make([]BranchDTO, len(branches)),
+		Total: len(branches),
+	}
 	for i, b := range branches {
 		res.Items[i] = BranchDTO{ID: b.ID, Name: b.Name, Address: b.Address, WorkHours: b.WorkHours, TimezoneOffset: b.TimezoneOffset, Latitude: b.Latitude, Longitude: b.Longitude, IsDemo: b.IsDemo, RatingAverage: b.RatingAverage, RatingCount: b.RatingCount}
 	}
@@ -109,6 +116,9 @@ func (a *API) SubmitFeedback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := persistence.WithManagementToken(r.Context(), r.Header.Get("X-Ticket-Manage-Token"))
+	if user, ok := userFromContext(r.Context()); ok && user.ID != "" {
+		ctx = persistence.WithClientOwner(ctx, user.ID)
+	}
 	ticketID := chi.URLParam(r, "ticketId")
 	if err := a.usecases.SubmitFeedback(ctx, ticketID, req.Rating, comment); err != nil {
 		a.respondError(w, r, err)
@@ -211,8 +221,12 @@ func (a *API) CreateAppointment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var clientID *string
+	email := strings.TrimSpace(req.Email)
 	if u, ok := userFromContext(r.Context()); ok && u.ID != "" {
 		clientID = &u.ID
+		if email == "" && u.Email != "" {
+			email = u.Email
+		}
 	}
 
 	result, err := a.usecases.CreateAppointment(r.Context(), application.CreateAppointmentCommand{
@@ -221,16 +235,53 @@ func (a *API) CreateAppointment(w http.ResponseWriter, r *http.Request) {
 		ScheduledAt:       scheduledAt,
 		IdempotencyKey:    idempotencyKey,
 		ClientID:          clientID,
-		NotificationEmail: strings.TrimSpace(req.Email),
+		NotificationEmail: email,
 		NotificationPhone: strings.TrimSpace(req.Phone),
 	})
 	if err != nil {
+		if errors.Is(err, application.ErrAppointmentOutsideBookingWindow) {
+			writeJSONError(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "Запись доступна на ближайшие 14 дней.")
+			return
+		}
 		if errors.Is(err, application.ErrInvalidState) {
 			writeJSONError(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "scheduledAt must be in the future")
 			return
 		}
 		a.respondError(w, r, err)
 		return
+	}
+
+	// If the appointment requires 15-minute confirmation and email is set, dispatch verification email
+	if result.Appointment.Ticket.Status == domain.TicketStatusPendingConfirmation && email != "" {
+		rawToken := ""
+		if result.Appointment.Ticket.ConfirmationTokenHash != nil {
+			rawToken = *result.Appointment.Ticket.ConfirmationTokenHash
+		}
+		rawCode := ""
+		if result.Appointment.Ticket.ConfirmationCode != nil {
+			rawCode = *result.Appointment.Ticket.ConfirmationCode
+		}
+		branchName := "Отделение связи"
+		branchAddress := ""
+		if branches, bErr := a.usecases.ListBranches(r.Context()); bErr == nil {
+			for _, b := range branches {
+				if b.ID == branchID {
+					branchName = b.Name
+					branchAddress = b.Address
+					break
+				}
+			}
+		}
+		scheduledStr := result.Appointment.ScheduledAt.Format("02.01.2006 15:04")
+		go func(to, id, num, sched, svc, brName, brAddr, code, tok string) {
+			ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+			defer cancel()
+			if err := a.mailer.SendAppointmentVerificationEmail(ctx, to, id, num, sched, svc, brName, brAddr, code, tok, ""); err != nil {
+				slog.Error("failed to send appointment verification email", "ticketId", id, "to", to, "err", err)
+			} else {
+				slog.Info("appointment verification email sent successfully", "ticketId", id, "to", to)
+			}
+		}(email, result.Appointment.Ticket.ID, result.Appointment.Ticket.PublicNumber, scheduledStr, result.Appointment.Ticket.ServiceName, branchName, branchAddress, rawCode, rawToken)
 	}
 
 	status := http.StatusCreated
@@ -242,6 +293,182 @@ func (a *API) CreateAppointment(w http.ResponseWriter, r *http.Request) {
 		Ticket:          mapTicket(result.Appointment.Ticket),
 		ScheduledAt:     result.Appointment.ScheduledAt,
 		ManagementToken: result.Appointment.Ticket.ManagementToken,
+	})
+}
+
+type ConfirmAppointmentRequest struct {
+	TicketID string `json:"ticketId,omitempty"`
+	Code     string `json:"code,omitempty"`
+	Token    string `json:"token,omitempty"`
+}
+
+func (a *API) ConfirmAppointment(w http.ResponseWriter, r *http.Request) {
+	ticketID := chi.URLParam(r, "ticketId")
+	var req ConfirmAppointmentRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body")
+		return
+	}
+	if ticketID == "" {
+		ticketID = strings.TrimSpace(req.TicketID)
+	}
+	input := strings.TrimSpace(req.Code)
+	if input == "" {
+		input = strings.TrimSpace(req.Token)
+	}
+	if input == "" {
+		writeJSONError(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "code or token is required")
+		return
+	}
+
+	appView, err := a.usecases.ConfirmAppointment(r.Context(), ticketID, input)
+	if err != nil {
+		if errors.Is(err, application.ErrInvalidState) {
+			writeJSONError(w, r, http.StatusBadRequest, "APPOINTMENT_EXPIRED", "Срок действия кода подтверждения (15 минут) истёк или запись уже не ожидает подтверждения")
+			return
+		}
+		if errors.Is(err, application.ErrForbidden) {
+			writeJSONError(w, r, http.StatusForbidden, "INVALID_CODE", "Неверный код подтверждения")
+			return
+		}
+		a.respondError(w, r, err)
+		return
+	}
+
+	writeJSONResponse(w, http.StatusOK, AppointmentResponse{
+		Ticket:          mapTicket(appView.Ticket),
+		ScheduledAt:     appView.ScheduledAt,
+		ManagementToken: appView.Ticket.ManagementToken,
+	})
+}
+
+func (a *API) ConfirmAppointment1Click(w http.ResponseWriter, r *http.Request) {
+	ticketID := chi.URLParam(r, "ticketId")
+	if ticketID == "" {
+		ticketID = strings.TrimSpace(r.URL.Query().Get("ticketId"))
+	}
+	token := strings.TrimSpace(r.URL.Query().Get("token"))
+	if token == "" {
+		http.Redirect(w, r, "/appointments/confirm?error=missing_token", http.StatusFound)
+		return
+	}
+
+	appView, err := a.usecases.ConfirmAppointment(r.Context(), ticketID, token)
+	if err != nil {
+		if errors.Is(err, application.ErrInvalidState) {
+			http.Redirect(w, r, "/appointments/confirm?error=expired", http.StatusFound)
+			return
+		}
+		http.Redirect(w, r, "/appointments/confirm?error=invalid", http.StatusFound)
+		return
+	}
+
+	redirURL := fmt.Sprintf("/appointments/confirm?ticketId=%s&status=success", appView.Ticket.ID)
+	if appView.Ticket.ManagementToken != nil && *appView.Ticket.ManagementToken != "" {
+		redirURL += fmt.Sprintf("#token=%s", *appView.Ticket.ManagementToken)
+	}
+	http.Redirect(w, r, redirURL, http.StatusFound)
+}
+
+func (a *API) TestConfirmAppointment(w http.ResponseWriter, r *http.Request) {
+	allowTest := strings.TrimSpace(os.Getenv("ALLOW_SPECIAL_DEV_FORCE_CONFIRM")) == "true" ||
+		strings.TrimSpace(os.Getenv("ALLOW_TEST_APPOINTMENT_CONFIRM")) == "true"
+
+	if !allowTest {
+		writeJSONError(w, r, http.StatusForbidden, "TEST_CONFIRM_DISABLED", "Тестовое подтверждение недоступно в данном окружении")
+		return
+	}
+
+	ticketID := chi.URLParam(r, "ticketId")
+	if ticketID == "" {
+		writeJSONError(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "ticketId is required")
+		return
+	}
+
+	appView, err := a.usecases.ForceConfirmPendingAppointment(r.Context(), ticketID)
+	if err != nil {
+		if errors.Is(err, application.ErrInvalidState) {
+			writeJSONError(w, r, http.StatusBadRequest, "APPOINTMENT_EXPIRED", "Срок действия бронирования истёк или запись уже не ожидает подтверждения")
+			return
+		}
+		a.respondError(w, r, err)
+		return
+	}
+
+	writeJSONResponse(w, http.StatusOK, AppointmentResponse{
+		Ticket:          mapTicket(appView.Ticket),
+		ScheduledAt:     appView.ScheduledAt,
+		ManagementToken: appView.Ticket.ManagementToken,
+	})
+}
+
+func (a *API) ResendAppointmentConfirmation(w http.ResponseWriter, r *http.Request) {
+	ticketID := chi.URLParam(r, "ticketId")
+	token, code, expiresAt, err := a.usecases.ResendAppointmentConfirmation(r.Context(), ticketID)
+	if err != nil {
+		a.respondError(w, r, err)
+		return
+	}
+
+	ticket, tErr := a.usecases.GetTicket(r.Context(), ticketID)
+	var mailErr error
+	if tErr == nil && ticket.NotificationEmail != nil && *ticket.NotificationEmail != "" {
+		branchName := "Отделение связи"
+		branchAddress := ""
+		if branches, bErr := a.usecases.ListBranches(r.Context()); bErr == nil {
+			for _, b := range branches {
+				if b.ID == ticket.BranchID {
+					branchName = b.Name
+					branchAddress = b.Address
+					break
+				}
+			}
+		}
+		scheduledStr := ""
+		if ticket.ScheduledAt != nil {
+			scheduledStr = ticket.ScheduledAt.Format("02.01.2006 15:04")
+		}
+		mailCtx, mailCancel := context.WithTimeout(context.Background(), 25*time.Second)
+		defer mailCancel()
+		mailErr = a.mailer.SendAppointmentVerificationEmail(mailCtx, *ticket.NotificationEmail, ticket.ID, ticket.PublicNumber, scheduledStr, ticket.ServiceName, branchName, branchAddress, code, token, "")
+	}
+
+	if mailErr != nil {
+		slog.Error("failed to resend appointment confirmation email", "ticketId", ticketID, "err", mailErr)
+		writeJSONError(w, r, http.StatusBadGateway, "EMAIL_DELIVERY_FAILED", "Не удалось отправить письмо. Попробуйте ещё раз.")
+		return
+	}
+
+	writeJSONResponse(w, http.StatusOK, map[string]any{
+		"ok":                    true,
+		"confirmationExpiresAt": expiresAt,
+	})
+}
+
+func (a *API) CreateUserTelegramLink(w http.ResponseWriter, r *http.Request) {
+	user, ok := userFromContext(r.Context())
+	if !ok || user.ID == "" {
+		writeJSONError(w, r, http.StatusUnauthorized, "UNAUTHORIZED", "Authentication required")
+		return
+	}
+
+	token, expiresAt, err := a.usecases.CreateUserTelegramLink(r.Context(), user.ID)
+	if err != nil {
+		a.respondError(w, r, err)
+		return
+	}
+
+	botUsername := os.Getenv("TELEGRAM_BOT_USERNAME")
+	if botUsername == "" {
+		botUsername = "PochtaNextBot"
+	}
+	botUsername = strings.TrimPrefix(botUsername, "@")
+	deepLink := fmt.Sprintf("https://t.me/%s?start=%s", botUsername, token)
+
+	writeJSONResponse(w, http.StatusOK, map[string]any{
+		"token":     token,
+		"deepLink":  deepLink,
+		"expiresAt": expiresAt,
 	})
 }
 
@@ -412,5 +639,4 @@ func (a *API) GetAdminReviews(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSONResponse(w, http.StatusOK, result)
 }
-
 

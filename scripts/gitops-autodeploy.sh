@@ -5,8 +5,8 @@
 #
 # Архитектура:
 #   WATCH:  origin/main  — откуда читаем новые коммиты разработчиков
-#   PUSH:   origin/gitops — куда пишем Helm image tag обновления
-#   ArgoCD отслеживает ветку gitops (Helm path: helm/queue-chart)
+#   PUSH:   origin/infra/k8s-gitops — куда пишем Helm image tag обновления
+#   ArgoCD отслеживает ветку infra/k8s-gitops (Helm path: helm/queue-chart)
 #
 # Flow:
 #   1. fetch origin/main
@@ -57,7 +57,7 @@ source "${ENV_FILE}"
 
 # Дефолты
 WATCH_BRANCH="${WATCH_BRANCH:-main}"          # ветка с кодом разработчиков
-GITOPS_BRANCH="${GITOPS_BRANCH:-gitops}"      # ветка куда пишем Helm теги
+GITOPS_BRANCH="${GITOPS_BRANCH:-infra/k8s-gitops}" # ветка куда пишем Helm теги
 FRONTEND_DOCKERFILE="${FRONTEND_DOCKERFILE:-frontend/Dockerfile.prod}"
 BACKEND_DOCKERFILE="${BACKEND_DOCKERFILE:-backend/Dockerfile}"
 FRONTEND_CONTEXT="${FRONTEND_CONTEXT:-frontend}"
@@ -82,6 +82,17 @@ if ! git fetch origin "${WATCH_BRANCH}" --quiet 2>/dev/null; then
   exit 0
 fi
 
+# The deploy checkout is an automation workspace, not a developer worktree.
+# Always build the fetched watch branch and restore it after failures. Without
+# this guard, a failed run after switching to GitOps can make the next run build
+# an inconsistent mix of an old branch and new untracked files.
+restore_watch_checkout() {
+  git checkout -f -B "${WATCH_BRANCH}" "origin/${WATCH_BRANCH}" >/dev/null 2>&1 || true
+  git reset --hard "origin/${WATCH_BRANCH}" >/dev/null 2>&1 || true
+}
+trap restore_watch_checkout EXIT
+restore_watch_checkout
+
 REMOTE_SHA="$(git rev-parse "origin/${WATCH_BRANCH}")"
 SHORT_SHA="${REMOTE_SHA:0:7}"
 
@@ -93,7 +104,9 @@ if [[ "${REMOTE_SHA}" == "${LAST_SHA}" ]]; then
   exit 0
 fi
 
-log "New commit on ${WATCH_BRANCH}: ${SHORT_SHA} (was: ${LAST_SHA:0:7:-not set})"
+LAST_LABEL="not set"
+[[ -n "${LAST_SHA}" ]] && LAST_LABEL="${LAST_SHA:0:7}"
+log "New commit on ${WATCH_BRANCH}: ${SHORT_SHA} (was: ${LAST_LABEL})"
 
 # ─── Определяем изменившиеся сервисы ─────────────────────────────────────────
 FRONTEND_CHANGED=false
@@ -176,13 +189,13 @@ if [[ "${LATEST_SHA}" != "${REMOTE_SHA}" ]]; then
   exit 0
 fi
 
-# ─── Helm update в gitops ветке ───────────────────────────────────────────────
-# Синхронизируем gitops ветку с main (code base идентична, только Helm теги будут другими)
+# ─── Helm update в GitOps ветке ───────────────────────────────────────────────
+# Синхронизируем GitOps ветку с main (code base идентична, только Helm теги будут другими)
 git fetch origin "${GITOPS_BRANCH}" --quiet 2>/dev/null || {
-  warn "gitops branch not found remotely, creating from ${WATCH_BRANCH}"
+  warn "GitOps branch not found remotely, creating from ${WATCH_BRANCH}"
 }
 
-# Checkout gitops, rebase на свежий main
+# Checkout GitOps branch from fresh main
 git checkout -B "${GITOPS_BRANCH}" "origin/${WATCH_BRANCH}" 2>/dev/null || \
   git checkout -B "${GITOPS_BRANCH}" "origin/${GITOPS_BRANCH}" 2>/dev/null || \
   git checkout -B "${GITOPS_BRANCH}" "${REMOTE_SHA}"
@@ -216,9 +229,9 @@ git commit -m "chore(gitops): deploy${UPDATED_SERVICES} [skip ci]"
 
 # Push в gitops ветку
 if [[ -n "${GITOPS_PUSH_URL}" ]]; then
-  git push "${GITOPS_PUSH_URL}" "HEAD:${GITOPS_BRANCH}"
+  git push "${GITOPS_PUSH_URL}" "HEAD:${GITOPS_BRANCH}" --force
 else
-  git push origin "HEAD:${GITOPS_BRANCH}"
+  git push origin "HEAD:${GITOPS_BRANCH}" --force
 fi
 
 ok "GitOps commit pushed to ${GITOPS_BRANCH} → ArgoCD will sync"

@@ -52,7 +52,18 @@ func text(m domain.NotificationMessage) string {
 	if m.Body != "" {
 		return m.Body
 	}
-	return fmt.Sprintf("Талон %s: %s", m.PublicNumber, m.EventType)
+	eventDesc := string(m.EventType)
+	switch m.EventType {
+	case domain.NotificationTicketCalled:
+		eventDesc = "Вас вызывают к окну"
+	case domain.NotificationTicketNearTurn:
+		eventDesc = "Скоро ваша очередь"
+	case domain.NotificationAppointmentReminder:
+		eventDesc = "Напоминание о записи через 30 минут"
+	case domain.NotificationAppointmentConfirmation:
+		eventDesc = "Подтверждение предварительной записи"
+	}
+	return fmt.Sprintf("Талон %s: %s", m.PublicNumber, eventDesc)
 }
 
 func telegramText(m domain.NotificationMessage) string {
@@ -62,7 +73,11 @@ func telegramText(m domain.NotificationMessage) string {
 		if body == "" {
 			body = "Пора заходить в отделение."
 		}
-		return "Скоро ваша очередь\n\n" + body
+		serviceStr := ""
+		if m.ServiceName != "" {
+			serviceStr = fmt.Sprintf("\nУслуга: %s", m.ServiceName)
+		}
+		return fmt.Sprintf("🔔 Скоро ваша очередь\n\nТалон %s%s\n\n%s", m.PublicNumber, serviceStr, body)
 	case domain.NotificationTicketCalled:
 		winStr := ""
 		if m.WindowNumber > 0 {
@@ -72,7 +87,7 @@ func telegramText(m domain.NotificationMessage) string {
 		if m.ServiceName != "" {
 			serviceStr = fmt.Sprintf("\nУслуга: %s", m.ServiceName)
 		}
-		return fmt.Sprintf("Вас вызывают\nТалон %s%s%s", m.PublicNumber, winStr, serviceStr)
+		return fmt.Sprintf("📢 Вас вызывают!\n\nТалон %s%s%s\n\nПожалуйста, подойдите к указанному окну.", m.PublicNumber, winStr, serviceStr)
 	default:
 		return text(m)
 	}
@@ -85,6 +100,9 @@ func (s *MultiSender) telegram(ctx context.Context, m domain.NotificationMessage
 		return nil
 	}
 	targetChatID := strings.TrimSpace(m.Destination)
+	if strings.Contains(targetChatID, "*") {
+		return PermanentError{fmt.Errorf("telegram destination '%s' is masked; numeric chat_id required", m.Destination)}
+	}
 	if targetChatID == "" || targetChatID == "Telegram" || targetChatID == "ID" || strings.HasPrefix(targetChatID, "@") {
 		if envChatID := strings.TrimSpace(os.Getenv("TELEGRAM_CHAT_ID")); envChatID != "" {
 			targetChatID = envChatID
@@ -93,7 +111,11 @@ func (s *MultiSender) telegram(ctx context.Context, m domain.NotificationMessage
 	if targetChatID == "" || targetChatID == "Telegram" || targetChatID == "ID" || strings.HasPrefix(targetChatID, "@") {
 		return PermanentError{fmt.Errorf("telegram destination '%s' is not a numeric chat_id (use Telegram bot link to bind)", m.Destination)}
 	}
-	body, _ := json.Marshal(map[string]string{"chat_id": targetChatID, "text": telegramText(m)})
+	body, _ := json.Marshal(map[string]string{
+		"chat_id":    targetChatID,
+		"text":       telegramText(m),
+		"parse_mode": "HTML",
+	})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.telegram.org/bot"+token+"/sendMessage", bytes.NewReader(body))
 	if err != nil {
 		return err

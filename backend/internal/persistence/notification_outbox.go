@@ -268,16 +268,20 @@ func (p *Postgres) enqueueNearTurnForTopCandidates(ctx context.Context, tx pgx.T
 	}
 	defer rollback()
 
+	policy, err := p.getQueuePolicyAt(ctx, activeTx, branch, decisionTime)
+	if err != nil {
+		return err
+	}
+
 	rows, err := activeTx.Query(ctx, `
 		SELECT t.id::text, t.branch_id::text, t.public_number,
 		       COALESCE((SELECT MAX(e.id) FROM ticket_events e WHERE e.ticket_id = t.id AND e.type IN ('CREATED', 'RETURNED', 'REDIRECTED', 'ARRIVED')), 0) as cycle_id
 		FROM tickets t
+		`+tierRankingLateral("t", "$2::timestamptz", "$3::int", "$4::int")+`
 		WHERE t.branch_id = $1::uuid
 		  AND (t.status = 'WAITING' OR (t.source = 'APPOINTMENT' AND t.status = 'SCHEDULED'))
-		  AND (
-		      (t.source = 'APPOINTMENT' AND t.arrived_at IS NULL AND (t.scheduled_at IS NULL OR t.scheduled_at <= $2::timestamptz + INTERVAL '15 minutes') AND (t.ready_at IS NULL OR t.ready_at <= $2::timestamptz))
-		      OR ((t.source <> 'APPOINTMENT' OR t.arrived_at IS NOT NULL) AND (t.ready_at IS NULL OR t.ready_at <= $2::timestamptz))
-		  )
+		  AND t.ready_at <= $2::timestamptz
+		  AND k.effective_tier >= 0
 		  AND EXISTS (
 		      SELECT 1 FROM windows w
 		      WHERE w.branch_id = t.branch_id
@@ -285,9 +289,9 @@ func (p *Postgres) enqueueNearTurnForTopCandidates(ctx context.Context, tx pgx.T
 		        AND EXISTS (SELECT 1 FROM window_services ws WHERE ws.window_id = w.id AND ws.service_id = t.service_id)
 		        AND (t.window_id IS NULL OR w.id = t.window_id)
 		  )
-		ORDER BY t.due_at ASC, t.source_rank ASC, t.checkin_at ASC, t.id ASC
+		ORDER BY k.effective_tier ASC, k.tier_entered_at ASC, t.created_at ASC, t.id ASC
 		LIMIT 2
-	`, branch, decisionTime)
+	`, branch, decisionTime, policy.AntiStarvationThresholdMinutes, policy.AppointmentGraceMinutes)
 	if err != nil {
 		return err
 	}
@@ -340,15 +344,14 @@ func (p *Postgres) EnqueueNearTurnIfEligible(ctx context.Context, ticketID strin
 	var tIDStr, branchID, serviceID, publicNum, source string
 	var status domain.TicketStatus
 	var targetWindowID *string
-	var readyAt, scheduledAt, arrivedAt, dueAt, checkinAt *time.Time
-	var sourceRank int
-	var queueEnteredAt time.Time
+	var readyAt *time.Time
+	var createdAt time.Time
 	err = tx.QueryRow(ctx, `
 		SELECT id::text, branch_id::text, service_id::text, status, public_number, source,
-		       window_id::text, ready_at, scheduled_at, arrived_at, due_at, source_rank, checkin_at, queue_entered_at
+		       window_id::text, ready_at, created_at
 		FROM tickets WHERE id = $1
 	`, tID).Scan(&tIDStr, &branchID, &serviceID, &status, &publicNum, &source,
-		&targetWindowID, &readyAt, &scheduledAt, &arrivedAt, &dueAt, &sourceRank, &checkinAt, &queueEnteredAt)
+		&targetWindowID, &readyAt, &createdAt)
 	if err != nil {
 		return dbError(err)
 	}
@@ -357,15 +360,24 @@ func (p *Postgres) EnqueueNearTurnIfEligible(ctx context.Context, ticketID strin
 		return nil
 	}
 
-	// Due eligibility check (same as QueuePosition)
-	if source == string(domain.TicketSourceAppointment) && arrivedAt == nil {
-		if scheduledAt != nil && scheduledAt.After(now.Add(15*time.Minute)) {
-			return nil
-		}
-		if readyAt != nil && readyAt.After(now) {
-			return nil
-		}
-	} else if readyAt != nil && readyAt.After(now) {
+	policy, err := p.getQueuePolicyAt(ctx, tx, branchID, now)
+	if err != nil {
+		return dbError(err)
+	}
+
+	var myTier int
+	var myTierEnteredAt time.Time
+	err = tx.QueryRow(ctx, `
+		SELECT k.effective_tier, k.tier_entered_at
+		FROM tickets t
+		`+tierRankingLateral("t", "$2::timestamptz", "$3::int", "$4::int")+`
+		WHERE t.id = $1::uuid
+	`, tID, now, policy.AntiStarvationThresholdMinutes, policy.AppointmentGraceMinutes).Scan(&myTier, &myTierEnteredAt)
+	if err != nil {
+		return dbError(err)
+	}
+
+	if myTier < 0 || (readyAt != nil && readyAt.After(now)) {
 		return nil
 	}
 
@@ -387,37 +399,24 @@ func (p *Postgres) EnqueueNearTurnIfEligible(ctx context.Context, ticketID strin
 	}
 
 	// 3. True canonical queue position check (must be rank <= 2 in branch queue)
-	effectiveDue := now
-	if dueAt != nil {
-		effectiveDue = *dueAt
-	} else if scheduledAt != nil {
-		effectiveDue = *scheduledAt
-	}
-	effectiveCheckin := queueEnteredAt
-	if checkinAt != nil {
-		effectiveCheckin = *checkinAt
-	} else if arrivedAt != nil {
-		effectiveCheckin = *arrivedAt
-	}
-
 	var rank int
 	err = tx.QueryRow(ctx, `
 		SELECT count(*) + 1
 		FROM tickets c
+		`+tierRankingLateral("c", "$2::timestamptz", "$3::int", "$4::int")+`
 		WHERE c.branch_id = $1::uuid
 		  AND (c.status = 'WAITING' OR (c.source = 'APPOINTMENT' AND c.status = 'SCHEDULED'))
-		  AND (
-		      (c.source = 'APPOINTMENT' AND c.arrived_at IS NULL AND (c.scheduled_at IS NULL OR c.scheduled_at <= $2::timestamptz + INTERVAL '15 minutes') AND (c.ready_at IS NULL OR c.ready_at <= $2::timestamptz))
-		      OR ((c.source <> 'APPOINTMENT' OR c.arrived_at IS NOT NULL) AND (c.ready_at IS NULL OR c.ready_at <= $2::timestamptz))
-		  )
+		  AND c.ready_at <= $2::timestamptz
+		  AND k.effective_tier >= 0
 		  AND EXISTS (
 		      SELECT 1 FROM windows w
 		      WHERE w.branch_id = c.branch_id AND w.status = 'OPEN'
 		        AND EXISTS (SELECT 1 FROM window_services ws WHERE ws.window_id = w.id AND ws.service_id = c.service_id)
 		        AND (c.window_id IS NULL OR w.id = c.window_id)
 		  )
-		  AND (c.due_at, c.source_rank, c.checkin_at, c.id) < ($3::timestamptz, $4::int, $5::timestamptz, $6::uuid)
-	`, branchID, now, effectiveDue, sourceRank, effectiveCheckin, tID).Scan(&rank)
+		  AND (k.effective_tier, k.tier_entered_at, c.created_at, c.id) < ($5::int, $6::timestamptz, $7::timestamptz, $8::uuid)
+	`, branchID, now, policy.AntiStarvationThresholdMinutes, policy.AppointmentGraceMinutes,
+		myTier, myTierEnteredAt, createdAt, tID).Scan(&rank)
 	if err != nil {
 		return dbError(err)
 	}

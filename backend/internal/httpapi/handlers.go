@@ -60,6 +60,7 @@ func (a *API) RegisterRoutes(r chi.Router) {
 			r.Get("/oauth/{provider}/callback", a.OAuthCallback)
 			r.Post("/profile/phone/send-code", a.SendPhoneCode)
 			r.Post("/profile/phone/verify-code", a.VerifyPhoneCode)
+			r.Post("/telegram/link", a.CreateUserTelegramLink)
 		})
 
 		// ── Клиент: публичные ─────────────────────────────────────────────
@@ -69,6 +70,12 @@ func (a *API) RegisterRoutes(r chi.Router) {
 		r.Post("/branches/{branchId}/tickets/live", a.CreateLiveTicket)
 		r.Post("/branches/{branchId}/tickets/appointment", a.CreateAppointment)
 		r.Post("/appointments", a.CreateAppointment)
+		r.Post("/appointments/{ticketId}/confirm", a.ConfirmAppointment)
+		r.Get("/appointments/{ticketId}/confirm", a.ConfirmAppointment1Click)
+		r.Post("/appointments/confirm", a.ConfirmAppointment)
+		r.Get("/appointments/confirm", a.ConfirmAppointment1Click)
+		r.Post("/appointments/{ticketId}/test-confirm", a.TestConfirmAppointment)
+		r.Post("/appointments/{ticketId}/resend-confirmation", a.ResendAppointmentConfirmation)
 		r.Post("/appointments/{ticketId}/cancel", a.CancelAppointment)
 		r.Post("/appointments/{ticketId}/arrive", a.ArriveAppointment)
 		r.Get("/tickets/{ticketId}", a.GetTicket)
@@ -161,6 +168,7 @@ func (a *API) RegisterRoutes(r chi.Router) {
 
 type ListBranchesResponse struct {
 	Items []BranchDTO `json:"items"`
+	Total int         `json:"total"`
 }
 
 type BranchDTO struct {
@@ -192,20 +200,24 @@ type WindowRefDTO struct {
 }
 
 type TicketDTO struct {
-	ID               string        `json:"id"`
-	PublicNumber     string        `json:"publicNumber"`
-	BranchID         string        `json:"branchId"`
-	ServiceID        string        `json:"serviceId"`
-	ServiceName      string        `json:"serviceName,omitempty"`
-	Source           string        `json:"source"`
-	Status           string        `json:"status"`
-	Window           *WindowRefDTO `json:"window"`
-	CreatedAt        time.Time     `json:"createdAt"`
-	QueueEnteredAt   time.Time     `json:"queueEnteredAt"`
-	CalledAt         *time.Time    `json:"calledAt"`
-	ServiceStartedAt *time.Time    `json:"serviceStartedAt"`
-	CompletedAt      *time.Time    `json:"completedAt"`
-	ManagementToken  *string       `json:"managementToken,omitempty"`
+	ID                     string        `json:"id"`
+	PublicNumber           string        `json:"publicNumber"`
+	BranchID               string        `json:"branchId"`
+	ServiceID              string        `json:"serviceId"`
+	ServiceName            string        `json:"serviceName,omitempty"`
+	Source                 string        `json:"source"`
+	Status                 string        `json:"status"`
+	Window                 *WindowRefDTO `json:"window"`
+	CreatedAt              time.Time     `json:"createdAt"`
+	QueueEnteredAt         time.Time     `json:"queueEnteredAt"`
+	CalledAt               *time.Time    `json:"calledAt"`
+	ServiceStartedAt       *time.Time    `json:"serviceStartedAt"`
+	CompletedAt            *time.Time    `json:"completedAt"`
+	ManagementToken        *string       `json:"managementToken,omitempty"`
+	ConfirmationExpiresAt *time.Time    `json:"confirmationExpiresAt,omitempty"`
+	ConfirmedAt           *time.Time    `json:"confirmedAt,omitempty"`
+	NotificationEmail     *string       `json:"notificationEmail,omitempty"`
+	NotificationPhone     *string       `json:"notificationPhone,omitempty"`
 }
 
 type WindowDTO struct {
@@ -261,20 +273,24 @@ func mapTicket(t domain.Ticket) TicketDTO {
 		mgmtToken = t.ManagementToken
 	}
 	return TicketDTO{
-		ID:               t.ID,
-		PublicNumber:     t.PublicNumber,
-		BranchID:         t.BranchID,
-		ServiceID:        t.ServiceID,
-		ServiceName:      t.ServiceName,
-		Source:           string(t.Source),
-		Status:           string(t.Status),
-		Window:           window,
-		CreatedAt:        t.CreatedAt,
-		QueueEnteredAt:   t.QueueEnteredAt,
-		CalledAt:         t.CalledAt,
-		ServiceStartedAt: t.ServiceStartedAt,
-		CompletedAt:      t.CompletedAt,
-		ManagementToken:  mgmtToken,
+		ID:                     t.ID,
+		PublicNumber:           t.PublicNumber,
+		BranchID:               t.BranchID,
+		ServiceID:              t.ServiceID,
+		ServiceName:            t.ServiceName,
+		Source:                 string(t.Source),
+		Status:                 string(t.Status),
+		Window:                 window,
+		CreatedAt:              t.CreatedAt,
+		QueueEnteredAt:         t.QueueEnteredAt,
+		CalledAt:               t.CalledAt,
+		ServiceStartedAt:       t.ServiceStartedAt,
+		CompletedAt:            t.CompletedAt,
+		ManagementToken:        mgmtToken,
+		ConfirmationExpiresAt: t.ConfirmationExpiresAt,
+		ConfirmedAt:           t.ConfirmedAt,
+		NotificationEmail:     t.NotificationEmail,
+		NotificationPhone:     t.NotificationPhone,
 	}
 }
 

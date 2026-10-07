@@ -156,6 +156,10 @@ type QueuePolicyDTO struct {
 	AppointmentLatePenaltyMaxPoints int       `json:"appointmentLatePenaltyMaxPoints"`
 	Version                         int64     `json:"version"`
 	UpdatedAt                       time.Time `json:"updatedAt"`
+
+	ScheduledPromotionIntervalMinutes *int    `json:"scheduledPromotionIntervalMinutes,omitempty"`
+	ScheduledAppointmentGraceMinutes  *int    `json:"scheduledAppointmentGraceMinutes,omitempty"`
+	ScheduledEffectiveOn             *string `json:"scheduledEffectiveOn,omitempty"`
 }
 
 func (a *API) GetQueuePolicy(w http.ResponseWriter, r *http.Request) {
@@ -169,19 +173,26 @@ func (a *API) GetQueuePolicy(w http.ResponseWriter, r *http.Request) {
 }
 
 func mapQueuePolicy(policy domain.QueuePolicy) QueuePolicyDTO {
-	return QueuePolicyDTO{
-		BranchID:                        policy.BranchID,
-		AppointmentDuePriority:          policy.AppointmentDuePriority,
-		QRPriority:                      policy.QRPriority,
-		LivePriority:                    policy.LivePriority,
-		AntiStarvationThresholdMinutes:  policy.AntiStarvationThresholdMinutes,
-		AntiStarvationPointsPerMinute:   policy.AntiStarvationPointsPerMinute,
-		AppointmentGraceMinutes:         policy.AppointmentGraceMinutes,
-		AppointmentLatePenaltyPerMinute: policy.AppointmentLatePenaltyPerMinute,
-		AppointmentLatePenaltyMaxPoints: policy.AppointmentLatePenaltyMaxPoints,
-		Version:                         policy.Version,
-		UpdatedAt:                       policy.UpdatedAt,
+	dto := QueuePolicyDTO{
+		BranchID:                          policy.BranchID,
+		AppointmentDuePriority:            policy.AppointmentDuePriority,
+		QRPriority:                        policy.QRPriority,
+		LivePriority:                      policy.LivePriority,
+		AntiStarvationThresholdMinutes:    policy.AntiStarvationThresholdMinutes,
+		AntiStarvationPointsPerMinute:     policy.AntiStarvationPointsPerMinute,
+		AppointmentGraceMinutes:           policy.AppointmentGraceMinutes,
+		AppointmentLatePenaltyPerMinute:   policy.AppointmentLatePenaltyPerMinute,
+		AppointmentLatePenaltyMaxPoints:   policy.AppointmentLatePenaltyMaxPoints,
+		Version:                           policy.Version,
+		UpdatedAt:                         policy.UpdatedAt,
+		ScheduledPromotionIntervalMinutes: policy.ScheduledAntiStarvationThresholdMinutes,
+		ScheduledAppointmentGraceMinutes:  policy.ScheduledAppointmentGraceMinutes,
 	}
+	if policy.ScheduledEffectiveDate != nil {
+		eff := policy.ScheduledEffectiveDate.Format("2006-01-02")
+		dto.ScheduledEffectiveOn = &eff
+	}
+	return dto
 }
 
 // Presence distinguishes an omitted legacy field from an explicit numeric zero.
@@ -210,22 +221,24 @@ func (n policyNumber[T]) or(current T) T {
 }
 
 type UpdateQueuePolicyRequest struct {
-	AppointmentDuePriority          policyNumber[int]   `json:"appointmentDuePriority"`
-	QRPriority                      policyNumber[int]   `json:"qrPriority"`
-	LivePriority                    policyNumber[int]   `json:"livePriority"`
-	AntiStarvationThresholdMinutes  policyNumber[int]   `json:"antiStarvationThresholdMinutes"`
-	AntiStarvationPointsPerMinute   policyNumber[int]   `json:"antiStarvationPointsPerMinute"`
-	AppointmentGraceMinutes         policyNumber[int]   `json:"appointmentGraceMinutes"`
-	AppointmentLatePenaltyPerMinute policyNumber[int]   `json:"appointmentLatePenaltyPerMinute"`
-	AppointmentLatePenaltyMaxPoints policyNumber[int]   `json:"appointmentLatePenaltyMaxPoints"`
-	ExpectedVersion                 policyNumber[int64] `json:"expectedVersion"`
+	AppointmentDuePriority            policyNumber[int]   `json:"appointmentDuePriority"`
+	QRPriority                        policyNumber[int]   `json:"qrPriority"`
+	LivePriority                      policyNumber[int]   `json:"livePriority"`
+	AntiStarvationThresholdMinutes    policyNumber[int]   `json:"antiStarvationThresholdMinutes"`
+	ScheduledPromotionIntervalMinutes policyNumber[int]   `json:"scheduledPromotionIntervalMinutes"`
+	AntiStarvationPointsPerMinute     policyNumber[int]   `json:"antiStarvationPointsPerMinute"`
+	AppointmentGraceMinutes           policyNumber[int]   `json:"appointmentGraceMinutes"`
+	ScheduledAppointmentGraceMinutes  policyNumber[int]   `json:"scheduledAppointmentGraceMinutes"`
+	AppointmentLatePenaltyPerMinute   policyNumber[int]   `json:"appointmentLatePenaltyPerMinute"`
+	AppointmentLatePenaltyMaxPoints   policyNumber[int]   `json:"appointmentLatePenaltyMaxPoints"`
+	ExpectedVersion                   policyNumber[int64] `json:"expectedVersion"`
 }
 
 func (a *API) UpdateQueuePolicy(w http.ResponseWriter, r *http.Request) {
 	branchID := chi.URLParam(r, "branchId")
 
 	var req UpdateQueuePolicyRequest
-	if err := decodeRequest(r, &req); err != nil || !req.AppointmentDuePriority.Present || !req.QRPriority.Present || !req.ExpectedVersion.Present {
+	if err := decodeRequest(r, &req); err != nil || !req.ExpectedVersion.Present {
 		writeJSONError(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body")
 		return
 	}
@@ -240,14 +253,17 @@ func (a *API) UpdateQueuePolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	promoInterval := req.ScheduledPromotionIntervalMinutes.or(req.AntiStarvationThresholdMinutes.or(current.AntiStarvationThresholdMinutes))
+	grace := req.ScheduledAppointmentGraceMinutes.or(req.AppointmentGraceMinutes.or(current.AppointmentGraceMinutes))
+
 	policy, err := a.usecases.UpdateQueuePolicy(r.Context(), application.UpdateQueuePolicyCommand{
 		BranchID:                        branchID,
-		AppointmentDuePriority:          req.AppointmentDuePriority.Value,
-		QRPriority:                      req.QRPriority.Value,
+		AppointmentDuePriority:          req.AppointmentDuePriority.or(current.AppointmentDuePriority),
+		QRPriority:                      req.QRPriority.or(current.QRPriority),
 		LivePriority:                    req.LivePriority.or(current.LivePriority),
-		AntiStarvationThresholdMinutes:  req.AntiStarvationThresholdMinutes.or(current.AntiStarvationThresholdMinutes),
+		AntiStarvationThresholdMinutes:  promoInterval,
 		AntiStarvationPointsPerMinute:   req.AntiStarvationPointsPerMinute.or(current.AntiStarvationPointsPerMinute),
-		AppointmentGraceMinutes:         req.AppointmentGraceMinutes.or(current.AppointmentGraceMinutes),
+		AppointmentGraceMinutes:         grace,
 		AppointmentLatePenaltyPerMinute: req.AppointmentLatePenaltyPerMinute.or(current.AppointmentLatePenaltyPerMinute),
 		AppointmentLatePenaltyMaxPoints: req.AppointmentLatePenaltyMaxPoints.or(current.AppointmentLatePenaltyMaxPoints),
 		ExpectedVersion:                 req.ExpectedVersion.Value,

@@ -485,23 +485,102 @@
 .cx-home-hero { position: relative; }
 .cx-home-hero-content { position: relative; }
 .cx-route-symbol { animation: cx-route-symbol-in 140ms cubic-bezier(.2, .7, .2, 1) both; }
-.cx-route-line { display: block; width: 100%; height: 32px; margin-top: 8px; overflow: visible; }
-.cx-route-line-track { fill: none; stroke: #dce8f2; stroke-width: 2; }
-.cx-route-line-draw { fill: none; stroke: #2f70a8; stroke-linecap: round; stroke-width: 2; stroke-dasharray: 1; stroke-dashoffset: 1; animation: cx-route-draw 440ms cubic-bezier(.22, .7, .2, 1) 120ms both; }
-.cx-route-node { opacity: 0; animation: cx-route-node-in 120ms ease-out 520ms both; }
-.cx-route-node-start { fill: #2f70a8; }
-.cx-route-node-middle { fill: #8eafca; animation-delay: 620ms; }
-.cx-route-node-end { fill: #eaf2fb; stroke: #003b73; stroke-width: 2; animation-delay: 740ms; }
-.cx-route-node-end-core { fill: #d6a514; opacity: 0; animation: cx-route-node-in 120ms ease-out 760ms both; }
-.cx-route-pulse { fill: #d6a514; opacity: 0; }
+.cx-route-line {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 24px;
+  margin-top: 10px;
+}
+.cx-route-line-track {
+  position: absolute;
+  top: 50%;
+  left: 16.666%;
+  right: 16.666%;
+  height: 2px;
+  background: #dce8f2;
+  transform: translateY(-50%);
+  border-radius: 9999px;
+  overflow: hidden;
+}
+.cx-route-line-draw {
+  width: 100%;
+  height: 100%;
+  background: #2f70a8;
+  border-radius: 9999px;
+  transform-origin: left center;
+  animation: cx-route-draw 440ms cubic-bezier(.22, .7, .2, 1) 120ms both;
+}
+.cx-route-node {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  opacity: 0;
+  animation: cx-route-node-in 120ms ease-out 520ms both;
+}
+.cx-route-node-start {
+  left: 16.666%;
+  width: 8px;
+  height: 8px;
+  background: #2f70a8;
+}
+.cx-route-node-middle {
+  left: 50%;
+  width: 8px;
+  height: 8px;
+  background: #8eafca;
+  animation-delay: 620ms;
+}
+.cx-route-node-end {
+  left: 83.333%;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  aspect-ratio: 1 / 1;
+  background: #eaf2fb;
+  border: 2px solid #003b73;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation-delay: 740ms;
+}
+.cx-route-node-end-core {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #d6a514;
+  opacity: 0;
+  animation: cx-route-node-in 120ms ease-out 760ms both;
+}
+.cx-route-pulse {
+  position: absolute;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #d6a514;
+  transform: translate(-50%, -50%);
+  opacity: 0;
+  pointer-events: none;
+  animation: cx-route-travel 360ms ease-in-out 680ms forwards;
+}
 .cx-route-metric { opacity: 0; transform: translateY(4px); animation: cx-route-metric-in 150ms cubic-bezier(.2, .7, .2, 1) both; }
 .cx-route-metric-travel { animation-delay: 480ms; }
 .cx-route-metric-queue { animation-delay: 610ms; }
 .cx-route-metric-total { animation-delay: 760ms; }
 @keyframes cx-route-symbol-in { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: translateY(0); } }
-@keyframes cx-route-draw { to { stroke-dashoffset: 0; } }
+@keyframes cx-route-draw { from { transform: scaleX(0); } to { transform: scaleX(1); } }
 @keyframes cx-route-node-in { to { opacity: 1; } }
 @keyframes cx-route-metric-in { to { opacity: 1; transform: translateY(0); } }
+@keyframes cx-route-travel {
+  0% { left: 16.666%; opacity: 0; }
+  15% { opacity: 1; }
+  85% { opacity: 1; }
+  100% { left: 83.333%; opacity: 0; }
+}
 .cx-route-actions { min-width: 0; }
 .cx-route-actions button { min-width: 0; line-height: 1.25; -webkit-appearance: none; appearance: none; }
 .cx-route-actions > button { flex: 0 1 auto; }
@@ -515,7 +594,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   .cx-route-symbol, .cx-route-line-draw, .cx-route-node, .cx-route-node-end-core, .cx-route-metric { animation: none; opacity: 1; transform: none; }
-  .cx-route-line-draw { stroke-dashoffset: 0; }
+  .cx-route-node { transform: translate(-50%, -50%); }
+  .cx-route-line-draw { transform: scaleX(1); }
   .cx-route-pulse { display: none; }
 }
 
@@ -676,6 +756,18 @@
   text-transform: uppercase;
   letter-spacing: 0.025em;
   background: rgba(255, 255, 255, 0.25);
+}
+
+.cx-badge-pending_confirmation {
+  background: #FEF3C7;
+  color: #92400E;
+  border: 1px solid #FCD34D;
+}
+
+.cx-badge-scheduled {
+  background: #EFF6FF;
+  color: #1E40AF;
+  border: 1px solid #BFDBFE;
 }
 
 .cx-error-box {

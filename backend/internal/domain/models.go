@@ -13,14 +13,39 @@ const (
 type TicketStatus string
 
 const (
-	TicketStatusScheduled TicketStatus = "SCHEDULED"
-	TicketStatusWaiting   TicketStatus = "WAITING"
-	TicketStatusCalled    TicketStatus = "CALLED"
-	TicketStatusServing   TicketStatus = "SERVING"
-	TicketStatusCompleted TicketStatus = "COMPLETED"
-	TicketStatusCancelled TicketStatus = "CANCELLED"
-	TicketStatusNoShow    TicketStatus = "NO_SHOW"
+	TicketStatusPendingConfirmation TicketStatus = "PENDING_CONFIRMATION"
+	TicketStatusScheduled           TicketStatus = "SCHEDULED"
+	TicketStatusWaiting             TicketStatus = "WAITING"
+	TicketStatusCalled              TicketStatus = "CALLED"
+	TicketStatusServing             TicketStatus = "SERVING"
+	TicketStatusCompleted           TicketStatus = "COMPLETED"
+	TicketStatusCancelled           TicketStatus = "CANCELLED"
+	TicketStatusNoShow              TicketStatus = "NO_SHOW"
 )
+
+func (s TicketStatus) RussianLabel() string {
+	switch s {
+	case TicketStatusPendingConfirmation:
+		return "Ожидает подтверждения"
+	case TicketStatusScheduled:
+		return "Запись запланирована"
+	case TicketStatusWaiting:
+		return "В очереди"
+	case TicketStatusCalled:
+		return "Вас вызывают к окну"
+	case TicketStatusServing:
+		return "Идёт обслуживание"
+	case TicketStatusCompleted:
+		return "Обслуживание завершено"
+	case TicketStatusCancelled:
+		return "Запись отменена"
+	case TicketStatusNoShow:
+		return "Неявка"
+	default:
+		return "Статус обновляется"
+	}
+}
+
 
 type WindowStatus string
 
@@ -31,16 +56,18 @@ const (
 )
 
 type Branch struct {
-	Latitude       *float64 `json:"latitude,omitempty"`
-	Longitude      *float64 `json:"longitude,omitempty"`
-	IsDemo         bool     `json:"isDemo"`
-	ID             string   `json:"id"`
-	Name           string   `json:"name"`
-	Address        string   `json:"address"`
-	WorkHours      string   `json:"workHours"`
-	TimezoneOffset int      `json:"timezoneOffset"`
-	RatingAverage  *float64 `json:"ratingAverage"`
-	RatingCount    int      `json:"ratingCount"`
+	Latitude               *float64 `json:"latitude,omitempty"`
+	Longitude              *float64 `json:"longitude,omitempty"`
+	IsDemo                 bool     `json:"isDemo"`
+	ID                     string   `json:"id"`
+	Name                   string   `json:"name"`
+	Address                string   `json:"address"`
+	WorkHours              string   `json:"workHours"`
+	ScheduledWorkHours     *string  `json:"scheduledWorkHours,omitempty"`
+	ScheduledEffectiveDate *string  `json:"scheduledEffectiveDate,omitempty"`
+	TimezoneOffset         int      `json:"timezoneOffset"`
+	RatingAverage          *float64 `json:"ratingAverage"`
+	RatingCount            int      `json:"ratingCount"`
 }
 
 type BranchQuality struct {
@@ -140,22 +167,31 @@ type Ticket struct {
 	SourceRank       int
 	PolicyVersion    int64
 	RecallCount      int
-	ClientID         *string
-	ManagementToken  *string
+	ClientID              *string
+	ManagementToken       *string
+	ConfirmationTokenHash *string
+	ConfirmationCode      *string
+	ConfirmationExpiresAt *time.Time
+	ConfirmedAt           *time.Time
+	NotificationEmail     *string
+	NotificationPhone     *string
 }
 
 type QueuePolicy struct {
-	BranchID                        string
-	AppointmentDuePriority          int
-	QRPriority                      int
-	LivePriority                    int
-	AntiStarvationThresholdMinutes  int
-	AntiStarvationPointsPerMinute   int
-	AppointmentGraceMinutes         int
-	AppointmentLatePenaltyPerMinute int
-	AppointmentLatePenaltyMaxPoints int
-	Version                         int64
-	UpdatedAt                       time.Time
+	BranchID                                string
+	AppointmentDuePriority                  int
+	QRPriority                              int
+	LivePriority                            int
+	AntiStarvationThresholdMinutes          int
+	AntiStarvationPointsPerMinute           int
+	AppointmentGraceMinutes                 int
+	AppointmentLatePenaltyPerMinute         int
+	AppointmentLatePenaltyMaxPoints         int
+	ScheduledAntiStarvationThresholdMinutes *int
+	ScheduledAppointmentGraceMinutes        *int
+	ScheduledEffectiveDate                  *time.Time
+	Version                                 int64
+	UpdatedAt                               time.Time
 }
 type TicketEventType string
 

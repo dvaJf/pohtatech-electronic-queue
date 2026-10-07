@@ -111,6 +111,42 @@ func (f *FakeUseCases) LinkExternalAccount(ctx context.Context, userID, provider
 	return nil
 }
 
+func (f *FakeUseCases) CreateUserTelegramLink(ctx context.Context, userID string) (string, time.Time, error) {
+	return "fake-user-link-token", time.Now().Add(15 * time.Minute), nil
+}
+
+func (f *FakeUseCases) FindActiveTicketByTelegramChat(ctx context.Context, chatID string) (*domain.Ticket, error) {
+	return nil, nil
+}
+
+func (f *FakeUseCases) CancelTicketByTelegram(ctx context.Context, chatID string) (*domain.Ticket, error) {
+	return nil, application.ErrNotFound
+}
+
+func (f *FakeUseCases) ConfirmAppointment(ctx context.Context, ticketID, tokenOrCode string) (application.AppointmentView, error) {
+	now := time.Now().UTC()
+	return application.AppointmentView{
+		Ticket: domain.Ticket{
+			ID:           ticketID,
+			PublicNumber: "A-000001",
+			Status:       domain.TicketStatusScheduled,
+		},
+		ScheduledAt: now.Add(2 * time.Hour),
+	}, nil
+}
+
+func (f *FakeUseCases) ForceConfirmPendingAppointment(ctx context.Context, ticketID string) (application.AppointmentView, error) {
+	return f.ConfirmAppointment(ctx, ticketID, "test-force")
+}
+
+func (f *FakeUseCases) ResendAppointmentConfirmation(ctx context.Context, ticketID string) (string, string, time.Time, error) {
+	return "fake-token", "123456", time.Now().Add(15 * time.Minute), nil
+}
+
+func (f *FakeUseCases) ExpirePendingAppointments(ctx context.Context, cutoff time.Time) (int64, error) {
+	return 0, nil
+}
+
 var _ application.UseCases = (*FakeUseCases)(nil)
 
 
@@ -633,3 +669,80 @@ func TestMetricsEndpoint(t *testing.T) {
 		t.Errorf("expected go_goroutines metric in output")
 	}
 }
+
+func TestAppointmentConfirmationEndpoints(t *testing.T) {
+	uc := &FakeUseCases{}
+	r := setupTest(uc)
+
+	t.Run("post confirm with ticketId in path", func(t *testing.T) {
+		body := `{"code":"123456"}`
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/appointments/ticket-123/confirm", strings.NewReader(body))
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("post confirm with ticketId in body", func(t *testing.T) {
+		body := `{"ticketId":"ticket-123","token":"sample-token"}`
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/appointments/confirm", strings.NewReader(body))
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("1-click get confirm redirect", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/appointments/ticket-123/confirm?token=sample-token", nil)
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		if rec.Code != http.StatusFound {
+			t.Fatalf("expected 302 Found, got %d", rec.Code)
+		}
+		location := rec.Header().Get("Location")
+		if !strings.Contains(location, "/appointments/confirm?ticketId=ticket-123&status=success") {
+			t.Fatalf("unexpected redirect location: %s", location)
+		}
+	})
+
+	t.Run("test confirm guard blocks in prod when flag is disabled", func(t *testing.T) {
+		t.Setenv("ALLOW_TEST_APPOINTMENT_CONFIRM", "false")
+		t.Setenv("ALLOW_SPECIAL_DEV_FORCE_CONFIRM", "false")
+		t.Setenv("APP_ENV", "production")
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/appointments/ticket-123/test-confirm", nil)
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("expected 403 Forbidden in prod without flag, got %d", rec.Code)
+		}
+	})
+
+	t.Run("test confirm guard blocks in dev without explicit flag", func(t *testing.T) {
+		t.Setenv("ALLOW_TEST_APPOINTMENT_CONFIRM", "false")
+		t.Setenv("ALLOW_SPECIAL_DEV_FORCE_CONFIRM", "false")
+		t.Setenv("APP_ENV", "development")
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/appointments/ticket-123/test-confirm", nil)
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("expected 403 Forbidden in dev without flag, got %d", rec.Code)
+		}
+	})
+
+	t.Run("test confirm guard allows with explicit flag", func(t *testing.T) {
+		t.Setenv("ALLOW_SPECIAL_DEV_FORCE_CONFIRM", "true")
+		t.Setenv("APP_ENV", "production")
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/appointments/ticket-123/test-confirm", nil)
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200 OK with ALLOW_SPECIAL_DEV_FORCE_CONFIRM, got %d", rec.Code)
+		}
+	})
+}
+

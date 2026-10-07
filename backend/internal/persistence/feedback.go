@@ -21,10 +21,8 @@ func (p *Postgres) SubmitFeedback(ctx context.Context, ticketID string, rating i
 	if err != nil {
 		return err
 	}
-	token, ok := ManagementTokenFromContext(ctx)
-	if !ok || token == "" {
-		return application.ErrForbidden
-	}
+	token, hasToken := ManagementTokenFromContext(ctx)
+	ownerID, hasOwner := ClientOwnerFromContext(ctx)
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
 		return dbError(err)
@@ -33,18 +31,27 @@ func (p *Postgres) SubmitFeedback(ctx context.Context, ticketID string, rating i
 	var status string
 	var expected *string
 	var branchID pgtype.UUID
-	err = tx.QueryRow(ctx, `SELECT status, management_token_hash, branch_id FROM tickets WHERE id=$1 FOR UPDATE`, ticket).Scan(&status, &expected, &branchID)
+	var clientID *string
+	err = tx.QueryRow(ctx, `SELECT status, management_token_hash, branch_id, client_id FROM tickets WHERE id=$1 FOR UPDATE`, ticket).Scan(&status, &expected, &branchID, &clientID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return application.ErrNotFound
 	}
 	if err != nil {
 		return dbError(err)
 	}
-	if expected == nil || *expected == "" || HashManagementToken(token) != *expected {
-		return application.ErrForbidden
-	}
 	if status != "COMPLETED" {
 		return application.ErrInvalidState
+	}
+
+	isOwner := hasOwner && clientID != nil && *clientID == ownerID
+	if !isOwner {
+		if hasToken && token != "" {
+			if expected == nil || *expected == "" || HashManagementToken(token) != *expected {
+				return application.ErrForbidden
+			}
+		} else if expected != nil && *expected != "" {
+			return application.ErrForbidden
+		}
 	}
 
 	cleanComment := strings.TrimSpace(comment)
@@ -52,17 +59,21 @@ func (p *Postgres) SubmitFeedback(ctx context.Context, ticketID string, rating i
 		return application.ErrInvalidState
 	}
 
-	// Upsert feedback and record branch_id
-	_, err = tx.Exec(ctx, `
+	// A completed visit accepts exactly one immutable review. Branch-only reviews
+	// keep ticket_id NULL and are not constrained by the partial unique index.
+	tag, err := tx.Exec(ctx, `
 		INSERT INTO ticket_feedback(ticket_id, branch_id, rating, comment)
 		VALUES($1, $2, $3, $4)
-		ON CONFLICT (ticket_id) DO UPDATE SET rating = EXCLUDED.rating, comment = EXCLUDED.comment
+		ON CONFLICT (ticket_id) WHERE ticket_id IS NOT NULL DO NOTHING
 	`, ticket, branchID, rating, cleanComment)
 	if err != nil {
 		if pgErr, ok := err.(interface{ SQLState() string }); ok && pgErr.SQLState() == "23505" {
 			return application.ErrIdempotencyConflict
 		}
 		return dbError(err)
+	}
+	if tag.RowsAffected() == 0 {
+		return application.ErrIdempotencyConflict
 	}
 	return dbError(tx.Commit(ctx))
 }

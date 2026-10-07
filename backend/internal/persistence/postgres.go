@@ -83,7 +83,8 @@ const ticketColumns = `t.id::text, t.public_number, t.branch_id::text, t.service
  t.source, t.status, w.id::text, w.number, t.created_at, t.queue_entered_at,
  t.called_at, t.service_started_at, t.completed_at, t.scheduled_at, t.arrived_at, t.no_show_at,
  t.checkin_at, t.ready_at, t.due_at, t.source_rank, t.policy_version, t.recall_count, t.client_id,
- COALESCE(s.name, '')`
+ COALESCE(s.name, ''),
+ t.confirmation_code, t.confirmation_expires_at, t.confirmed_at, t.notification_email, t.notification_phone`
 const ticketSelect = `SELECT ` + ticketColumns + ` FROM tickets t LEFT JOIN windows w ON w.id=t.window_id LEFT JOIN services s ON s.id=t.service_id `
 
 func scanTicket(row pgx.Row) (domain.Ticket, error) {
@@ -96,6 +97,7 @@ func scanTicket(row pgx.Row) (domain.Ticket, error) {
 		&t.CalledAt, &t.ServiceStartedAt, &t.CompletedAt, &t.ScheduledAt, &t.ArrivedAt, &t.NoShowAt,
 		&t.CheckinAt, &t.ReadyAt, &t.DueAt, &t.SourceRank, &t.PolicyVersion, &t.RecallCount, &t.ClientID,
 		&t.ServiceName,
+		&t.ConfirmationCode, &t.ConfirmationExpiresAt, &t.ConfirmedAt, &t.NotificationEmail, &t.NotificationPhone,
 	)
 	if err != nil {
 		return domain.Ticket{}, dbError(err)
@@ -105,7 +107,7 @@ func scanTicket(row pgx.Row) (domain.Ticket, error) {
 	}
 	t.CreatedAt = t.CreatedAt.UTC()
 	t.QueueEnteredAt = t.QueueEnteredAt.UTC()
-	for _, v := range []*time.Time{t.CalledAt, t.ServiceStartedAt, t.CompletedAt, t.ScheduledAt, t.ArrivedAt, t.NoShowAt, t.CheckinAt, t.ReadyAt, t.DueAt} {
+	for _, v := range []*time.Time{t.CalledAt, t.ServiceStartedAt, t.CompletedAt, t.ScheduledAt, t.ArrivedAt, t.NoShowAt, t.CheckinAt, t.ReadyAt, t.DueAt, t.ConfirmationExpiresAt, t.ConfirmedAt} {
 		if v != nil {
 			*v = v.UTC()
 		}
@@ -113,9 +115,22 @@ func scanTicket(row pgx.Row) (domain.Ticket, error) {
 	return t, nil
 }
 func (p *Postgres) ListBranches(ctx context.Context) ([]domain.Branch, error) {
-	rows, err := p.pool.Query(ctx, `SELECT b.id::text,b.name,b.address,b.work_hours,b.timezone_offset,b.latitude,b.longitude,b.is_demo,AVG(f.rating)::double precision,COUNT(f.id)
+	// Promote scheduled work hours that have reached their effective date
+	_, _ = p.pool.Exec(ctx, `
+		UPDATE branches
+		SET work_hours = scheduled_work_hours,
+		    scheduled_work_hours = NULL,
+		    scheduled_work_hours_effective_date = NULL
+		WHERE scheduled_work_hours IS NOT NULL
+		  AND (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Moscow')::date >= scheduled_work_hours_effective_date
+	`)
+
+	rows, err := p.pool.Query(ctx, `SELECT b.id::text,b.name,b.address,b.work_hours,b.timezone_offset,b.latitude,b.longitude,b.is_demo,
+		AVG(f.rating)::double precision,COUNT(f.id),
+		b.scheduled_work_hours,
+		to_char(b.scheduled_work_hours_effective_date, 'YYYY-MM-DD')
 		FROM branches b LEFT JOIN tickets t ON t.branch_id=b.id AND t.status='COMPLETED' LEFT JOIN ticket_feedback f ON f.ticket_id=t.id
-		GROUP BY b.id,b.name,b.address,b.work_hours,b.timezone_offset,b.latitude,b.longitude,b.is_demo ORDER BY b.name,b.id`)
+		GROUP BY b.id,b.name,b.address,b.work_hours,b.timezone_offset,b.latitude,b.longitude,b.is_demo,b.scheduled_work_hours,b.scheduled_work_hours_effective_date ORDER BY b.name,b.id`)
 	if err != nil {
 		return nil, dbError(err)
 	}
@@ -123,7 +138,7 @@ func (p *Postgres) ListBranches(ctx context.Context) ([]domain.Branch, error) {
 	out := []domain.Branch{}
 	for rows.Next() {
 		var b domain.Branch
-		if err = rows.Scan(&b.ID, &b.Name, &b.Address, &b.WorkHours, &b.TimezoneOffset, &b.Latitude, &b.Longitude, &b.IsDemo, &b.RatingAverage, &b.RatingCount); err != nil {
+		if err = rows.Scan(&b.ID, &b.Name, &b.Address, &b.WorkHours, &b.TimezoneOffset, &b.Latitude, &b.Longitude, &b.IsDemo, &b.RatingAverage, &b.RatingCount, &b.ScheduledWorkHours, &b.ScheduledEffectiveDate); err != nil {
 			return nil, dbError(err)
 		}
 		out = append(out, b)
@@ -379,7 +394,7 @@ func (p *Postgres) CallNextAt(ctx context.Context, windowID string, decisionTime
 		return empty, application.ErrWindowBusy
 	}
 
-	legacyPolicy, pErr := scanPolicy(tx.QueryRow(ctx, policySelect+` WHERE branch_id=$1::uuid`, branch))
+	policy, pErr := p.getQueuePolicyAt(ctx, tx, branch, decisionTime)
 	if errors.Is(pErr, application.ErrNotFound) {
 		return empty, errors.New("queue policy missing for branch")
 	}
@@ -388,73 +403,97 @@ func (p *Postgres) CallNextAt(ctx context.Context, windowID string, decisionTime
 	}
 
 	candidateRows, err := tx.Query(ctx, `
-		SELECT `+ticketColumns+`
+		SELECT `+ticketColumns+`, k.effective_tier, k.tier_entered_at
 		FROM tickets t
 		LEFT JOIN windows w ON w.id = t.window_id
 		LEFT JOIN services s ON s.id = t.service_id
+		`+tierRankingLateral("t", "$3::timestamptz", "$4::int", "$5::int")+`
 		WHERE t.branch_id = $1::uuid
 		  AND (t.window_id IS NULL OR t.window_id = $2::uuid)
-		  AND EXISTS (SELECT 1 FROM window_services ws WHERE ws.window_id = $2::uuid AND ws.service_id = t.service_id)
+		  AND (t.window_id = $2::uuid OR EXISTS (SELECT 1 FROM window_services ws WHERE ws.window_id = $2::uuid AND ws.service_id = t.service_id))
 		  AND (t.status = 'WAITING' OR (t.source = 'APPOINTMENT' AND t.status = 'SCHEDULED'))
 		  AND t.ready_at <= $3::timestamptz
-		ORDER BY t.due_at ASC,
-		         CASE
-		           WHEN t.source = 'APPOINTMENT' AND t.arrived_at IS NULL AND t.scheduled_at < $3::timestamptz - INTERVAL '30 minutes'
-		             THEN 2
-		           ELSE t.source_rank
-		         END ASC,
-		         t.checkin_at ASC, t.id ASC
+		  AND k.effective_tier >= 0
+		ORDER BY (CASE WHEN t.window_id = $2::uuid THEN 0 ELSE 1 END) ASC,
+		         k.effective_tier ASC, k.tier_entered_at ASC, t.created_at ASC, t.id ASC
 		LIMIT 1
 		FOR NO KEY UPDATE OF t SKIP LOCKED
-	`, branch, windowID, decisionTime)
+	`, branch, windowID, decisionTime, policy.AntiStarvationThresholdMinutes, policy.AppointmentGraceMinutes)
 	if err != nil {
 		return empty, dbError(err)
 	}
 
 	var candidates []domain.Ticket
+	var candidateTiers []int
+	var candidateTierEnteredAts []time.Time
 	for candidateRows.Next() {
-		cand, scanErr := scanTicket(candidateRows)
+		var cand domain.Ticket
+		var wid *string
+		var number *int
+		var tier int
+		var tierEnteredAt time.Time
+		scanErr := candidateRows.Scan(
+			&cand.ID, &cand.PublicNumber, &cand.BranchID, &cand.ServiceID, &cand.Source, &cand.Status,
+			&wid, &number, &cand.CreatedAt, &cand.QueueEnteredAt,
+			&cand.CalledAt, &cand.ServiceStartedAt, &cand.CompletedAt, &cand.ScheduledAt, &cand.ArrivedAt, &cand.NoShowAt,
+			&cand.CheckinAt, &cand.ReadyAt, &cand.DueAt, &cand.SourceRank, &cand.PolicyVersion, &cand.RecallCount, &cand.ClientID,
+			&cand.ServiceName,
+			&cand.ConfirmationCode, &cand.ConfirmationExpiresAt, &cand.ConfirmedAt, &cand.NotificationEmail, &cand.NotificationPhone,
+			&tier, &tierEnteredAt,
+		)
 		if scanErr != nil {
 			candidateRows.Close()
-			return empty, scanErr
+			return empty, dbError(scanErr)
+		}
+		if wid != nil {
+			cand.Window = &domain.WindowRef{ID: *wid, Number: *number}
+		}
+		cand.CreatedAt = cand.CreatedAt.UTC()
+		cand.QueueEnteredAt = cand.QueueEnteredAt.UTC()
+		for _, v := range []*time.Time{cand.CalledAt, cand.ServiceStartedAt, cand.CompletedAt, cand.ScheduledAt, cand.ArrivedAt, cand.NoShowAt, cand.CheckinAt, cand.ReadyAt, cand.DueAt, cand.ConfirmationExpiresAt, cand.ConfirmedAt} {
+			if v != nil {
+				*v = v.UTC()
+			}
 		}
 		candidates = append(candidates, cand)
+		candidateTiers = append(candidateTiers, tier)
+		candidateTierEnteredAts = append(candidateTierEnteredAts, tierEnteredAt.UTC())
 	}
 	candidateRows.Close()
 
 	if len(candidates) == 0 {
-		// Check if any tickets have ready_at <= decisionTime + 1s (could be locked by concurrent tx or just arrived)
 		var anyReadyNow bool
 		err = tx.QueryRow(ctx, `
 			SELECT EXISTS(
 				SELECT 1 FROM tickets t
+				`+tierRankingLateral("t", "$3::timestamptz", "$4::int", "$5::int")+`
 				WHERE t.branch_id = $1::uuid
 				  AND (t.window_id IS NULL OR t.window_id = $2::uuid)
-				  AND EXISTS (SELECT 1 FROM window_services ws WHERE ws.window_id = $2::uuid AND ws.service_id = t.service_id)
+				  AND (t.window_id = $2::uuid OR EXISTS (SELECT 1 FROM window_services ws WHERE ws.window_id = $2::uuid AND ws.service_id = t.service_id))
 				  AND (t.status = 'WAITING' OR (t.source = 'APPOINTMENT' AND t.status = 'SCHEDULED'))
 				  AND t.ready_at <= $3::timestamptz + interval '1 second'
+				  AND k.effective_tier >= 0
 			)
-		`, branch, windowID, decisionTime).Scan(&anyReadyNow)
+		`, branch, windowID, decisionTime, policy.AntiStarvationThresholdMinutes, policy.AppointmentGraceMinutes).Scan(&anyReadyNow)
 		if err != nil {
 			return empty, dbError(err)
 		}
 		if anyReadyNow {
-			// Ready tickets exist right now, but were skipped/locked by another concurrent worker
 			return empty, application.ErrNoEligibleTickets
 		}
 
-		// No ready tickets. Check if any future tickets exist
 		var futureExists bool
 		err = tx.QueryRow(ctx, `
 			SELECT EXISTS(
 				SELECT 1 FROM tickets t
+				`+tierRankingLateral("t", "$3::timestamptz", "$4::int", "$5::int")+`
 				WHERE t.branch_id = $1::uuid
 				  AND (t.window_id IS NULL OR t.window_id = $2::uuid)
-				  AND EXISTS (SELECT 1 FROM window_services ws WHERE ws.window_id = $2::uuid AND ws.service_id = t.service_id)
+				  AND (t.window_id = $2::uuid OR EXISTS (SELECT 1 FROM window_services ws WHERE ws.window_id = $2::uuid AND ws.service_id = t.service_id))
 				  AND (t.status = 'WAITING' OR (t.source = 'APPOINTMENT' AND t.status = 'SCHEDULED'))
-				  AND t.ready_at > $3::timestamptz + interval '1 second'
+				  AND (t.ready_at > $3::timestamptz + interval '1 second' OR k.effective_tier < 0)
 			)
-		`, branch, windowID, decisionTime).Scan(&futureExists)
+		`, branch, windowID, decisionTime, policy.AntiStarvationThresholdMinutes, policy.AppointmentGraceMinutes).Scan(&futureExists)
 		if err != nil {
 			return empty, dbError(err)
 		}
@@ -484,12 +523,11 @@ func (p *Postgres) CallNextAt(ctx context.Context, windowID string, decisionTime
 		return empty, err
 	}
 
-	// Format top-candidate explanation for ticket_events audit log
-	explanation := fmt.Sprintf("chosen due_at=%v source_rank=%d checkin_at=%v",
-		winner.DueAt, winner.SourceRank, winner.CheckinAt)
+	explanation := fmt.Sprintf("chosen tier=%d tier_entered_at=%v created_at=%v due_at=%v source_rank=%d checkin_at=%v",
+		candidateTiers[0], candidateTierEnteredAts[0], winner.CreatedAt, winner.DueAt, winner.SourceRank, winner.CheckinAt)
 
-	policyVersion := legacyPolicy.Version
-	priority := calculateLegacyPriority(winner, decisionTime, legacyPolicy)
+	policyVersion := policy.Version
+	priority := int64(candidateTiers[0])
 
 	extra := EventExtra{
 		Actor:     "operator",
@@ -577,7 +615,7 @@ func (p *Postgres) CallSpecificTicketAt(ctx context.Context, windowID string, ti
 		return empty, application.ErrWindowBusy
 	}
 
-	legacyPolicy, pErr := scanPolicy(tx.QueryRow(ctx, policySelect+` WHERE branch_id=$1::uuid`, branch))
+	policy, pErr := p.getQueuePolicyAt(ctx, tx, branch, decisionTime)
 	if errors.Is(pErr, application.ErrNotFound) {
 		return empty, errors.New("queue policy missing for branch")
 	}
@@ -637,8 +675,18 @@ func (p *Postgres) CallSpecificTicketAt(ctx context.Context, windowID string, ti
 		return empty, err
 	}
 
-	policyVersion := legacyPolicy.Version
-	priority := calculateLegacyPriority(target, decisionTime, legacyPolicy)
+	policyVersion := policy.Version
+	eff := domain.EffectiveQueuePriority(domain.QueuePriorityInput{
+		Source:                   target.Source,
+		ScheduledAt:              target.ScheduledAt,
+		ArrivedAt:                target.ArrivedAt,
+		CheckinAt:                target.CheckinAt,
+		QueueEnteredAt:           target.QueueEnteredAt,
+		DecisionAt:               decisionTime,
+		PromotionIntervalMinutes: policy.AntiStarvationThresholdMinutes,
+		AppointmentGraceMinutes:  policy.AppointmentGraceMinutes,
+	})
+	priority := int64(eff.Tier)
 
 	extra := EventExtra{
 		Actor:     "operator",
@@ -1018,7 +1066,7 @@ func (p *Postgres) RedirectTicket(ctx context.Context, cmd application.RedirectT
 		}
 	} else {
 		if nw != nil {
-			tag, err = tx.Exec(ctx, `UPDATE tickets SET status='WAITING', window_id=$1, service_id=$2 WHERE id=$3 AND status IN ('CALLED', 'SERVING')`, nw, ns, id)
+			tag, err = tx.Exec(ctx, `UPDATE tickets SET status='WAITING', window_id=$1, service_id=$2, ready_at=LEAST(ready_at, clock_timestamp()), requeued_at=clock_timestamp() WHERE id=$3 AND status IN ('CALLED', 'SERVING')`, nw, ns, id)
 		} else {
 			tag, err = tx.Exec(ctx, `UPDATE tickets SET status='WAITING', window_id=NULL, service_id=$1 WHERE id=$2 AND status IN ('CALLED', 'SERVING')`, ns, id)
 		}
@@ -1099,7 +1147,47 @@ func (p *Postgres) FindActiveTicketByClient(ctx context.Context, clientID string
 	if clientID == "" {
 		return nil, nil
 	}
-	query := ticketSelect + `WHERE t.client_id = $1 AND t.status IN ('SCHEDULED', 'WAITING', 'CALLED', 'SERVING') ORDER BY t.created_at DESC LIMIT 1`
+	query := ticketSelect + `
+		WHERE (
+			t.client_id = $1 
+			OR t.client_id IN (
+				SELECT ea.user_id::text FROM external_accounts ea
+				WHERE ea.external_user_id IN (
+					SELECT ea2.external_user_id FROM external_accounts ea2 WHERE ea2.user_id::text = $1
+				)
+			)
+			OR t.client_id IN (
+				SELECT ea.external_user_id FROM external_accounts ea WHERE ea.user_id::text = $1
+			)
+			OR (
+				EXISTS (
+					SELECT 1 FROM users u 
+					WHERE u.id::text = $1 AND (u.email LIKE '%@yandex.ru' OR u.password_hash = 'OAUTH_ACCOUNT')
+				)
+				AND (
+					t.client_id IN (
+						SELECT ea3.user_id::text FROM external_accounts ea3 WHERE ea3.provider = 'yandex_alice'
+					)
+					OR t.client_id IN (
+						SELECT u2.id::text FROM users u2 WHERE u2.email LIKE 'yandex_alice_%'
+					)
+				)
+			)
+			OR (
+				$1 IN (SELECT u3.id::text FROM users u3 WHERE u3.email LIKE 'yandex_alice_%')
+				AND (
+					t.client_id IN (
+						SELECT ea4.user_id::text FROM external_accounts ea4 WHERE ea4.provider = 'yandex_alice'
+					)
+					OR t.client_id IN (
+						SELECT u4.id::text FROM users u4 WHERE u4.email NOT LIKE 'yandex_alice_%' AND u4.role = 'client'
+					)
+				)
+			)
+		)
+		AND t.status IN ('PENDING_CONFIRMATION', 'SCHEDULED', 'WAITING', 'CALLED', 'SERVING')
+		ORDER BY t.created_at DESC LIMIT 1
+	`
 	t, err := scanTicket(p.pool.QueryRow(ctx, query, clientID))
 	if errors.Is(err, application.ErrNotFound) {
 		return nil, nil
@@ -1143,7 +1231,7 @@ func (p *Postgres) ListActiveTicketsByClient(ctx context.Context, clientID strin
 				)
 			)
 		)
-		AND t.status IN ('SCHEDULED', 'WAITING', 'CALLED', 'SERVING')
+		AND t.status IN ('PENDING_CONFIRMATION', 'SCHEDULED', 'WAITING', 'CALLED', 'SERVING')
 		ORDER BY t.created_at DESC
 	`
 	rows, err := p.pool.Query(ctx, query, clientID)
@@ -1164,6 +1252,55 @@ func (p *Postgres) ListActiveTicketsByClient(ctx context.Context, clientID strin
 		list = []domain.Ticket{}
 	}
 	return list, dbError(rows.Err())
+}
+
+func (p *Postgres) FindActiveTicketByTelegramChat(ctx context.Context, chatID string) (*domain.Ticket, error) {
+	chatID = strings.TrimSpace(chatID)
+	if chatID == "" {
+		return nil, nil
+	}
+	query := ticketSelect + `
+		WHERE (
+			t.id IN (
+				SELECT ns.ticket_id FROM notification_subscriptions ns 
+				WHERE ns.channel = 'TELEGRAM' AND ns.destination = $1 AND ns.enabled = true
+			)
+			OR t.client_id IN (
+				SELECT ea.user_id::text FROM external_accounts ea
+				WHERE ea.provider = 'telegram' AND ea.external_user_id = $1
+			)
+		)
+		AND t.status IN ('PENDING_CONFIRMATION', 'SCHEDULED', 'WAITING', 'CALLED', 'SERVING')
+		ORDER BY t.created_at DESC LIMIT 1
+	`
+	t, err := scanTicket(p.pool.QueryRow(ctx, query, chatID))
+	if errors.Is(err, application.ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, dbError(err)
+	}
+	return &t, nil
+}
+
+func (p *Postgres) CancelTicketByTelegram(ctx context.Context, chatID string) (*domain.Ticket, error) {
+	chatID = strings.TrimSpace(chatID)
+	if chatID == "" {
+		return nil, application.ErrNotFound
+	}
+	active, err := p.FindActiveTicketByTelegramChat(ctx, chatID)
+	if err != nil {
+		return nil, err
+	}
+	if active == nil {
+		return nil, application.ErrNotFound
+	}
+	// Bypass staff check since Telegram cancellation is authenticated by the linked chat
+	res, err := p.CancelTicket(WithStaffBypass(ctx), active.ID)
+	if err != nil {
+		return nil, err
+	}
+	return &res, nil
 }
 
 

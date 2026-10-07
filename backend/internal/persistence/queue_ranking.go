@@ -3,44 +3,161 @@ package persistence
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"postcode/backend/internal/domain"
 )
 
-// The single eligibility/arithmetic primitive used by both claim and position.
-// Parameters: window, branch, authoritative time, then the eight policy values.
-// Extracted seconds are floored before casting; every multiplicand is BIGINT.
-// LATERAL expressions stay attached to the base row (t), which CallNext locks.
-const rankedCandidates = `SELECT t.id,t.status,q.effective_queue_time,
- greatest(0::bigint,b.base_priority-l.lateness_penalty)
- + greatest(0::bigint,s.waiting_seconds-$7::bigint*60)*$8::bigint/60 AS effective_priority
+func tierRankingLateral(tAlias, decisionTimeExpr, intervalMinsExpr, graceMinsExpr string) string {
+	return fmt.Sprintf(` CROSS JOIN LATERAL (
+  SELECT
+    CASE
+      WHEN %[1]s.source = 'APPOINTMENT' AND %[1]s.scheduled_at IS NOT NULL
+           AND (COALESCE(%[1]s.arrived_at, %[1]s.checkin_at) IS NOT NULL AND COALESCE(%[1]s.arrived_at, %[1]s.checkin_at) < %[1]s.scheduled_at)
+      THEN TRUE
+      ELSE FALSE
+    END AS is_early_apt
+) ea
+CROSS JOIN LATERAL (
+  SELECT
+    CASE
+      WHEN %[1]s.requeued_at IS NOT NULL THEN %[1]s.requeued_at
+      WHEN ea.is_early_apt THEN COALESCE(%[1]s.checkin_at, %[1]s.arrived_at)
+      ELSE COALESCE(%[1]s.queue_entered_at, %[1]s.checkin_at)
+    END AS cycle_start,
+    CASE
+      WHEN %[1]s.requeued_at IS NOT NULL AND %[1]s.requeued_at > %[1]s.scheduled_at THEN %[1]s.requeued_at
+      ELSE %[1]s.scheduled_at
+    END AS apt_start
+) cs
+CROSS JOIN LATERAL (
+  SELECT
+    CASE
+      WHEN %[1]s.source = 'APPOINTMENT' AND %[1]s.scheduled_at IS NOT NULL AND NOT ea.is_early_apt THEN
+        CASE
+          WHEN %[2]s < cs.apt_start THEN -1
+          WHEN %[2]s < cs.apt_start + (%[4]s * INTERVAL '1 minute') THEN 0
+          WHEN %[2]s < cs.apt_start + ((%[4]s + %[3]s) * INTERVAL '1 minute') THEN 1
+          ELSE 0
+        END
+      WHEN %[1]s.source = 'QR' THEN
+        CASE
+          WHEN %[2]s < cs.cycle_start + (%[3]s * INTERVAL '1 minute') THEN 1
+          ELSE 0
+        END
+      WHEN %[1]s.source = 'LIVE' OR (%[1]s.source = 'APPOINTMENT' AND ea.is_early_apt) THEN
+        CASE
+          WHEN %[2]s < cs.cycle_start + (%[3]s * INTERVAL '1 minute') THEN 2
+          WHEN %[2]s < cs.cycle_start + (2 * %[3]s * INTERVAL '1 minute') THEN 1
+          ELSE 0
+        END
+      ELSE -1
+    END AS effective_tier,
+    CASE
+      WHEN %[1]s.source = 'APPOINTMENT' AND %[1]s.scheduled_at IS NOT NULL AND NOT ea.is_early_apt THEN
+        CASE
+          WHEN %[2]s < cs.apt_start THEN cs.apt_start
+          WHEN %[2]s < cs.apt_start + (%[4]s * INTERVAL '1 minute') THEN cs.apt_start
+          WHEN %[2]s < cs.apt_start + ((%[4]s + %[3]s) * INTERVAL '1 minute') THEN cs.apt_start + (%[4]s * INTERVAL '1 minute')
+          ELSE cs.apt_start + ((%[4]s + %[3]s) * INTERVAL '1 minute')
+        END
+      WHEN %[1]s.source = 'QR' THEN
+        CASE
+          WHEN %[2]s < cs.cycle_start + (%[3]s * INTERVAL '1 minute') THEN cs.cycle_start
+          ELSE cs.cycle_start + (%[3]s * INTERVAL '1 minute')
+        END
+      WHEN %[1]s.source = 'LIVE' OR (%[1]s.source = 'APPOINTMENT' AND ea.is_early_apt) THEN
+        CASE
+          WHEN %[2]s < cs.cycle_start + (%[3]s * INTERVAL '1 minute') THEN cs.cycle_start
+          WHEN %[2]s < cs.cycle_start + (2 * %[3]s * INTERVAL '1 minute') THEN cs.cycle_start + (%[3]s * INTERVAL '1 minute')
+          ELSE cs.cycle_start + (2 * %[3]s * INTERVAL '1 minute')
+        END
+      ELSE cs.cycle_start
+    END AS tier_entered_at
+) k `, tAlias, decisionTimeExpr, intervalMinsExpr, graceMinsExpr)
+}
+
+const rankedCandidates = `SELECT t.id, t.status, k.tier_entered_at, k.effective_tier
  FROM tickets t
- CROSS JOIN LATERAL (SELECT CASE WHEN t.source='APPOINTMENT'
- THEN greatest(t.scheduled_at,coalesce(t.arrived_at,t.scheduled_at))
- ELSE t.queue_entered_at END AS effective_queue_time) q
- CROSS JOIN LATERAL (SELECT CASE t.source WHEN 'APPOINTMENT' THEN $4::bigint
- WHEN 'QR' THEN $5::bigint ELSE $6::bigint END AS base_priority) b
- CROSS JOIN LATERAL (SELECT greatest(0::bigint,floor(extract(epoch FROM ($3::timestamptz-q.effective_queue_time)))::bigint) AS waiting_seconds,
- CASE WHEN t.source='APPOINTMENT' THEN greatest(0::bigint,
- floor(extract(epoch FROM (coalesce(t.arrived_at,t.scheduled_at)-t.scheduled_at)))::bigint)
- ELSE 0::bigint END AS raw_lateness_seconds) s
- CROSS JOIN LATERAL (SELECT CASE WHEN t.source='APPOINTMENT' THEN
- least(greatest(0::bigint,s.raw_lateness_seconds-$9::bigint*60)*$10::bigint/60,$11::bigint)
- ELSE 0::bigint END AS lateness_penalty) l
- WHERE t.branch_id=$2::uuid
- AND ((t.source IN ('QR','LIVE') AND t.status='WAITING') OR
- (t.source='APPOINTMENT' AND t.status='SCHEDULED' AND (t.scheduled_at<=$3::timestamptz + INTERVAL '15 minutes' OR t.arrived_at IS NOT NULL)))
- AND (t.window_id IS NULL OR t.window_id=$1::uuid)
- AND EXISTS(SELECT 1 FROM window_services ws WHERE ws.window_id=$1::uuid AND ws.service_id=t.service_id)`
-const rankingOrder = `effective_priority DESC,effective_queue_time ASC,id ASC`
+ CROSS JOIN LATERAL (
+  SELECT
+    CASE
+      WHEN t.source = 'APPOINTMENT' AND t.scheduled_at IS NOT NULL
+           AND (COALESCE(t.arrived_at, t.checkin_at) IS NOT NULL AND COALESCE(t.arrived_at, t.checkin_at) < t.scheduled_at)
+      THEN TRUE
+      ELSE FALSE
+    END AS is_early_apt
+ ) ea
+ CROSS JOIN LATERAL (
+  SELECT
+    CASE
+      WHEN t.requeued_at IS NOT NULL THEN t.requeued_at
+      WHEN ea.is_early_apt THEN COALESCE(t.checkin_at, t.arrived_at)
+      ELSE COALESCE(t.queue_entered_at, t.checkin_at)
+    END AS cycle_start,
+    CASE
+      WHEN t.requeued_at IS NOT NULL AND t.requeued_at > t.scheduled_at THEN t.requeued_at
+      ELSE t.scheduled_at
+    END AS apt_start
+ ) cs
+ CROSS JOIN LATERAL (
+  SELECT
+    CASE
+      WHEN t.source = 'APPOINTMENT' AND t.scheduled_at IS NOT NULL AND NOT ea.is_early_apt THEN
+        CASE
+          WHEN $3::timestamptz < cs.apt_start THEN -1
+          WHEN $3::timestamptz < cs.apt_start + ($5::int * INTERVAL '1 minute') THEN 0
+          WHEN $3::timestamptz < cs.apt_start + (($5::int + $4::int) * INTERVAL '1 minute') THEN 1
+          ELSE 0
+        END
+      WHEN t.source = 'QR' THEN
+        CASE
+          WHEN $3::timestamptz < cs.cycle_start + ($4::int * INTERVAL '1 minute') THEN 1
+          ELSE 0
+        END
+      WHEN t.source = 'LIVE' OR (t.source = 'APPOINTMENT' AND ea.is_early_apt) THEN
+        CASE
+          WHEN $3::timestamptz < cs.cycle_start + ($4::int * INTERVAL '1 minute') THEN 2
+          WHEN $3::timestamptz < cs.cycle_start + (2 * $4::int * INTERVAL '1 minute') THEN 1
+          ELSE 0
+        END
+      ELSE -1
+    END AS effective_tier,
+    CASE
+      WHEN t.source = 'APPOINTMENT' AND t.scheduled_at IS NOT NULL AND NOT ea.is_early_apt THEN
+        CASE
+          WHEN $3::timestamptz < cs.apt_start THEN cs.apt_start
+          WHEN $3::timestamptz < cs.apt_start + ($5::int * INTERVAL '1 minute') THEN cs.apt_start
+          WHEN $3::timestamptz < cs.apt_start + (($5::int + $4::int) * INTERVAL '1 minute') THEN cs.apt_start + ($5::int * INTERVAL '1 minute')
+          ELSE cs.apt_start + (($5::int + $4::int) * INTERVAL '1 minute')
+        END
+      WHEN t.source = 'QR' THEN
+        CASE
+          WHEN $3::timestamptz < cs.cycle_start + ($4::int * INTERVAL '1 minute') THEN cs.cycle_start
+          ELSE cs.cycle_start + ($4::int * INTERVAL '1 minute')
+        END
+      WHEN t.source = 'LIVE' OR (t.source = 'APPOINTMENT' AND ea.is_early_apt) THEN
+        CASE
+          WHEN $3::timestamptz < cs.cycle_start + ($4::int * INTERVAL '1 minute') THEN cs.cycle_start
+          WHEN $3::timestamptz < cs.cycle_start + (2 * $4::int * INTERVAL '1 minute') THEN cs.cycle_start + ($4::int * INTERVAL '1 minute')
+          ELSE cs.cycle_start + (2 * $4::int * INTERVAL '1 minute')
+        END
+      ELSE cs.cycle_start
+    END AS tier_entered_at
+ ) k
+ WHERE t.branch_id = $2::uuid
+   AND (t.window_id IS NULL OR t.window_id = $1::uuid)
+   AND (t.window_id = $1::uuid OR EXISTS (SELECT 1 FROM window_services ws WHERE ws.window_id = $1::uuid AND ws.service_id = t.service_id))
+   AND (t.status = 'WAITING' OR (t.source = 'APPOINTMENT' AND t.status = 'SCHEDULED'))
+   AND t.ready_at <= $3::timestamptz
+   AND k.effective_tier >= 0`
+const rankingOrder = `(CASE WHEN t.window_id = $1::uuid THEN 0 ELSE 1 END) ASC, k.effective_tier ASC, k.tier_entered_at ASC, t.created_at ASC, t.id ASC`
 const canonicalOrder = ` ORDER BY ` + rankingOrder
 
 func rankingArgs(window, branch string, at time.Time, p domain.QueuePolicy) []any {
-	return []any{window, branch, at, int64(p.AppointmentDuePriority), int64(p.QRPriority), int64(p.LivePriority),
-		int64(p.AntiStarvationThresholdMinutes), int64(p.AntiStarvationPointsPerMinute), int64(p.AppointmentGraceMinutes),
-		int64(p.AppointmentLatePenaltyPerMinute), int64(p.AppointmentLatePenaltyMaxPoints)}
+	return []any{window, branch, at, p.AntiStarvationThresholdMinutes, p.AppointmentGraceMinutes}
 }
 
 func (p *Postgres) GetQueuePosition(ctx context.Context, ticketID string) (domain.QueuePosition, error) {
@@ -61,7 +178,6 @@ func (p *Postgres) GetQueuePosition(ctx context.Context, ticketID string) (domai
 func queuePosition(ctx context.Context, tx pgx.Tx, ticketID string) (domain.QueuePosition, error) {
 	var out domain.QueuePosition
 	var err error
-	// Establish the snapshot and its one authoritative time before any reads.
 	if err = tx.QueryRow(ctx, `SELECT transaction_timestamp()`).Scan(&out.CalculatedAt); err != nil {
 		return out, dbError(err)
 	}
@@ -76,19 +192,32 @@ func queuePosition(ctx context.Context, tx pgx.Tx, ticketID string) (domain.Queu
 	if t.Status != domain.TicketStatusWaiting && t.Status != domain.TicketStatusScheduled {
 		return out, nil
 	}
-	if t.Source == domain.TicketSourceAppointment && t.ArrivedAt == nil {
-		if t.ScheduledAt != nil && t.ScheduledAt.After(out.CalculatedAt.Add(15*time.Minute)) {
-			out.Reason = domain.QueuePositionNotEligibleYet
-			return out, nil
-		}
-		if t.ReadyAt != nil && t.ReadyAt.After(out.CalculatedAt) {
-			out.Reason = domain.QueuePositionNotEligibleYet
-			return out, nil
-		}
-	} else if t.ReadyAt != nil && t.ReadyAt.After(out.CalculatedAt) {
+
+	branchUUID, err := uuid(t.BranchID)
+	if err != nil {
+		return out, err
+	}
+	policy, err := scanPolicy(tx.QueryRow(ctx, policyAtSelect, branchUUID, out.CalculatedAt))
+	if err != nil {
+		return out, dbError(err)
+	}
+
+	var myTier int
+	var myTierEnteredAt time.Time
+	err = tx.QueryRow(ctx, `SELECT k.effective_tier, k.tier_entered_at
+		FROM tickets t
+		`+tierRankingLateral("t", "$2::timestamptz", "$3::int", "$4::int")+`
+		WHERE t.id = $1::uuid`, t.ID, out.CalculatedAt, policy.AntiStarvationThresholdMinutes, policy.AppointmentGraceMinutes).Scan(&myTier, &myTierEnteredAt)
+	if err != nil {
+		return out, dbError(err)
+	}
+	myTierEnteredAt = myTierEnteredAt.UTC()
+
+	if myTier < 0 || (t.ReadyAt != nil && t.ReadyAt.After(out.CalculatedAt)) {
 		out.Reason = domain.QueuePositionNotEligibleYet
 		return out, nil
 	}
+
 	var targetWindowID *string
 	if t.Window != nil {
 		targetWindowID = &t.Window.ID
@@ -107,50 +236,29 @@ func queuePosition(ctx context.Context, tx pgx.Tx, ticketID string) (domain.Queu
 		return out, dbError(err)
 	}
 
-	dueAt := time.Now()
-	if t.DueAt != nil {
-		dueAt = *t.DueAt
-	} else if t.ScheduledAt != nil {
-		dueAt = *t.ScheduledAt
-	}
-	checkinAt := t.QueueEnteredAt
-	if t.CheckinAt != nil {
-		checkinAt = *t.CheckinAt
-	} else if t.ArrivedAt != nil {
-		checkinAt = *t.ArrivedAt
-	}
-
 	var rank int
 	err = tx.QueryRow(ctx, `
 		SELECT count(*) + 1
 		FROM tickets c
+		`+tierRankingLateral("c", "$3::timestamptz", "$4::int", "$5::int")+`
 		WHERE c.branch_id = $1::uuid
 		  AND (c.status = 'WAITING' OR (c.source = 'APPOINTMENT' AND c.status = 'SCHEDULED'))
 		  AND (c.window_id IS NULL OR c.window_id = $2::uuid)
 		  AND EXISTS (SELECT 1 FROM window_services ws WHERE ws.window_id = $2::uuid AND ws.service_id = c.service_id)
 		  AND c.ready_at <= $3::timestamptz
-		  AND (c.due_at, c.source_rank, c.checkin_at, c.id) < ($4::timestamptz, $5::int, $6::timestamptz, $7::uuid)
-	`, t.BranchID, w.ID, out.CalculatedAt, dueAt, t.SourceRank, checkinAt, t.ID).Scan(&rank)
+		  AND k.effective_tier >= 0
+		  AND (k.effective_tier, k.tier_entered_at, c.created_at, c.id) < ($6::int, $7::timestamptz, $8::timestamptz, $9::uuid)
+	`, t.BranchID, w.ID, out.CalculatedAt, policy.AntiStarvationThresholdMinutes, policy.AppointmentGraceMinutes,
+		myTier, myTierEnteredAt, t.CreatedAt, t.ID).Scan(&rank)
 	if err != nil {
 		return out, dbError(err)
 	}
 
 	out.Position = &rank
 
-	var prio int64 = int64(t.SourceRank)
-	if legacyPolicy, pErr := scanPolicy(tx.QueryRow(ctx, policySelect+` WHERE branch_id=$1::uuid`, t.BranchID)); pErr == nil {
-		if t.Source == domain.TicketSourceAppointment {
-			prio = int64(legacyPolicy.AppointmentDuePriority)
-		} else if t.Source == domain.TicketSourceQR {
-			prio = int64(legacyPolicy.QRPriority)
-		} else {
-			prio = int64(legacyPolicy.LivePriority)
-		}
-	}
+	prio := int64(myTier)
 	out.EffectivePriority = &prio
-
-	eqt := checkinAt.UTC()
-	out.EffectiveQueueTime = &eqt
+	out.EffectiveQueueTime = &myTierEnteredAt
 	out.Reason = domain.QueuePositionAvailable
 	out.ReferenceWindow = &w
 	return out, nil

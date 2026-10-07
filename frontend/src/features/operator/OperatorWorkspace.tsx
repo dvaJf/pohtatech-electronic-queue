@@ -25,9 +25,16 @@ import {
   AlertTriangle,
   X,
   Lock,
-  Tv
+  Tv,
+  Calendar,
 } from 'lucide-react';
+import { formatMoscowTime } from '../../utils/time';
 import { SearchableBranchSelect } from '../../components/common/SearchableBranchSelect';
+
+interface NextAppointmentSlot {
+  scheduledAt: string;
+  count: number;
+}
 
 export function OperatorWorkspace() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -47,6 +54,7 @@ export function OperatorWorkspace() {
   // Side panel TV queue state
   const [tvQueue, setTvQueue] = useState<Array<{ publicNumber: string; source?: string; serviceName?: string }>>([]);
   const [queueTotal, setQueueTotal] = useState(0);
+  const [nextAppointment, setNextAppointment] = useState<NextAppointmentSlot | null>(null);
 
   // Elapsed timer for active service
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -188,7 +196,7 @@ export function OperatorWorkspace() {
   useEffect(() => {
     let active = true;
     setWindowId(''); setWindows([]); setServices([]); setServiceId(''); setCurrent(null); setReady(false);
-    setTvQueue([]); setQueueTotal(0);
+    setTvQueue([]); setQueueTotal(0); setNextAppointment(null);
     if (!branchId) return;
     localStorage.setItem('operator.branch', branchId);
     Promise.all([api.listWindows(branchId), listServices(branchId)]).then(([items, catalog]) => {
@@ -224,9 +232,12 @@ export function OperatorWorkspace() {
             const tvRes = await fetch(`/api/v1/admin/branches/${encodeURIComponent(branchId)}/queue`, { credentials: 'include' });
             if (tvRes.ok) {
               const tvData = await tvRes.json();
-              if (epoch.current === generation && Array.isArray(tvData?.items)) {
-                setTvQueue(tvData.items);
-                setQueueTotal(tvData.total);
+              if (epoch.current === generation) {
+                if (Array.isArray(tvData?.items)) {
+                  setTvQueue(tvData.items);
+                  setQueueTotal(tvData.total);
+                }
+                setNextAppointment(tvData?.nextAppointment ?? null);
               }
             }
           } catch {}
@@ -489,7 +500,7 @@ export function OperatorWorkspace() {
               </div>
             </div>
 
-            {/* Shift Open/Close Button (полноразмерная кнопка) */}
+            {/* Shift Open/Close Button */}
             {selected && (
               <div className="flex flex-col shrink-0">
                 <span aria-hidden="true" className="text-[10px] font-bold uppercase tracking-wider mb-1 pl-1 invisible select-none">Смена</span>
@@ -502,7 +513,7 @@ export function OperatorWorkspace() {
                         changeWindowStatus(windowId, selected.status === 'OPEN' ? 'CLOSED' : 'OPEN')
                       )
                     }
-                    className={`h-12 px-5 rounded-xl border shadow-sm text-sm font-semibold flex items-center justify-center whitespace-nowrap overflow-visible shrink-0 transition-all focus:outline-none focus:ring-2 focus:ring-offset-1 ${
+                    className={`h-10 px-4 rounded-xl border shadow-xs text-xs font-bold flex items-center justify-center whitespace-nowrap overflow-visible shrink-0 transition-all focus:outline-none focus:ring-2 focus:ring-offset-1 ${
                       selected.status === 'OPEN'
                         ? 'text-red-700 border-red-200 bg-red-50 hover:bg-red-100 focus:ring-red-500'
                         : 'text-emerald-700 border-emerald-200 bg-emerald-50 hover:bg-emerald-100 focus:ring-emerald-500'
@@ -523,12 +534,43 @@ export function OperatorWorkspace() {
                     href={`/tv/${getBranchPostalCode(branchId, branches.find(b => b.id === branchId)?.name)}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="h-10 px-3 rounded-xl border border-blue-200 bg-blue-50/70 hover:bg-blue-100/80 text-[#003B73] flex items-center gap-1.5 text-xs font-bold transition-all shadow-xs"
+                    className="h-10 px-4 rounded-xl border border-blue-200 bg-blue-50/70 hover:bg-blue-100/80 text-[#003B73] flex items-center justify-center gap-1.5 text-xs font-bold transition-all shadow-xs shrink-0"
                     title={`Открыть табло вызова зала (ТВ) для отделения ${branches.find(b => b.id === branchId)?.name || ''} в отдельной вкладке`}
                   >
-                    <Tv className="w-4 h-4 text-[#003B73]" />
+                    <Tv className="w-4 h-4 text-[#003B73] shrink-0" />
                     <span>Табло зала (ТВ)</span>
                   </a>
+                </div>
+              </div>
+            )}
+
+            {/* Ближайший слот предварительной записи */}
+            {branchId && (
+              <div className="flex flex-col shrink-0">
+                <span className="text-[10px] font-bold uppercase tracking-wider mb-1 pl-1 text-slate-500">
+                  Ближайшая запись
+                </span>
+                <div className={`${containerHeightClass} flex items-center`}>
+                  {nextAppointment ? (
+                    <div
+                      className="h-10 px-4 rounded-xl border border-blue-200 bg-blue-50/70 text-[#003B73] flex items-center justify-center gap-2 text-xs font-bold transition-all shadow-xs shrink-0"
+                      title={`Ближайший слот предварительной записи: ${formatMoscowTime(nextAppointment.scheduledAt, { second: undefined })}, записано: ${nextAppointment.count} чел.`}
+                    >
+                      <Calendar className="w-4 h-4 text-[#003B73] shrink-0" />
+                      <span>{formatMoscowTime(nextAppointment.scheduledAt, { second: undefined })}</span>
+                      <span className="bg-[#003B73] text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                        {nextAppointment.count} чел.
+                      </span>
+                    </div>
+                  ) : (
+                    <div
+                      className="h-10 px-4 rounded-xl border border-slate-200 bg-slate-50 text-slate-500 flex items-center justify-center gap-1.5 text-xs font-bold transition-all shadow-xs shrink-0"
+                      title="Нет предстоящих предварительных записей"
+                    >
+                      <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
+                      <span>Записей нет</span>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -923,7 +965,7 @@ export function OperatorWorkspace() {
             </div>
 
             <p className="text-xs text-slate-500">
-              Выберите целевое окно или услугу для перевода клиента. Талон будет направлен на обслуживание.
+              Выберите целевое окно или услугу для перевода клиента. При перенаправлении в конкретное окно клиент гарантированно будет вызван первым сразу после текущего талона.
             </p>
 
             <div className="space-y-3">
@@ -988,7 +1030,8 @@ export function OperatorWorkspace() {
                     );
                     const targetText = targetWin ? `в Окно №${targetWin.number}` : 'в очередь';
                     const svcText = targetSvc ? ` на услугу «${targetSvc.name}»` : '';
-                    setNotice(`Талон ${current.publicNumber} успешно перенаправлен ${targetText}${svcText}`);
+                    const priorityText = targetWin ? '. Клиент будет вызван следующим сразу после текущего талона.' : '';
+                    setNotice(`Талон ${current.publicNumber} успешно перенаправлен ${targetText}${svcText}${priorityText}`);
                   });
                 }}
                 className="px-4 py-2 text-xs font-bold rounded-xl bg-[#003B73] hover:bg-[#054FA6] text-white shadow-sm transition-colors"

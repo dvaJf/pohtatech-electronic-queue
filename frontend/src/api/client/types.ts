@@ -25,6 +25,7 @@ export type ServiceListResponse = {
 };
 
 export type TicketStatus =
+  | 'PENDING_CONFIRMATION'
   | 'SCHEDULED'
   | 'WAITING'
   | 'CALLED'
@@ -56,6 +57,10 @@ export type Ticket = {
   arrivedAt?: string | null;
   managementToken?: string | null;
   operatorName?: string | null;
+  scheduledAt?: string | null;
+  confirmationExpiresAt?: string | null;
+  notificationEmail?: string | null;
+  notificationPhone?: string | null;
 };
 
 export type Appointment = {

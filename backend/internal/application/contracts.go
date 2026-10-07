@@ -10,16 +10,17 @@ import (
 )
 
 var (
-	ErrNotFound               = errors.New("not found")
-	ErrInvalidState           = errors.New("invalid state")
-	ErrWindowClosed           = fmt.Errorf("window closed: %w", ErrInvalidState)
-	ErrWindowBusy             = errors.New("window busy")
-	ErrNoEligibleTickets      = errors.New("no eligible tickets")
-	ErrNotEligibleYet         = errors.New("not eligible yet")
-	ErrNoOpenCompatibleWindow = errors.New("no open compatible window")
-	ErrIdempotencyConflict    = errors.New("idempotency conflict")
-	ErrForbidden              = errors.New("forbidden")
-	ErrUnauthorized           = errors.New("unauthorized")
+	ErrNotFound                        = errors.New("not found")
+	ErrInvalidState                    = errors.New("invalid state")
+	ErrAppointmentOutsideBookingWindow = fmt.Errorf("appointment date outside booking window: %w", ErrInvalidState)
+	ErrWindowClosed                    = fmt.Errorf("window closed: %w", ErrInvalidState)
+	ErrWindowBusy                      = errors.New("window busy")
+	ErrNoEligibleTickets               = errors.New("no eligible tickets")
+	ErrNotEligibleYet                  = errors.New("not eligible yet")
+	ErrNoOpenCompatibleWindow          = errors.New("no open compatible window")
+	ErrIdempotencyConflict             = errors.New("idempotency conflict")
+	ErrForbidden                       = errors.New("forbidden")
+	ErrUnauthorized                    = errors.New("unauthorized")
 )
 
 type CreateQRTicketCommand struct {
@@ -141,6 +142,15 @@ type UseCases interface {
 	FindActiveTicketByClient(ctx context.Context, clientID string) (*domain.Ticket, error)
 	ListActiveTicketsByClient(ctx context.Context, clientID string) ([]domain.Ticket, error)
 	LinkExternalAccount(ctx context.Context, userID, provider, externalUserID string) error
+	CreateUserTelegramLink(ctx context.Context, userID string) (token string, expiresAt time.Time, err error)
+	FindActiveTicketByTelegramChat(ctx context.Context, chatID string) (*domain.Ticket, error)
+	CancelTicketByTelegram(ctx context.Context, chatID string) (*domain.Ticket, error)
+
+	// Appointment Confirmation & Expiration
+	ConfirmAppointment(ctx context.Context, ticketID, tokenOrCode string) (AppointmentView, error)
+	ForceConfirmPendingAppointment(ctx context.Context, ticketID string) (AppointmentView, error)
+	ResendAppointmentConfirmation(ctx context.Context, ticketID string) (token, code string, expiresAt time.Time, err error)
+	ExpirePendingAppointments(ctx context.Context, cutoff time.Time) (int64, error)
 }
 
 type ReportIncidentCommand struct {

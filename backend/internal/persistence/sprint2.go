@@ -2,8 +2,11 @@ package persistence
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -14,6 +17,17 @@ import (
 
 func appointmentView(t domain.Ticket) application.AppointmentView {
 	return application.AppointmentView{Ticket: t, ScheduledAt: *t.ScheduledAt}
+}
+
+func validateAppointmentBookingWindow(scheduledAt, now time.Time) error {
+	moscow := moscowLocation()
+	localNow := now.In(moscow)
+	today := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, moscow)
+	// The whole fourteenth calendar day is available, regardless of the request's offset.
+	if scheduledAt.Before(today) || !scheduledAt.Before(today.AddDate(0, 0, 15)) {
+		return application.ErrAppointmentOutsideBookingWindow
+	}
+	return nil
 }
 
 func (p *Postgres) CreateAppointment(ctx context.Context, cmd application.CreateAppointmentCommand) (application.CreateAppointmentResult, error) {
@@ -72,6 +86,9 @@ func (p *Postgres) CreateAppointment(ctx context.Context, cmd application.Create
 	if !errors.Is(err, application.ErrNotFound) {
 		return empty, err
 	}
+	if err := validateAppointmentBookingWindow(cmd.ScheduledAt, time.Now()); err != nil {
+		return empty, err
+	}
 	var enabled, future bool
 	err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM branch_services WHERE branch_id=$1 AND service_id=$2), $3::timestamptz > clock_timestamp()`, b, s, scheduled).Scan(&enabled, &future)
 	if err != nil {
@@ -92,9 +109,40 @@ func (p *Postgres) CreateAppointment(ctx context.Context, cmd application.Create
 
 	var tid string
 	rawToken, tokenHash := DeterministicManagementToken(cmd.IdempotencyKey)
-	err = tx.QueryRow(ctx, `INSERT INTO tickets(branch_id,service_id,source,status,idempotency_key,scheduled_at,queue_entered_at,public_number,appointment_requested_at,ready_at,due_at,source_rank,policy_version,management_token_hash,client_id)
- VALUES($1,$2,'APPOINTMENT','SCHEDULED',$3,$4,$4,next_appointment_public_number(),$5,$6,$7,$8,$9,$10,$11)
- ON CONFLICT(idempotency_key) DO NOTHING RETURNING id::text`, b, s, cmd.IdempotencyKey, scheduled, requestedInstant, readyAt, dueAt, sourceRank, policy.PolicyVersion, tokenHash, cmd.ClientID).Scan(&tid)
+	initialStatus := domain.TicketStatusScheduled
+	var confToken, confTokenHash, confCode, notifEmail, notifPhone *string
+	var confExpiresAt *time.Time
+
+	cleanEmail := strings.TrimSpace(strings.ToLower(cmd.NotificationEmail))
+	cleanPhone := strings.TrimSpace(cmd.NotificationPhone)
+	if cleanEmail != "" {
+		notifEmail = &cleanEmail
+	}
+	if cleanPhone != "" {
+		notifPhone = &cleanPhone
+	}
+
+	if cleanEmail != "" {
+		initialStatus = domain.TicketStatusPendingConfirmation
+		token, hash, err := notificationToken()
+		if err != nil {
+			return empty, err
+		}
+		confToken = &token
+		confTokenHash = &hash
+		codeNum := (time.Now().UnixNano() % 900000) + 100000
+		if codeNum < 100000 {
+			codeNum += 100000
+		}
+		cStr := fmt.Sprintf("%06d", codeNum)
+		confCode = &cStr
+		exp := time.Now().UTC().Add(15 * time.Minute).Truncate(time.Microsecond)
+		confExpiresAt = &exp
+	}
+
+	err = tx.QueryRow(ctx, `INSERT INTO tickets(branch_id,service_id,source,status,idempotency_key,scheduled_at,queue_entered_at,public_number,appointment_requested_at,ready_at,due_at,source_rank,policy_version,management_token_hash,client_id,confirmation_token_hash,confirmation_code,confirmation_expires_at,notification_email,notification_phone)
+ VALUES($1,$2,'APPOINTMENT',$3,$4,$5,$5,next_appointment_public_number(),$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+ ON CONFLICT(idempotency_key) DO NOTHING RETURNING id::text`, b, s, string(initialStatus), cmd.IdempotencyKey, scheduled, requestedInstant, readyAt, dueAt, sourceRank, policy.PolicyVersion, tokenHash, cmd.ClientID, confTokenHash, confCode, confExpiresAt, notifEmail, notifPhone).Scan(&tid)
 	if errors.Is(err, pgx.ErrNoRows) {
 		existing, err = scanTicket(tx.QueryRow(ctx, ticketSelect+`WHERE t.idempotency_key=$1`, cmd.IdempotencyKey))
 		if err != nil {
@@ -110,20 +158,284 @@ func (p *Postgres) CreateAppointment(ctx context.Context, cmd application.Create
 		return empty, err
 	}
 	t.ManagementToken = &rawToken
+	if confToken != nil {
+		t.ConfirmationTokenHash = confToken // Pass unhashed token in-memory for immediate email dispatch
+	}
+	if confCode != nil {
+		t.ConfirmationCode = confCode
+	}
+	if confExpiresAt != nil {
+		t.ConfirmationExpiresAt = confExpiresAt
+	}
+
 	if err = insertEvent(ctx, tx, t, domain.TicketEventCreated, nil, nil, nil, EventExtra{
 		Actor:  "client_online",
-		Reason: "appointment scheduled",
+		Reason: "appointment requested",
 		DueAt:  t.DueAt,
 	}); err != nil {
 		return empty, err
 	}
-	if err = p.enqueueAppointmentNotificationsTx(ctx, tx, t.ID, cmd.ScheduledAt, cmd.NotificationEmail, cmd.NotificationPhone); err != nil {
-		return empty, err
+
+	if initialStatus == domain.TicketStatusScheduled {
+		if err = p.enqueueAppointmentNotificationsTx(ctx, tx, t.ID, cmd.ScheduledAt, cmd.NotificationEmail, cmd.NotificationPhone); err != nil {
+			return empty, err
+		}
 	}
+
 	if err = tx.Commit(ctx); err != nil {
 		return empty, dbError(err)
 	}
 	return application.CreateAppointmentResult{Appointment: appointmentView(t)}, nil
+}
+
+func (p *Postgres) ConfirmAppointment(ctx context.Context, ticketID, tokenOrCode string) (application.AppointmentView, error) {
+	var empty application.AppointmentView
+	cleanInput := strings.TrimSpace(tokenOrCode)
+	if cleanInput == "" {
+		return empty, application.ErrInvalidState
+	}
+
+	if strings.TrimSpace(ticketID) == "" {
+		inputSum := sha256.Sum256([]byte(cleanInput))
+		hexHash := hex.EncodeToString(inputSum[:])
+		var foundID string
+		err := p.pool.QueryRow(ctx, `SELECT id::text FROM tickets WHERE confirmation_token_hash=$1 AND status IN ('PENDING_CONFIRMATION', 'SCHEDULED') ORDER BY created_at DESC LIMIT 1`, hexHash).Scan(&foundID)
+		if err != nil {
+			return empty, application.ErrForbidden
+		}
+		ticketID = foundID
+	}
+
+	id, err := uuid(ticketID)
+	if err != nil {
+		return empty, err
+	}
+
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return empty, dbError(err)
+	}
+	defer tx.Rollback(context.Background())
+
+	t, err := scanTicket(tx.QueryRow(ctx, ticketSelect+`WHERE t.id=$1 FOR UPDATE OF t`, id))
+	if err != nil {
+		return empty, err
+	}
+	if t.Source != domain.TicketSourceAppointment {
+		return empty, application.ErrInvalidState
+	}
+
+	var idempotencyKey string
+	_ = tx.QueryRow(ctx, `SELECT COALESCE(idempotency_key, '') FROM tickets WHERE id=$1`, id).Scan(&idempotencyKey)
+	attachToken := func() {
+		if idempotencyKey != "" {
+			rawToken, _ := DeterministicManagementToken(idempotencyKey)
+			t.ManagementToken = &rawToken
+		}
+	}
+
+	if t.Status == domain.TicketStatusScheduled {
+		attachToken()
+		return appointmentView(t), nil
+	}
+	if t.Status != domain.TicketStatusPendingConfirmation {
+		return empty, application.ErrInvalidState
+	}
+
+	if t.ConfirmationExpiresAt != nil && t.ConfirmationExpiresAt.Before(time.Now().UTC()) {
+		_, _ = tx.Exec(ctx, `UPDATE tickets SET status='CANCELLED' WHERE id=$1`, id)
+		_ = insertEvent(ctx, tx, t, domain.TicketEventCancelled, nil, nil, nil, EventExtra{
+			Actor:  "system_reconciler",
+			Reason: "confirmation expired after 15 minutes",
+		})
+		_ = tx.Commit(ctx)
+		return empty, application.ErrInvalidState
+	}
+
+	var storedHash, storedCode, notifEmail, notifPhone *string
+	err = tx.QueryRow(ctx, `SELECT confirmation_token_hash, confirmation_code, notification_email, notification_phone FROM tickets WHERE id=$1`, id).Scan(&storedHash, &storedCode, &notifEmail, &notifPhone)
+	if err != nil {
+		return empty, dbError(err)
+	}
+
+	matched := false
+	if storedCode != nil && *storedCode != "" && subtle.ConstantTimeCompare([]byte(cleanInput), []byte(*storedCode)) == 1 {
+		matched = true
+	}
+	if !matched && storedHash != nil && *storedHash != "" {
+		inputSum := sha256.Sum256([]byte(cleanInput))
+		hexHash := hex.EncodeToString(inputSum[:])
+		if subtle.ConstantTimeCompare([]byte(hexHash), []byte(*storedHash)) == 1 {
+			matched = true
+		}
+	}
+
+	if !matched {
+		return empty, application.ErrForbidden
+	}
+
+	fromStatus := t.Status
+	now := time.Now().UTC()
+	_, err = tx.Exec(ctx, `UPDATE tickets SET status='SCHEDULED', confirmed_at=$1 WHERE id=$2`, now, id)
+	if err != nil {
+		return empty, dbError(err)
+	}
+
+	t.Status = domain.TicketStatusScheduled
+	t.ConfirmedAt = &now
+
+	if err = insertEvent(ctx, tx, t, domain.TicketEventCreated, &fromStatus, nil, nil, EventExtra{
+		Actor:  "client_online",
+		Reason: "appointment confirmed via email",
+		DueAt:  t.DueAt,
+	}); err != nil {
+		return empty, err
+	}
+
+	emailStr := ""
+	phoneStr := ""
+	if notifEmail != nil {
+		emailStr = *notifEmail
+	}
+	if notifPhone != nil {
+		phoneStr = *notifPhone
+	}
+	if err = p.enqueueAppointmentNotificationsTx(ctx, tx, t.ID, *t.ScheduledAt, emailStr, phoneStr); err != nil {
+		return empty, err
+	}
+
+	if err = tx.Commit(ctx); err != nil {
+		return empty, dbError(err)
+	}
+	attachToken()
+	return appointmentView(t), nil
+}
+
+func (p *Postgres) ForceConfirmPendingAppointment(ctx context.Context, ticketID string) (application.AppointmentView, error) {
+	var empty application.AppointmentView
+	id, err := uuid(ticketID)
+	if err != nil {
+		return empty, err
+	}
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return empty, dbError(err)
+	}
+	defer tx.Rollback(context.Background())
+
+	t, err := scanTicket(tx.QueryRow(ctx, ticketSelect+`WHERE t.id=$1 FOR UPDATE OF t`, id))
+	if err != nil {
+		return empty, err
+	}
+	if t.Source != domain.TicketSourceAppointment {
+		return empty, application.ErrInvalidState
+	}
+
+	var idempotencyKey string
+	_ = tx.QueryRow(ctx, `SELECT COALESCE(idempotency_key, '') FROM tickets WHERE id=$1`, id).Scan(&idempotencyKey)
+	attachToken := func() {
+		if idempotencyKey != "" {
+			rawToken, _ := DeterministicManagementToken(idempotencyKey)
+			t.ManagementToken = &rawToken
+		}
+	}
+
+	if t.Status == domain.TicketStatusScheduled {
+		attachToken()
+		return appointmentView(t), nil
+	}
+	if t.Status != domain.TicketStatusPendingConfirmation {
+		return empty, application.ErrInvalidState
+	}
+
+	fromStatus := t.Status
+	now := time.Now().UTC()
+	_, err = tx.Exec(ctx, `UPDATE tickets SET status='SCHEDULED', confirmed_at=$1 WHERE id=$2`, now, id)
+	if err != nil {
+		return empty, dbError(err)
+	}
+
+	t.Status = domain.TicketStatusScheduled
+	t.ConfirmedAt = &now
+
+	if err = insertEvent(ctx, tx, t, domain.TicketEventCreated, &fromStatus, nil, nil, EventExtra{
+		Actor:  "test_environment",
+		Reason: "forced test appointment confirmation",
+		DueAt:  t.DueAt,
+	}); err != nil {
+		return empty, err
+	}
+
+	var notifEmail, notifPhone *string
+	_ = tx.QueryRow(ctx, `SELECT notification_email, notification_phone FROM tickets WHERE id=$1`, id).Scan(&notifEmail, &notifPhone)
+	emailStr := ""
+	phoneStr := ""
+	if notifEmail != nil {
+		emailStr = *notifEmail
+	}
+	if notifPhone != nil {
+		phoneStr = *notifPhone
+	}
+	if t.ScheduledAt != nil {
+		_ = p.enqueueAppointmentNotificationsTx(ctx, tx, t.ID, *t.ScheduledAt, emailStr, phoneStr)
+	}
+
+	if err = tx.Commit(ctx); err != nil {
+		return empty, dbError(err)
+	}
+	attachToken()
+	return appointmentView(t), nil
+}
+
+func (p *Postgres) ResendAppointmentConfirmation(ctx context.Context, ticketID string) (token, code string, expiresAt time.Time, err error) {
+	id, err := uuid(ticketID)
+	if err != nil {
+		return "", "", time.Time{}, err
+	}
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return "", "", time.Time{}, dbError(err)
+	}
+	defer tx.Rollback(context.Background())
+
+	t, err := scanTicket(tx.QueryRow(ctx, ticketSelect+`WHERE t.id=$1 FOR UPDATE OF t`, id))
+	if err != nil {
+		return "", "", time.Time{}, err
+	}
+	if t.Status != domain.TicketStatusPendingConfirmation || t.ConfirmationExpiresAt == nil || !t.ConfirmationExpiresAt.After(time.Now()) {
+		return "", "", time.Time{}, application.ErrInvalidState
+	}
+
+	token, hash, err := notificationToken()
+	if err != nil {
+		return "", "", time.Time{}, err
+	}
+	codeNum := (time.Now().UnixNano() % 900000) + 100000
+	if codeNum < 100000 {
+		codeNum += 100000
+	}
+	code = fmt.Sprintf("%06d", codeNum)
+	if t.ConfirmationCode != nil && code == *t.ConfirmationCode {
+		code = fmt.Sprintf("%06d", (codeNum-100000+1)%900000+100000)
+	}
+	expiresAt = *t.ConfirmationExpiresAt
+
+	_, err = tx.Exec(ctx, `UPDATE tickets SET confirmation_token_hash=$1, confirmation_code=$2 WHERE id=$3`, hash, code, id)
+	if err != nil {
+		return "", "", time.Time{}, dbError(err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return "", "", time.Time{}, dbError(err)
+	}
+	return token, code, expiresAt, nil
+}
+
+func (p *Postgres) ExpirePendingAppointments(ctx context.Context, cutoff time.Time) (int64, error) {
+	tag, err := p.pool.Exec(ctx, `UPDATE tickets SET status='CANCELLED' WHERE status='PENDING_CONFIRMATION' AND confirmation_expires_at <= $1::timestamptz`, cutoff)
+	if err != nil {
+		return 0, dbError(err)
+	}
+	return tag.RowsAffected(), nil
 }
 
 func (p *Postgres) CancelAppointment(ctx context.Context, ticketID string) (application.AppointmentView, error) {
@@ -150,7 +462,7 @@ func (p *Postgres) CancelAppointment(ctx context.Context, ticketID string) (appl
 	if !IsStaffBypass(ctx) {
 		token, hasToken := ManagementTokenFromContext(ctx)
 		ownerID, hasOwner := ClientOwnerFromContext(ctx)
-		isOwner := hasOwner && t.ClientID != nil && *t.ClientID == ownerID
+		isOwner := hasOwner && t.ClientID != nil && (*t.ClientID == ownerID || p.isClientOwnerMatchTx(ctx, tx, *t.ClientID, ownerID))
 
 		if !isOwner {
 			if !hasToken || token == "" || storedHash == nil || *storedHash == "" {
@@ -166,7 +478,7 @@ func (p *Postgres) CancelAppointment(ctx context.Context, ticketID string) (appl
 	if t.Status == domain.TicketStatusCancelled {
 		return appointmentView(t), nil
 	}
-	if t.Status != domain.TicketStatusScheduled {
+	if t.Status != domain.TicketStatusScheduled && t.Status != domain.TicketStatusPendingConfirmation {
 		return empty, application.ErrInvalidState
 	}
 	from := t.Status
@@ -204,7 +516,7 @@ func (p *Postgres) CancelTicket(ctx context.Context, ticketID string) (domain.Ti
 	if !IsStaffBypass(ctx) {
 		token, hasToken := ManagementTokenFromContext(ctx)
 		ownerID, hasOwner := ClientOwnerFromContext(ctx)
-		isOwner := hasOwner && t.ClientID != nil && *t.ClientID == ownerID
+		isOwner := hasOwner && t.ClientID != nil && (*t.ClientID == ownerID || p.isClientOwnerMatchTx(ctx, tx, *t.ClientID, ownerID))
 
 		if !isOwner {
 			if !hasToken || token == "" || storedHash == nil || *storedHash == "" {
@@ -219,7 +531,7 @@ func (p *Postgres) CancelTicket(ctx context.Context, ticketID string) (domain.Ti
 	if t.Status == domain.TicketStatusCancelled {
 		return t, nil
 	}
-	if t.Status != domain.TicketStatusWaiting && t.Status != domain.TicketStatusScheduled {
+	if t.Status != domain.TicketStatusWaiting && t.Status != domain.TicketStatusScheduled && t.Status != domain.TicketStatusPendingConfirmation {
 		return empty, application.ErrInvalidState
 	}
 	from := t.Status
@@ -330,4 +642,29 @@ func (p *Postgres) ListTicketEvents(ctx context.Context, ticketID string) ([]dom
 		out = append(out, e)
 	}
 	return out, dbError(rows.Err())
+}
+
+func (p *Postgres) isClientOwnerMatchTx(ctx context.Context, tx pgx.Tx, ticketClientID, requestClientID string) bool {
+	if ticketClientID == requestClientID {
+		return true
+	}
+	var matched bool
+	err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM external_accounts ea1
+			JOIN external_accounts ea2 ON ea1.external_user_id = ea2.external_user_id
+			WHERE ea1.user_id::text = $1 AND ea2.user_id::text = $2
+			UNION
+			SELECT 1 FROM users u
+			WHERE u.id::text = $2 AND (u.email LIKE '%@yandex.ru' OR u.password_hash = 'OAUTH_ACCOUNT' OR u.role = 'client')
+			  AND ($1 IN (SELECT id::text FROM users WHERE email LIKE 'yandex_alice_%') 
+			       OR $1 IN (SELECT user_id::text FROM external_accounts WHERE provider = 'yandex_alice'))
+			UNION
+			SELECT 1 FROM users u
+			WHERE u.id::text = $1 AND (u.email LIKE '%@yandex.ru' OR u.password_hash = 'OAUTH_ACCOUNT' OR u.role = 'client')
+			  AND ($2 IN (SELECT id::text FROM users WHERE email LIKE 'yandex_alice_%') 
+			       OR $2 IN (SELECT user_id::text FROM external_accounts WHERE provider = 'yandex_alice'))
+		)
+	`, ticketClientID, requestClientID).Scan(&matched)
+	return err == nil && matched
 }

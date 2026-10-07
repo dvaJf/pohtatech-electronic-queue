@@ -318,8 +318,6 @@ export const AdminWorkspace: React.FC = () => {
         <KpiCards metrics={overview.metrics} noShowCount={noShowCount} />
       )}
 
-      {activeTab === 'overview' && overview?.quality && <QualitySection quality={overview.quality} />}
-
       {/* 3. Tab Contents */}
       {loading ? (
         <div className="py-12 text-center text-slate-400 font-mono text-xs animate-pulse" role="status">
@@ -612,43 +610,3 @@ export const AdminWorkspace: React.FC = () => {
   );
 };
 
-function QualitySection({ quality }: { quality: AdminBranchOverview['quality'] }) {
-  const total = quality.ratingCount;
-  return <section className="rounded-3xl border border-[#D2D8E2] bg-white p-5 shadow-sm">
-    <h2 className="mb-4 text-base font-extrabold text-slate-900">Качество обслуживания</h2>
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-      <Metric label="Средняя оценка" value={quality.ratingAverage === null ? 'Нет оценок' : `★ ${quality.ratingAverage.toFixed(1)}`} />
-      <Metric label="Всего отзывов" value={String(total)} />
-      <Metric label="За последние 30 дней" value={quality.current30Average === null ? 'Нет оценок' : `★ ${quality.current30Average.toFixed(1)}`} />
-      <Metric label="Динамика" value={quality.delta === null ? 'Недостаточно данных для сравнения' : `${quality.delta >= 0 ? '+' : ''}${quality.delta.toFixed(1)}`} small={quality.delta === null} />
-    </div>
-    {total > 0 && <div className="mt-5 grid gap-5 lg:grid-cols-2">
-      <div><h3 className="mb-3 text-sm font-bold text-slate-800">Распределение оценок</h3>{[5,4,3,2,1].map(star => { const count = quality.distribution[String(star) as '1']; const percent = Math.round(count / total * 100); return <div key={star} className="mb-2 flex items-center gap-2 text-xs"><span className="w-8 font-bold">{star} ★</span><div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-amber-400" style={{ width: `${percent}%` }} /></div><span className="w-9 text-right text-slate-600">{percent}%</span></div>; })}</div>
-      <div className="space-y-3">
-        <div className="rounded-2xl bg-rose-50 p-3 text-sm text-rose-900">
-          <strong>{quality.lowRatingCount}</strong> · Низкие оценки (1–2 ★)
-        </div>
-        {quality.recentFeedback.length > 0 && (
-          <div>
-            <h3 className="mb-2 text-sm font-bold text-slate-800">Последние отзывы клиентов</h3>
-            <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-              {quality.recentFeedback.map((item, i) => (
-                <div className="rounded-xl bg-slate-50 border border-slate-200/80 p-2.5 text-xs" key={`${item.createdAt}-${i}`}>
-                  <div className="flex items-center justify-between mb-1">
-                    <strong className="text-amber-500 font-bold">{'★'.repeat(item.rating)}</strong>
-                    <span className="text-[10px] text-slate-400 font-mono">
-                      {new Date(item.createdAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}
-                    </span>
-                  </div>
-                  <p className="text-slate-700 leading-relaxed text-[11px]">{item.comment}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-    </div>}
-  </section>;
-}
-
-function Metric({ label, value, small = false }: { label: string; value: string; small?: boolean }) { return <div className="rounded-2xl bg-slate-50 p-3"><div className={`${small ? 'text-xs' : 'text-lg'} font-extrabold text-slate-900`}>{value}</div><div className="mt-1 text-xs text-slate-500">{label}</div></div>; }

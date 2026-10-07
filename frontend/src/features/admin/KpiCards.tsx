@@ -7,6 +7,15 @@ interface KpiCardsProps {
   noShowCount?: number;
 }
 
+function formatTicketsCount(n: number): string {
+  const mod10 = Math.abs(n) % 10;
+  const mod100 = Math.abs(n) % 100;
+  if (mod100 >= 11 && mod100 <= 19) return `${n} талонов`;
+  if (mod10 === 1) return `${n} талон`;
+  if (mod10 >= 2 && mod10 <= 4) return `${n} талона`;
+  return `${n} талонов`;
+}
+
 export const KpiCards: React.FC<KpiCardsProps> = ({ metrics, noShowCount = 0 }) => {
   return (
     <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 font-mono">
@@ -75,7 +84,7 @@ export const KpiCards: React.FC<KpiCardsProps> = ({ metrics, noShowCount = 0 }) 
       <div className="bg-white p-4 rounded-3xl border border-slate-200 shadow-sm col-span-2 lg:col-span-1">
         <div className="text-xs text-slate-500 uppercase font-bold tracking-wider">Неявки</div>
         <div className="text-2xl font-black text-[#D92534] mt-1">
-          {noShowCount} талона
+          {formatTicketsCount(noShowCount)}
         </div>
         <div className="text-xs text-slate-500 mt-1 font-sans">
           Окна освобождены

@@ -1,17 +1,20 @@
 import assert from 'node:assert/strict';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import ts from 'typescript';
-async function load(path) {
-  let source = await readFile(new URL(path, import.meta.url), 'utf8');
-  if (path.endsWith('/liveBranches.ts')) {
-    const branchSource = await readFile(new URL('../src/features/client/map/branchLocations.ts', import.meta.url), 'utf8');
-    const { outputText } = ts.transpileModule(branchSource, { compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 } });
-    source = source.replace("'./branchLocations'", JSON.stringify('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64')));
-  }
-  const { outputText } = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 } });
-  return import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
+import * as esbuild from 'esbuild';
+
+async function load(relPath) {
+  const filePath = fileURLToPath(new URL(relPath, import.meta.url));
+  const result = esbuild.buildSync({
+    entryPoints: [filePath],
+    bundle: true,
+    format: 'esm',
+    write: false,
+    external: ['react', 'react-dom'],
+  });
+  return import('data:text/javascript;base64,' + Buffer.from(result.outputFiles[0].text).toString('base64'));
 }
 test('personal recommendation requires reliable real GPS and never uses neutral or simulated coordinates', async () => {
   const { calculatePersonalRouting } = await load('../src/features/client/map/liveBranches.ts');

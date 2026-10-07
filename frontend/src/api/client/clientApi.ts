@@ -93,11 +93,18 @@ function parseServices(value: unknown): ServiceListResponse {
   };
 }
 
-const statuses = new Set(['SCHEDULED', 'WAITING', 'CALLED', 'SERVING', 'COMPLETED', 'CANCELLED', 'NO_SHOW']);
+const statuses = new Set(['PENDING_CONFIRMATION', 'SCHEDULED', 'WAITING', 'CALLED', 'SERVING', 'COMPLETED', 'CANCELLED', 'NO_SHOW']);
 const sources = new Set(['APPOINTMENT', 'QR', 'LIVE']);
 
 function parseTicket(value: unknown): Ticket {
   if (!isRecord(value)) throw new ClientApiError('Некорректный формат талона');
+  if (isRecord(value.ticket)) {
+    const parsed = parseTicket(value.ticket);
+    if (!parsed.managementToken && typeof value.managementToken === 'string') {
+      parsed.managementToken = value.managementToken;
+    }
+    return parsed;
+  }
   if (!statuses.has(value.status as string) || !sources.has(value.source as string)) {
     throw new ClientApiError('Некорректный статус или источник талона');
   }
@@ -123,6 +130,10 @@ function parseTicket(value: unknown): Ticket {
     completedAt: value.completedAt === null ? null : requireString(value.completedAt, 'completedAt'),
     arrivedAt: typeof value.arrivedAt === 'string' ? value.arrivedAt : undefined,
     managementToken: typeof value.managementToken === 'string' ? value.managementToken : undefined,
+    scheduledAt: typeof value.scheduledAt === 'string' ? value.scheduledAt : undefined,
+    confirmationExpiresAt: typeof value.confirmationExpiresAt === 'string' ? value.confirmationExpiresAt : undefined,
+    notificationEmail: typeof value.notificationEmail === 'string' ? value.notificationEmail : undefined,
+    notificationPhone: typeof value.notificationPhone === 'string' ? value.notificationPhone : undefined,
   };
 }
 
@@ -136,6 +147,9 @@ function parseAppointment(value: unknown): Appointment {
   }
   const ticket = parseTicket(value.ticket);
   const mgmtToken = typeof value.managementToken === 'string' ? value.managementToken : ticket.managementToken;
+  if (mgmtToken && !ticket.managementToken) {
+    ticket.managementToken = mgmtToken;
+  }
   return { ticket, scheduledAt, managementToken: mgmtToken };
 }
 
@@ -265,14 +279,79 @@ export async function createAppointment(
   serviceId: string,
   scheduledAt: string,
   idempotencyKey: string,
+  email?: string,
+  phone?: string,
   signal?: AbortSignal,
 ): Promise<Appointment> {
+  const payload: Record<string, string> = { serviceId, scheduledAt };
+  if (email) payload.email = email;
+  if (phone) payload.phone = phone;
   return requestWithNetworkRetry(`/branches/${encodeURIComponent(branchId)}/tickets/appointment`, {
     method: 'POST',
     signal,
     headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
-    body: JSON.stringify({ serviceId, scheduledAt }),
+    body: JSON.stringify(payload),
   }, parseAppointment);
+}
+
+export async function confirmAppointment(
+  ticketId: string | undefined,
+  codeOrToken: string | { code?: string; token?: string },
+  signal?: AbortSignal,
+): Promise<Ticket> {
+  const payload: Record<string, string> = {};
+  if (typeof codeOrToken === 'string') {
+    if (codeOrToken.length === 6 && /^\d+$/.test(codeOrToken)) {
+      payload.code = codeOrToken;
+    } else {
+      payload.token = codeOrToken;
+    }
+  } else {
+    if (codeOrToken.code) payload.code = codeOrToken.code;
+    if (codeOrToken.token) payload.token = codeOrToken.token;
+  }
+  if (ticketId) {
+    payload.ticketId = ticketId;
+  }
+  const path = ticketId ? `/appointments/${encodeURIComponent(ticketId)}/confirm` : '/appointments/confirm';
+  return request(path, {
+    method: 'POST',
+    signal,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }, parseTicket);
+}
+
+export async function testConfirmAppointment(
+  ticketId: string,
+  signal?: AbortSignal,
+): Promise<Ticket> {
+  return request(`/appointments/${encodeURIComponent(ticketId)}/test-confirm`, {
+    method: 'POST',
+    signal,
+  }, parseTicket);
+}
+
+export async function resendAppointmentConfirmation(
+  ticketId: string,
+  signal?: AbortSignal,
+): Promise<{ ok: boolean; confirmationExpiresAt: string; success: boolean; expiresAt: string }> {
+  return request(`/appointments/${encodeURIComponent(ticketId)}/resend-confirmation`, {
+    method: 'POST',
+    signal,
+    headers: { 'Content-Type': 'application/json' },
+  }, (val) => {
+    if (!isRecord(val)) throw new ClientApiError('Некорректный ответ сервера');
+    const ok = Boolean(val.ok ?? val.success);
+    const exp = String(val.confirmationExpiresAt ?? val.expiresAt ?? '');
+    if (!ok || !exp) throw new ClientApiError('Некорректный ответ сервера');
+    return {
+      ok: true,
+      confirmationExpiresAt: exp,
+      success: true,
+      expiresAt: exp,
+    };
+  });
 }
 
 export async function cancelAppointment(ticketId: string, token?: string, signal?: AbortSignal): Promise<Appointment> {

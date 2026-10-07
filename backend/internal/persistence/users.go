@@ -286,6 +286,19 @@ func (p *Postgres) LoginOAuth(ctx context.Context, email string) (domain.Session
 		return domain.Session{}, dbError(err)
 	}
 
+	// Link existing Alice tickets and external accounts to this OAuth user:
+	_, _ = p.pool.Exec(ctx, `
+		UPDATE external_accounts 
+		SET user_id = $1::uuid, updated_at = clock_timestamp() 
+		WHERE provider = 'yandex_alice' 
+		  AND user_id IN (SELECT id FROM users WHERE email LIKE 'yandex_alice_%');
+
+		UPDATE tickets 
+		SET client_id = $1 
+		WHERE client_id IN (SELECT id::text FROM users WHERE email LIKE 'yandex_alice_%')
+		   OR client_id IN (SELECT user_id::text FROM external_accounts WHERE provider = 'yandex_alice');
+	`, u.ID)
+
 	return domain.Session{Token: token, UserID: u.ID, ExpiresAt: expiresAt}, nil
 }
 
@@ -511,6 +524,34 @@ func (p *Postgres) GetOrCreateExternalUser(ctx context.Context, provider, extern
 			WHERE id = $1::uuid
 		`, userID).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Role, &u.IsTerminal, &u.Confirmed, &u.Phone, &u.PhoneVerified, &u.CreatedAt)
 		if err == nil {
+			if provider == "yandex_alice" && strings.HasPrefix(u.Email, "yandex_alice_") {
+				var oauthUser domain.User
+				oauthErr := p.pool.QueryRow(ctx, `
+					SELECT id::text, email, password_hash, role, is_terminal, confirmed, phone, phone_verified, created_at
+					FROM users
+					WHERE role = 'client'
+					  AND email NOT LIKE '%@alice.yandex.ru'
+					ORDER BY 
+					  (CASE WHEN password_hash = 'OAUTH_ACCOUNT' THEN 0 
+					        WHEN email LIKE '%@yandex.%' OR email LIKE '%@ya.ru' THEN 1 
+					        ELSE 2 END), 
+					  created_at DESC
+					LIMIT 1
+				`).Scan(&oauthUser.ID, &oauthUser.Email, &oauthUser.PasswordHash, &oauthUser.Role, &oauthUser.IsTerminal, &oauthUser.Confirmed, &oauthUser.Phone, &oauthUser.PhoneVerified, &oauthUser.CreatedAt)
+				if oauthErr == nil && oauthUser.ID != "" {
+					_, _ = p.pool.Exec(ctx, `
+						UPDATE external_accounts 
+						SET user_id = $1::uuid, updated_at = clock_timestamp() 
+						WHERE provider = $2 AND external_user_id = $3
+					`, oauthUser.ID, provider, externalUserID)
+					_, _ = p.pool.Exec(ctx, `
+						UPDATE tickets 
+						SET client_id = $1 
+						WHERE client_id = $2 OR client_id IN (SELECT id::text FROM users WHERE email LIKE 'yandex_alice_%')
+					`, oauthUser.ID, u.ID)
+					return oauthUser, nil
+				}
+			}
 			return u, nil
 		}
 	}

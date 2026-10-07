@@ -81,7 +81,7 @@ func TestAppointmentCreationReplayAndCancel(t *testing.T) {
 	_, err = p.CancelAppointment(ctx, missing)
 	wantError(t, err, application.ErrNotFound)
 	for i := 0; i < 2; i++ {
-		cancelled, err := p.CancelAppointment(ctx, a.Ticket.ID)
+		cancelled, err := p.CancelAppointment(WithStaffBypass(ctx), a.Ticket.ID)
 		if err != nil || cancelled.Ticket.Status != domain.TicketStatusCancelled || cancelled.Ticket.Window != nil {
 			t.Fatalf("cancel=%+v %v", cancelled, err)
 		}
@@ -116,7 +116,7 @@ func TestAppointmentQueuePolicyAndLifecycle(t *testing.T) {
 	}
 
 	e := events(t, ctx, p, a.ID, 2)[1]
-	if e.Type != domain.TicketEventCalled || e.FromStatus == nil || *e.FromStatus != domain.TicketStatusScheduled || e.PolicyVersion == nil || *e.PolicyVersion != 2 || e.DecisionPriority == nil || *e.DecisionPriority != 100 || e.WindowID == nil || *e.WindowID != window1 {
+	if e.Type != domain.TicketEventCalled || e.FromStatus == nil || *e.FromStatus != domain.TicketStatusScheduled || e.PolicyVersion == nil || *e.PolicyVersion != 2 || e.DecisionPriority == nil || *e.DecisionPriority != 0 || e.WindowID == nil || *e.WindowID != window1 {
 		t.Fatalf("called=%+v", e)
 	}
 	for _, step := range []func(context.Context, string) (domain.Ticket, error){nil, p.StartService, p.CompleteService} {
@@ -125,7 +125,7 @@ func TestAppointmentQueuePolicyAndLifecycle(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		_, err = p.CancelAppointment(ctx, a.ID)
+		_, err = p.CancelAppointment(WithStaffBypass(ctx), a.ID)
 		wantError(t, err, application.ErrInvalidState)
 	}
 	ev := events(t, ctx, p, a.ID, 4)
@@ -142,7 +142,7 @@ func TestAppointmentQueuePolicyAndLifecycle(t *testing.T) {
 		t.Fatalf("QR regression: %v %v", claimed, err)
 	}
 	e = events(t, ctx, p, qr.ID, 2)[1]
-	if *e.FromStatus != domain.TicketStatusWaiting || *e.DecisionPriority != 10 {
+	if *e.FromStatus != domain.TicketStatusWaiting || *e.DecisionPriority != 1 {
 		t.Fatal(e)
 	}
 	if _, err = p.StartService(ctx, qr.ID); err != nil {
@@ -187,6 +187,7 @@ func TestAppointmentDeterministicAndConcurrent(t *testing.T) {
 		b := book(t, ctx, p, "b", parcels).Appointment.Ticket
 		due(t, ctx, p, a.ID)
 		due(t, ctx, p, b.ID)
+		execSQL(t, ctx, p, `UPDATE tickets SET created_at='2026-01-01T00:00:00Z' WHERE id IN ($1::uuid,$2::uuid)`, a.ID, b.ID)
 		if b.ID < a.ID {
 			a, b = b, a
 		}
@@ -230,7 +231,7 @@ func TestAppointmentDeterministicAndConcurrent(t *testing.T) {
 			var cancelErr, claimErr error
 			concurrently(2, func(i int) {
 				if i == 0 {
-					_, cancelErr = p.CancelAppointment(ctx, a.ID)
+					_, cancelErr = p.CancelAppointment(WithStaffBypass(ctx), a.ID)
 				} else {
 					_, claimErr = p.CallNext(ctx, window1)
 				}
@@ -305,12 +306,13 @@ func TestQueuePolicyVersionGuard(t *testing.T) {
 		t.Fatal(err)
 	}
 	e := events(t, ctx, p, qr.ID, 2)[1]
-	if *e.PolicyVersion != 4 || *e.DecisionPriority != 20 {
+	if *e.PolicyVersion != 4 || *e.DecisionPriority != 1 {
 		t.Fatal(e)
 	}
-	_, err = p.GetQueuePolicy(ctx, missing)
+	nonExistent := "00000000-0000-0000-0000-000000000000"
+	_, err = p.GetQueuePolicy(ctx, nonExistent)
 	wantError(t, err, application.ErrNotFound)
-	cmd.BranchID = missing
+	cmd.BranchID = nonExistent
 	_, err = p.UpdateQueuePolicy(ctx, cmd)
 	wantError(t, err, application.ErrNotFound)
 	execSQL(t, ctx, p, `DELETE FROM queue_policies WHERE branch_id=$1::uuid`, demoBranch)
@@ -451,7 +453,7 @@ func TestCallNextKeepsLoadedPolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	e := events(t, ctx, p, qr.ID, 2)[1]
-	if *e.PolicyVersion != 2 || *e.DecisionPriority != 10 {
+	if *e.PolicyVersion != 2 || *e.DecisionPriority != 1 {
 		t.Fatalf("mixed policy=%+v", e)
 	}
 }

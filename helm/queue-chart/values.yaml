@@ -23,7 +23,7 @@ backend:
   replicaCount: 2
   image:
     repository: vacuumxvx/queue-backend
-    tag: "v-d53a691"
+    tag: "v-34a60e7"
     pullPolicy: IfNotPresent
   service:
     port: 8080
@@ -35,6 +35,7 @@ backend:
     notificationTimeoutSeconds: "2"
     notificationRetryIntervalMs: "1000"
     notificationMaxAttempts: "3"
+    allowTestAppointmentConfirm: "true"
   resources:
     requests:
       cpu: 100m
@@ -48,7 +49,7 @@ frontend:
   replicaCount: 2
   image:
     repository: vacuumxvx/queue-frontend
-    tag: "v-d53a691"
+    tag: "v-34a60e7"
     pullPolicy: IfNotPresent
   service:
     port: 80

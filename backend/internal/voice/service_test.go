@@ -262,3 +262,128 @@ func TestVoiceService_ActiveTicketReminder(t *testing.T) {
 		t.Errorf("expected active ticket reminder, got: %s", resp.Text)
 	}
 }
+
+func TestVoiceService_BranchClosed_RejectsOutOfHoursAppointment(t *testing.T) {
+	innoLat := 55.752176
+	innoLng := 48.744474
+	mock := &mockVoiceUseCases{
+		branches: []domain.Branch{
+			{
+				ID:        "branch-inno",
+				Name:      "Отделение Иннополис 420500",
+				Address:   "г. Иннополис, ул. Университетская, д. 7",
+				WorkHours: "09:00–18:00",
+				Latitude:  &innoLat,
+				Longitude: &innoLng,
+			},
+		},
+		services: []domain.Service{
+			{ID: "srv-parcel", Code: "PARCEL", Name: "Посылки"},
+		},
+	}
+	svc := NewVoiceService(mock, NewMemorySessionStore(), nil)
+	ctx := context.Background()
+
+	msk := time.FixedZone("MSK", 3*3600)
+	// 21:00 is outside 09:00–18:00
+	outOfHours := time.Date(2026, 10, 4, 21, 0, 0, 0, msk)
+
+	resp, err := svc.HandleRequest(ctx, VoiceRequest{
+		SessionID:   "sess-closed-1",
+		RequestID:   "req-1",
+		Command:     "запиши в иннополис на 21:00",
+		Intent:      IntentBookAppointment,
+		ScheduledAt: &outOfHours,
+		Slots:       map[string]string{"street": "иннополис"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.RequiresConfirmation {
+		t.Fatalf("should NOT require confirmation for out of hours appointment")
+	}
+	if !strings.Contains(resp.Text, "закрыто") || !strings.Contains(resp.Text, "09:00") || !strings.Contains(resp.Text, "18:00") {
+		t.Errorf("expected explanation of working hours, got: %s", resp.Text)
+	}
+
+	// 14:00 is INSIDE 09:00–18:00
+	inHours := time.Date(2026, 10, 4, 14, 0, 0, 0, msk)
+	respOk, err := svc.HandleRequest(ctx, VoiceRequest{
+		SessionID:   "sess-closed-2",
+		RequestID:   "req-2",
+		Command:     "запиши в иннополис на 14:00",
+		Intent:      IntentBookAppointment,
+		ScheduledAt: &inHours,
+		Slots:       map[string]string{"street": "иннополис"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !respOk.RequiresConfirmation {
+		t.Fatalf("expected confirmation request for valid in-hours appointment")
+	}
+	if !strings.Contains(respOk.Text, "14:00") || !strings.Contains(respOk.Text, "Иннополис") {
+		t.Errorf("unexpected response: %s", respOk.Text)
+	}
+}
+
+func TestVoiceService_InnopolisLocation_ClampedWalkingDistance(t *testing.T) {
+	innoLat := 55.752176
+	innoLng := 48.744474
+	mock := &mockVoiceUseCases{
+		branches: []domain.Branch{
+			{
+				ID:        "branch-inno",
+				Name:      "Отделение Иннополис 420500",
+				Address:   "г. Иннополис, ул. Университетская, д. 7",
+				WorkHours: "09:00–18:00",
+				Latitude:  &innoLat,
+				Longitude: &innoLng,
+			},
+		},
+	}
+	svc := NewVoiceService(mock, NewMemorySessionStore(), nil)
+	ctx := context.Background()
+
+	// Location unknown, but user explicitly asks for Innopolis
+	resp, err := svc.HandleRequest(ctx, VoiceRequest{
+		SessionID: "sess-loc-1",
+		RequestID: "req-1",
+		Command:   "запиши меня в иннополисе",
+		Intent:    IntentTakeTicket,
+		Slots:     map[string]string{"street": "иннополис"},
+		Location: &UserLocation{
+			Latitude:  55.7558, // Moscow fallback
+			Longitude: 37.6173,
+			Source:    LocationSourceUnknown,
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Distance should be clamped to reasonable neighborhood walking distance, not 9000+ minutes!
+	if strings.Contains(resp.Text, "93") || strings.Contains(resp.Text, "минут)") && strings.Contains(resp.Text, "000") {
+		t.Errorf("walking time was not clamped properly: %s", resp.Text)
+	}
+	if !strings.Contains(resp.Text, "Иннополис") {
+		t.Errorf("expected Innopolis branch match, got: %s", resp.Text)
+	}
+}
+
+func TestParseWorkHours(t *testing.T) {
+	openMin, closeMin, openStr, closeStr, ok := ParseWorkHours("09:00–18:00")
+	if !ok || openMin != 540 || closeMin != 1080 || openStr != "09:00" || closeStr != "18:00" {
+		t.Errorf("failed parsing en-dash work hours: %v, %d, %d, %s, %s", ok, openMin, closeMin, openStr, closeStr)
+	}
+
+	openMin2, closeMin2, _, _, ok2 := ParseWorkHours("08:00-20:00")
+	if !ok2 || openMin2 != 480 || closeMin2 != 1200 {
+		t.Errorf("failed parsing hyphen work hours: %v, %d, %d", ok2, openMin2, closeMin2)
+	}
+
+	_, _, _, _, ok3 := ParseWorkHours("invalid")
+	if ok3 {
+		t.Errorf("expected false on invalid string")
+	}
+}
+

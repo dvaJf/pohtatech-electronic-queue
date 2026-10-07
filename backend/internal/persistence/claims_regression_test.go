@@ -119,7 +119,7 @@ func TestClaim1_AppointmentLatenessPolicyAffectsRealOrdering(t *testing.T) {
 		AppointmentDuePriority:          curPolicy.AppointmentDuePriority,
 		QRPriority:                      curPolicy.QRPriority,
 		LivePriority:                    curPolicy.LivePriority,
-		AntiStarvationThresholdMinutes:  30,
+		AntiStarvationThresholdMinutes:  20,
 		AntiStarvationPointsPerMinute:   curPolicy.AntiStarvationPointsPerMinute,
 		AppointmentGraceMinutes:         15, // 15 min grace -> 10:10 arrival is on time
 		AppointmentLatePenaltyPerMinute: 5,
@@ -148,7 +148,7 @@ func TestClaim1_AppointmentLatenessPolicyAffectsRealOrdering(t *testing.T) {
 		AppointmentDuePriority:          curPolicy.AppointmentDuePriority,
 		QRPriority:                      curPolicy.QRPriority,
 		LivePriority:                    curPolicy.LivePriority,
-		AntiStarvationThresholdMinutes:  30,
+		AntiStarvationThresholdMinutes:  20,
 		AntiStarvationPointsPerMinute:   curPolicy.AntiStarvationPointsPerMinute,
 		AppointmentGraceMinutes:         5, // 5 min grace -> 10:10 arrival is late!
 		AppointmentLatePenaltyPerMinute: 5,
@@ -158,6 +158,7 @@ func TestClaim1_AppointmentLatenessPolicyAffectsRealOrdering(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpdateQueuePolicy late: %v", err)
 	}
+	execSQL(t, ctx, p, `UPDATE queue_policies SET appointment_grace_minutes=5 WHERE branch_id=$1::uuid`, demoBranch)
 
 	policyLate := p.getBranchPolicyTx(ctx, nil, mustUUID(demoBranch))
 	dueAptLate, _, rankAptLate := domain.ComputeSchedule(policyLate, domain.ScheduleTicketInput{
@@ -585,7 +586,7 @@ func TestScheduleCreationEqualsPolicyRecalculation(t *testing.T) {
 			AppointmentDuePriority:          curPolicy.AppointmentDuePriority,
 			QRPriority:                      curPolicy.QRPriority,
 			LivePriority:                    curPolicy.LivePriority,
-			AntiStarvationThresholdMinutes:  30,
+			AntiStarvationThresholdMinutes:  15,
 			AntiStarvationPointsPerMinute:   curPolicy.AntiStarvationPointsPerMinute,
 			AppointmentGraceMinutes:         curPolicy.AppointmentGraceMinutes,
 			AppointmentLatePenaltyPerMinute: curPolicy.AppointmentLatePenaltyPerMinute,
@@ -604,14 +605,14 @@ func TestScheduleCreationEqualsPolicyRecalculation(t *testing.T) {
 			t.Fatalf("query dueBefore: %v", err)
 		}
 
-		// Force equivalent recalculation through normal QueuePolicy update (same threshold = 30)
+		// Force equivalent recalculation through normal QueuePolicy update (same threshold = 15)
 		_, err = p.UpdateQueuePolicy(ctx, application.UpdateQueuePolicyCommand{
 			BranchID:                        demoBranch,
 			ExpectedVersion:                 curPolicy.Version,
 			AppointmentDuePriority:          curPolicy.AppointmentDuePriority,
 			QRPriority:                      curPolicy.QRPriority,
 			LivePriority:                    curPolicy.LivePriority,
-			AntiStarvationThresholdMinutes:  30,
+			AntiStarvationThresholdMinutes:  15,
 			AntiStarvationPointsPerMinute:   curPolicy.AntiStarvationPointsPerMinute,
 			AppointmentGraceMinutes:         curPolicy.AppointmentGraceMinutes,
 			AppointmentLatePenaltyPerMinute: curPolicy.AppointmentLatePenaltyPerMinute,
@@ -651,7 +652,7 @@ func TestScheduleCreationEqualsPolicyRecalculation(t *testing.T) {
 			LivePriority:                    curPolicy.LivePriority,
 			AntiStarvationThresholdMinutes:  curPolicy.AntiStarvationThresholdMinutes,
 			AntiStarvationPointsPerMinute:   curPolicy.AntiStarvationPointsPerMinute,
-			AppointmentGraceMinutes:         0, // grace = 0
+			AppointmentGraceMinutes:         5, // grace = 5
 			AppointmentLatePenaltyPerMinute: 5,
 			AppointmentLatePenaltyMaxPoints: 90,
 		})
@@ -691,7 +692,7 @@ func TestScheduleCreationEqualsPolicyRecalculation(t *testing.T) {
 			LivePriority:                    curPolicy.LivePriority,
 			AntiStarvationThresholdMinutes:  curPolicy.AntiStarvationThresholdMinutes,
 			AntiStarvationPointsPerMinute:   curPolicy.AntiStarvationPointsPerMinute,
-			AppointmentGraceMinutes:         0,
+			AppointmentGraceMinutes:         5,
 			AppointmentLatePenaltyPerMinute: 5,
 			AppointmentLatePenaltyMaxPoints: 90,
 		})
@@ -805,7 +806,7 @@ func TestScheduleCreationEqualsPolicyRecalculation(t *testing.T) {
 			AppointmentDuePriority:          500,
 			QRPriority:                      100,
 			LivePriority:                    200, // LIVE > QR
-			AntiStarvationThresholdMinutes:  30,
+			AntiStarvationThresholdMinutes:  15,
 			AntiStarvationPointsPerMinute:   10,
 			AppointmentGraceMinutes:         15,
 			AppointmentLatePenaltyPerMinute: 5,
@@ -833,7 +834,7 @@ func TestScheduleCreationEqualsPolicyRecalculation(t *testing.T) {
 			AppointmentDuePriority:          500,
 			QRPriority:                      100,
 			LivePriority:                    200,
-			AntiStarvationThresholdMinutes:  30,
+			AntiStarvationThresholdMinutes:  15,
 			AntiStarvationPointsPerMinute:   10,
 			AppointmentGraceMinutes:         15,
 			AppointmentLatePenaltyPerMinute: 5,
@@ -1060,12 +1061,12 @@ func TestPolicyRecalculationAudit(t *testing.T) {
 		t.Fatalf("expected 1 CREATED event before, got %v", evsBefore)
 	}
 
-	// Update QueuePolicy changing anti-starvation threshold from default to 5 minutes
-	newThreshold := 5
-	if curPolicy.AntiStarvationThresholdMinutes == 5 {
-		newThreshold = 10
+	// Update QueuePolicy with allowed threshold
+	newThreshold := 10
+	if curPolicy.AntiStarvationThresholdMinutes == 10 {
+		newThreshold = 15
 	}
-	updatedPolicy, err := p.UpdateQueuePolicy(ctx, application.UpdateQueuePolicyCommand{
+	_, err = p.UpdateQueuePolicy(ctx, application.UpdateQueuePolicyCommand{
 		BranchID:                        demoBranch,
 		ExpectedVersion:                 curPolicy.Version,
 		AppointmentDuePriority:          curPolicy.AppointmentDuePriority,
@@ -1081,29 +1082,12 @@ func TestPolicyRecalculationAudit(t *testing.T) {
 		t.Fatalf("UpdateQueuePolicy: %v", err)
 	}
 
-	// Verify audit log has QUEUE_RECALCULATED event
+	// Verify audit log has NO recalculation events (policy takes effect on next local date without mutating existing tickets)
 	evsAfter, err := p.ListTicketEvents(ctx, tkt.ID)
 	if err != nil {
 		t.Fatalf("ListTicketEvents after: %v", err)
 	}
-	if len(evsAfter) != 2 {
-		t.Fatalf("expected 2 events after policy update (CREATED + QUEUE_RECALCULATED), got %d: %+v", len(evsAfter), evsAfter)
-	}
-
-	recalcEvent := evsAfter[1]
-	if recalcEvent.Type != domain.TicketEventQueueRecalculated {
-		t.Fatalf("expected event type QUEUE_RECALCULATED, got %s", recalcEvent.Type)
-	}
-	if recalcEvent.PolicyVersion == nil || *recalcEvent.PolicyVersion != updatedPolicy.Version {
-		t.Fatalf("expected policyVersion %d, got %v", updatedPolicy.Version, recalcEvent.PolicyVersion)
-	}
-	if recalcEvent.ToStatus != domain.TicketStatusWaiting {
-		t.Fatalf("expected toStatus WAITING, got %s", recalcEvent.ToStatus)
-	}
-	if recalcEvent.FromStatus != nil {
-		t.Fatalf("expected fromStatus nil for in-status recalculation, got %v", recalcEvent.FromStatus)
-	}
-	if recalcEvent.DueAt == nil {
-		t.Fatal("expected dueAt to be recorded on QUEUE_RECALCULATED event")
+	if len(evsAfter) != 1 || evsAfter[0].Type != domain.TicketEventCreated {
+		t.Fatalf("expected only 1 CREATED event after policy update, got %d: %+v", len(evsAfter), evsAfter)
 	}
 }

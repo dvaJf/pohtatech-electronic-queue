@@ -149,6 +149,7 @@ func TestSprint3HTTPRealCore(t *testing.T) {
 	w = request3(t, h, "POST", "/api/v1/appointments", `{"branchId":"`+apiBranch+`","serviceId":"`+apiService+`","scheduledAt":"`+scheduled+`"}`, "appt", 201)
 	var appt AppointmentResponse
 	json.Unmarshal(w.Body.Bytes(), &appt)
+	request3(t, h, "POST", "/api/v1/appointments/"+appt.Ticket.ID+"/test-confirm", "", "", 200)
 	for i := 0; i < 2; i++ {
 		request3(t, h, "POST", "/api/v1/appointments/"+appt.Ticket.ID+"/arrive", "", "", 200)
 	}
@@ -160,7 +161,7 @@ func TestSprint3HTTPRealCore(t *testing.T) {
 	}
 	w = request3(t, h, "GET", "/api/v1/admin/tickets/"+appt.Ticket.ID+"/events", "", "", 200)
 	json.Unmarshal(w.Body.Bytes(), &events)
-	if len(events.Items) != 2 || events.Items[1].Type != "ARRIVED" {
+	if len(events.Items) != 3 || events.Items[2].Type != "ARRIVED" {
 		t.Fatal(events)
 	}
 	request3(t, h, "POST", "/api/v1/appointments/"+appt.Ticket.ID+"/cancel", "", "", 200)

@@ -14,9 +14,10 @@ import { useGeofencing, GeofenceSimulationMode, calculateHaversineDistanceMeters
 import { NearbyBranchCard } from './arrival/NearbyBranchCard';
 import { RouteOfferModal } from './RouteOfferModal';
 import { BranchMapModal } from './map/BranchMapModal';
-import { calculateBranchTotalTime, isUsableDurationMinutes, MAX_QUEUE_WAIT_MINUTES, MAX_ROUTE_TRAVEL_MINUTES, MOSCOW_BRANCHES, BranchLocation, RankedBranch } from './map/branchLocations';
+import { calculateBranchTotalTime, isUsableDurationMinutes, MAX_QUEUE_WAIT_MINUTES, MAX_ROUTE_TRAVEL_MINUTES, MOSCOW_BRANCHES, BranchLocation, RankedBranch, getBranchPlural } from './map/branchLocations';
 
-import { matchBranchLocation, matchesUserDefaultBranch, getUserDefaultBranchId, resolveSingleDefaultBranchId } from './map/liveBranches';
+import { matchBranchLocation, matchesUserDefaultBranch, getUserDefaultBranchId, resolveSingleDefaultBranchId, getBranchPostalCode } from './map/liveBranches';
+import { cleanBranchName } from '../../utils/branchSlug';
 import { canShowNearbyBranchCard, updateNearbyVisits, dismissNearbyVisit, type NearbyVisitState } from './arrival/arrivalPolicy';
 import { VisitRatingSheet } from './rating/VisitRatingSheet';
 import { shouldOfferVisitRating } from './rating/visitRatingPolicy';
@@ -30,6 +31,9 @@ import { SmartRouteHero } from './home/SmartRouteHero';
 import { AppointmentCalendarMenu } from './calendar/AppointmentCalendarMenu';
 import { isAppointmentCalendarEventAvailable } from './calendar/appointmentCalendar';
 import Timeline8 from '@/components/ui/c-timeline-8';
+import { AppointmentConfirmationDialog } from './AppointmentConfirmationDialog';
+import { confirmationRestoreDecision } from './appointmentConfirmationModel';
+import { isBranchEligibleForWalkIn } from './map/branchSchedule';
 
 function getTicketTimelineStep(status: TicketStatus, isArrived = false): number {
   if (isArrived && status === 'SCHEDULED') {
@@ -77,6 +81,8 @@ export const DEFAULT_OPERATOR_NAMES: Record<number, string> = {
 function getTicketOperatorName(ticket: Ticket): string {
   return resolveOperatorName(ticket, DEFAULT_OPERATOR_NAMES);
 }
+
+export { getBranchPlural };
 
 function getCompletedTicketMetadata(ticket: Ticket) {
   const windowText = ticket.window?.number ? `Окно №${ticket.window.number}` : 'Окно №1';
@@ -165,17 +171,10 @@ function localDateTimeValue(date: Date): string {
   return toMoscowDatetimeLocal(date);
 }
 
+import { getTicketStatusLabel } from '../../utils/statusMapper';
+
 function statusMessage(status: TicketStatus, source?: TicketSource): string {
-  switch (status) {
-    case 'WAITING': return 'Вы в очереди';
-    case 'CALLED': return 'Вас вызывают';
-    case 'SERVING': return 'Идёт обслуживание';
-    case 'COMPLETED': return 'Обслуживание завершено';
-    case 'CANCELLED': return source === 'APPOINTMENT' ? 'Запись отменена' : 'Талон отменён';
-    case 'NO_SHOW': return 'Вы не подошли к окну';
-    case 'SCHEDULED': return 'Запись подтверждена';
-    default: return 'Статус обновляется';
-  }
+  return getTicketStatusLabel(status, source);
 }
 
 function friendlyError(error: unknown, fallback: string): string {
@@ -198,9 +197,10 @@ function TelegramIcon({ size = 18 }: { size?: number }) {
   return <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="#229ED9"/><path d="M17.67 6.99 5.93 11.52c-.8.32-.8.76-.15.96l3.01.94 1.16 3.55c.14.39.07.55.48.55.32 0 .46-.15.64-.32l1.46-1.42 3.04 2.24c.56.31.96.15 1.1-.52l2-9.42c.2-.82-.31-1.19-1-0.88Zm-8.41 6.15 6.79-4.28c.34-.2.65-.09.4.14l-5.5 4.97-.22 2.42-1.47-3.26Z" fill="white"/></svg>;
 }
 
-function NotificationControls({ ticket, managementToken }: { ticket: Ticket; managementToken?: string | null }) {
-  const [email, setEmail] = useState(''); const [notice, setNotice] = useState(''); const [busy, setBusy] = useState<string | null>(null);
+function NotificationControls({ ticket, managementToken, currentUserId }: { ticket: Ticket; managementToken?: string | null; currentUserId?: string | null }) {
+  const [notice, setNotice] = useState(''); const [busy, setBusy] = useState<string | null>(null);
   const [telegramError, setTelegramError] = useState(false);
+  const [waitingForTelegram, setWaitingForTelegram] = useState(false);
   const [subscriptions, setSubscriptions] = useState<NotificationSubscription[]>([]);
   const [capabilities, setCapabilities] = useState<NotificationCapabilities | null>(null);
   const [capabilitiesError, setCapabilitiesError] = useState(false);
@@ -241,7 +241,7 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
     return true;
   });
   const token = managementToken || ticket.managementToken || undefined;
-  const canManage = Boolean(token);
+  const canManage = Boolean(token || currentUserId);
   const refresh = useCallback(async () => {
     setCapabilitiesError(false);
     setSubscriptionsError(false);
@@ -250,7 +250,7 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
     } catch {
       setCapabilitiesError(true);
     }
-    if (!token) {
+    if (!canManage) {
       setSubscriptions([]);
       return;
     }
@@ -259,18 +259,77 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
     } catch {
       setSubscriptionsError(true);
     }
-  }, [ticket.id, token]);
+  }, [ticket.id, token, canManage]);
   useEffect(() => { void refresh(); }, [refresh]);
+
+  // Automatically sync Telegram connection state when subscriptions update
+  useEffect(() => {
+    const tgSub = subscriptions.find(item => item.channel === 'TELEGRAM' && item.enabled);
+    if (tgSub) {
+      setWaitingForTelegram(false);
+      if (typeof localStorage !== 'undefined') {
+        if (tgSub.destination) {
+          localStorage.setItem('user_telegram_chat_id', tgSub.destination);
+        }
+        localStorage.setItem('user_telegram_connected', 'true');
+      }
+    }
+  }, [subscriptions]);
+
+  // Active fast polling while waiting for Telegram bot /start confirmation
+  useEffect(() => {
+    if (!waitingForTelegram) return;
+    const interval = window.setInterval(() => {
+      void refresh();
+    }, 1500);
+    const timeout = window.setTimeout(() => {
+      setWaitingForTelegram(false);
+    }, 120000);
+    return () => {
+      window.clearInterval(interval);
+      window.clearTimeout(timeout);
+    };
+  }, [waitingForTelegram, refresh]);
+
+  // Window focus & visibilitychange listener to instantly detect when user returns from Telegram
+  useEffect(() => {
+    const handleFocus = () => {
+      if (document.visibilityState === 'visible') {
+        void refresh();
+      }
+    };
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('visibilitychange', handleFocus);
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('visibilitychange', handleFocus);
+    };
+  }, [refresh]);
   const connected = (channel: NotificationChannel) => subscriptions.find(item => item.channel === channel && item.enabled);
   const unavailable = (channel: 'telegram' | 'webPush' | 'email') => capabilities ? !capabilities[channel].enabled : true;
 
-  // Auto-subscribe Browser Push by default on new ticket creation if browser permission is granted
+  // Auto-subscribe Telegram if user explicitly connected it in their profile
   useEffect(() => {
-    const isTicketPushDisabled = typeof localStorage !== 'undefined' && localStorage.getItem(`ticket_webpush_disabled:${ticket.id}`) === 'true';
-    if (!isTicketPushDisabled && token && capabilities?.webPush?.enabled && !connected('WEB_PUSH') && busy !== 'WEB_PUSH' && typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
-      push();
+    if (typeof localStorage !== 'undefined' && localStorage.getItem('user_telegram_connected') === 'true') {
+      const isTicketTgDisabled = localStorage.getItem(`ticket_telegram_disabled:${ticket.id}`) === 'true';
+      const storedChatId = localStorage.getItem('user_telegram_chat_id');
+      if (!isTicketTgDisabled && canManage && capabilities?.telegram?.enabled && !connected('TELEGRAM') && busy !== 'TELEGRAM' && storedChatId && !storedChatId.includes('*')) {
+        api.saveNotificationSubscription(ticket.id, 'TELEGRAM', storedChatId, token)
+          .then(() => refresh())
+          .catch(() => {});
+      }
     }
-  }, [ticket.id, token, capabilities?.webPush?.enabled, subscriptions.length, busy]);
+  }, [ticket.id, token, canManage, capabilities?.telegram?.enabled, subscriptions.length, busy]);
+
+  // Auto-subscribe Browser Push by default on new ticket creation if profile enabled
+  useEffect(() => {
+    if (typeof localStorage !== 'undefined' && localStorage.getItem('user_browser_push_enabled') !== 'false') {
+      const isTicketPushDisabled = localStorage.getItem(`ticket_webpush_disabled:${ticket.id}`) === 'true';
+      if (!isTicketPushDisabled && canManage && capabilities?.webPush?.enabled && !connected('WEB_PUSH') && busy !== 'WEB_PUSH' && typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+        push();
+      }
+    }
+  }, [ticket.id, token, canManage, capabilities?.webPush?.enabled, subscriptions.length, busy]);
 
   const managementUnavailable = 'Для этого талона управление уведомлениями недоступно. Создайте новый талон.';
   const disconnect = async (channel: NotificationChannel) => {
@@ -282,6 +341,7 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
       setTicketPushDisabled(true);
     }
     if (channel === 'TELEGRAM') {
+      setWaitingForTelegram(false);
       if (typeof localStorage !== 'undefined') {
         localStorage.setItem(`ticket_telegram_disabled:${ticket.id}`, 'true');
       }
@@ -314,23 +374,25 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
     }
     try {
       const storedChatId = typeof localStorage !== 'undefined' ? (localStorage.getItem('user_telegram_chat_id') || '') : '';
-      if (storedChatId) {
+      if (storedChatId && !storedChatId.includes('*')) {
+        setWaitingForTelegram(true);
         await api.saveNotificationSubscription(ticket.id, 'TELEGRAM', storedChatId, token);
         await refresh();
         setNotice('Telegram-уведомления включены.');
       } else {
+        setWaitingForTelegram(true);
         const url = await api.telegramLink(ticket.id, token);
         window.open(url, '_blank', 'noopener,noreferrer');
         setNotice('Откройте Telegram и нажмите /start для завершения привязки.');
       }
     } catch (e) {
+      setWaitingForTelegram(false);
       setTelegramError(true);
       setNotice(friendlyError(e, 'Не удалось подключить Telegram'));
     } finally {
       setBusy(null);
     }
   };
-  const save = async (channel: 'EMAIL', value: string) => { const valid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value); if (!valid) { setNotice('Введите корректный email.'); return; } setBusy(channel); try { await api.saveNotificationSubscription(ticket.id, channel, value, token); await refresh(); } catch (e) { setNotice(friendlyError(e, 'Не удалось сохранить уведомления')); } finally { setBusy(null); } };
   const push = async () => {
     if (typeof localStorage !== 'undefined' && localStorage.getItem('user_browser_push_enabled') === 'false') {
       setNotice('Уведомления браузера отключены в вашем профиле. Включить их можно в профиле пользователя.');
@@ -367,16 +429,25 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
   const telegramAction = () => {
     if (!capabilities || unavailable('telegram')) return null;
     const isConn = Boolean(connected('TELEGRAM'));
+    const isChecked = isConn || waitingForTelegram;
     return (
       <div className="flex items-center gap-2 shrink-0">
         {busy === 'TELEGRAM' && <span className="inline-flex items-center gap-1 text-[11px] text-[#003B73]"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Открываем Telegram…</span>}
-        <label className="relative inline-flex items-center cursor-pointer select-none" title={isConn ? 'Отключить Telegram' : 'Подключить Telegram'}>
+        {waitingForTelegram && !isConn && busy !== 'TELEGRAM' && (
+          <span className="inline-flex items-center gap-1 text-[11px] text-[#003B73]">
+            <Loader2 className="w-3.5 h-3.5 animate-spin" /> Ожидаем /start…
+          </span>
+        )}
+        <label className="relative inline-flex items-center cursor-pointer select-none" title={isChecked ? 'Отключить Telegram' : 'Подключить Telegram'}>
           <input
             type="checkbox"
-            checked={isConn}
+            checked={isChecked}
             disabled={busy !== null || !canManage}
             onChange={() => {
-              if (isConn) {
+              if (isChecked) {
+                if (waitingForTelegram) {
+                  setWaitingForTelegram(false);
+                }
                 void disconnect('TELEGRAM');
               } else {
                 void telegram();
@@ -391,7 +462,29 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
     );
   };
   const webPushAction = () => {
+    const isPushSupported = typeof window !== 'undefined' && 'Notification' in window && 'serviceWorker' in navigator && 'PushManager' in window;
+    if (!isPushSupported) {
+      return (
+        <span
+          className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200 select-none cursor-default"
+          title="Ваш браузер не поддерживает системные Push-уведомления"
+        >
+          Недоступно
+        </span>
+      );
+    }
     if (!capabilities || unavailable('webPush')) return null;
+    if (!profilePushEnabled) {
+      return (
+        <span
+          className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200 select-none cursor-help"
+          title="Включить браузерные уведомления можно только в настройках вашего профиля"
+          onClick={() => setNotice('Уведомления браузера отключены в вашем профиле. Включить их можно только в профиле пользователя.')}
+        >
+          В профиле
+        </span>
+      );
+    }
     const isConn = Boolean(connected('WEB_PUSH') && !ticketPushDisabled);
     return (
       <div className="flex items-center gap-2 shrink-0">
@@ -424,20 +517,32 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
     capabilities && !unavailable(provider)
       ? (channel === 'TELEGRAM' ? telegramAction() : channel === 'WEB_PUSH' ? webPushAction() : action(channel, label, onClick))
       : null;
-  const subscriptionForm = (provider: 'email', form: React.ReactNode) => capabilities && !unavailable(provider) ? form : null;
   const channelText = (channel: NotificationChannel, defaultDesc: string, unavailMsg?: string) => {
     if (channel === 'WEB_PUSH') {
+      const isPushSupported = typeof window !== 'undefined' && 'Notification' in window && 'serviceWorker' in navigator && 'PushManager' in window;
+      if (!isPushSupported) {
+        return 'Уведомления браузера недоступны в этом браузере';
+      }
+      if (typeof Notification !== 'undefined' && Notification.permission === 'denied') {
+        return 'Уведомления заблокированы в настройках браузера';
+      }
       if (!profilePushEnabled) {
         return 'Отключено в профиле. Включить можно только в профиле пользователя.';
       }
       if (ticketPushDisabled) {
         return 'Отключено для этого талона (на другие талоны будет приходить)';
       }
-      return '✓ Уведомления браузера включены';
+      if (connected('WEB_PUSH')) {
+        return '✓ Уведомления браузера включены';
+      }
+      return 'Включить системные пуш-уведомления';
     }
     if (connected(channel)) {
       if (channel === 'TELEGRAM') return '✓ Telegram подключён';
       return `✓ ${connected(channel)?.destination || 'Подключено'}`;
+    }
+    if (channel === 'TELEGRAM' && waitingForTelegram) {
+      return 'Ожидание нажатия /start в Telegram боте…';
     }
     if (channel === 'TELEGRAM' && telegramError) return 'Не удалось подключить Telegram';
     return unavailMsg || defaultDesc;
@@ -446,7 +551,7 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
     <div className="cx-notification-row p-3.5 bg-white border border-slate-200/90 rounded-2xl flex flex-col gap-2 shadow-2xs overflow-hidden">
       <div className="flex items-center justify-between gap-3 w-full min-w-0">
         <div className="flex items-center gap-3 min-w-0 flex-1">
-          <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${connected(channel) ? 'bg-blue-50 text-[#003B73]' : 'bg-slate-100 text-slate-500'}`}>
+          <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${connected(channel) || (channel === 'TELEGRAM' && waitingForTelegram) ? 'bg-blue-50 text-[#003B73]' : 'bg-slate-100 text-slate-500'}`}>
             {icon}
           </div>
           <div className="cx-notification-main min-w-0 flex-1">
@@ -456,29 +561,6 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
         </div>
         <div className="shrink-0">{content}</div>
       </div>
-      {channel === 'EMAIL' && !connected('EMAIL') && emailForm}
-    </div>
-  );
-  const emailForm = (
-    <div className="cx-notification-form mt-2 pt-2 border-t border-slate-100 flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full">
-      <label className="sr-only" htmlFor={`email-${ticket.id}`}>Email для подтверждения записи</label>
-      <input
-        id={`email-${ticket.id}`}
-        type="email"
-        value={email}
-        onChange={e => setEmail(e.target.value)}
-        placeholder="name@example.com"
-        className="w-full min-w-0 flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-[#003B73]"
-        disabled={busy !== null || !canManage || unavailable('email')}
-      />
-      <button
-        type="button"
-        className="cx-btn cx-btn-secondary text-xs px-3 py-2 w-full sm:w-auto shrink-0 justify-center"
-        disabled={busy !== null || !canManage || unavailable('email')}
-        onClick={() => save('EMAIL', email)}
-      >
-        {busy === 'EMAIL' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Получить подтверждение'}
-      </button>
     </div>
   );
   const unavailableMessage = (provider: 'telegram' | 'webPush' | 'email', label: string) => {
@@ -494,29 +576,6 @@ function NotificationControls({ ticket, managementToken }: { ticket: Ticket; man
       <div className="space-y-2">
         {row(<TelegramIcon/>, 'Telegram', 'Получать сообщения о движении очереди.', 'TELEGRAM', providerAction('telegram', 'TELEGRAM', 'Подключить Telegram', telegram), unavailableMessage('telegram', 'Telegram'))}
         {row(<Bell size={18}/>, 'Уведомления браузера', 'Системные уведомления даже при свёрнутой вкладке.', 'WEB_PUSH', providerAction('webPush', 'WEB_PUSH', 'Включить', push), unavailableMessage('webPush', 'Уведомления браузера'))}
-        {ticket.source === 'APPOINTMENT' && row(
-          <Mail size={18}/>,
-          'Email',
-          capabilities?.email.mode === 'demo' ? 'Email доступен только в демонстрационном режиме.' : 'Подтверждение предварительной записи.',
-          'EMAIL',
-          connected('EMAIL') ? (
-            <div className="flex items-center gap-2 shrink-0">
-              {busy === 'EMAIL' && <Loader2 className="w-3.5 h-3.5 animate-spin text-[#003B73]" />}
-              <label className="relative inline-flex items-center cursor-pointer select-none" title="Отключить Email">
-                <input
-                  type="checkbox"
-                  checked={true}
-                  disabled={busy !== null || !canManage}
-                  onChange={() => void disconnect('EMAIL')}
-                  className="sr-only peer"
-                  aria-label="Отключить Email"
-                />
-                <div className="w-10 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-5 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#003B73]" />
-              </label>
-            </div>
-          ) : subscriptionForm('email', null),
-          unavailableMessage('email', 'Email')
-        )}
       </div>
       {!canManage && <p className="cx-notification-status" role="status">{managementUnavailable}</p>}
       {subscriptionsError && <p className="cx-notification-status" role="status" aria-live="polite">Не удалось загрузить настройки уведомлений. <button type="button" className="cx-notification-link" onClick={() => void refresh()}>Повторить</button></p>}
@@ -700,16 +759,19 @@ function BranchCard({
       onClick={onSelect}
     >
       <div className="flex items-start gap-3 w-full min-w-0 text-left">
-        {photoUrl && !photoFailed && (
-          <img
-            src={photoUrl}
-            alt="Иллюстрация почтового отделения"
-            loading="lazy"
-            decoding="async"
-            onError={() => setPhotoFailed(true)}
-            className={`w-20 h-16 sm:w-24 sm:h-20 rounded-xl object-cover shrink-0 bg-slate-100 ${isClosed ? 'grayscale' : ''}`}
-          />
-        )}
+        <div className={`w-20 aspect-[4/3] sm:w-24 sm:aspect-[4/3] rounded-xl overflow-hidden shrink-0 bg-slate-100 border border-slate-200/60 shadow-xs flex items-center justify-center relative ${isClosed ? 'grayscale' : ''}`}>
+          <Building2 size={24} className="text-slate-300 absolute" />
+          {photoUrl && !photoFailed && (
+            <img
+              src={photoUrl}
+              alt="Иллюстрация почтового отделения"
+              loading="lazy"
+              decoding="async"
+              onError={() => setPhotoFailed(true)}
+              className="w-full h-full object-cover relative z-10"
+            />
+          )}
+        </div>
         <div className="min-w-0 flex-1">
           {/* Верхняя строка: Рейтинг и бейджи слева, статус закрытия в правом верхнем углу */}
           <div className="flex items-center justify-between gap-1.5 mb-1.5 w-full flex-wrap">
@@ -759,7 +821,7 @@ function BranchCard({
 
           <div className="flex items-start justify-between gap-2 w-full">
             <div className="flex-1 min-w-0">
-              <span className="cx-choice-title text-sm sm:text-base font-extrabold">{branch.name}</span>
+              <span className="cx-choice-title text-sm sm:text-base font-extrabold">{cleanBranchName(branch.name)}</span>
 
               {/* Расстояние, время в пути и общее расчетное время T = T_travel + T_wait */}
               {(distText || typeof totalMinutes === 'number') && (
@@ -798,6 +860,13 @@ function BranchCard({
                 <span className="cx-choice-meta text-xs">
                   <MapPin size={13} aria-hidden className="shrink-0 text-slate-400" />
                   <span className="cx-message-text">{branch.address}</span>
+                </span>
+              ) : null}
+
+              {getBranchPostalCode(branch) ? (
+                <span className="cx-choice-meta text-xs">
+                  <span className="text-slate-400 font-normal">Почтовый индекс:</span>
+                  <span className="font-bold text-[#052F85] tracking-wide">{getBranchPostalCode(branch)}</span>
                 </span>
               ) : null}
 
@@ -1000,6 +1069,42 @@ function removeSavedTicketId(id: string, scope: string) {
   }
 }
 
+function pendingFlowKeyFor(scope: string): string {
+  return `client_pending_appointment_flow:${scope}`;
+}
+
+interface PendingAppointmentFlow {
+  ticketId: string;
+  managementToken?: string;
+}
+
+function getPendingAppointmentFlow(scope: string): PendingAppointmentFlow | null {
+  try {
+    const val = sessionStorage.getItem(pendingFlowKeyFor(scope)) || localStorage.getItem(pendingFlowKeyFor(scope));
+    if (!val) return null;
+    const parsed = JSON.parse(val);
+    if (parsed && typeof parsed.ticketId === 'string') {
+      return parsed as PendingAppointmentFlow;
+    }
+  } catch {}
+  return null;
+}
+
+function savePendingAppointmentFlow(ticketId: string, managementToken: string | undefined, scope: string) {
+  try {
+    const payload = JSON.stringify({ ticketId, managementToken });
+    sessionStorage.setItem(pendingFlowKeyFor(scope), payload);
+    localStorage.setItem(pendingFlowKeyFor(scope), payload);
+  } catch {}
+}
+
+function clearPendingAppointmentFlow(scope: string) {
+  try {
+    sessionStorage.removeItem(pendingFlowKeyFor(scope));
+    localStorage.removeItem(pendingFlowKeyFor(scope));
+  } catch {}
+}
+
 function mgmtTokensKeyFor(scope: string): string {
   return `${STORAGE_MGMT_TOKENS_KEY}:${scope}`;
 }
@@ -1032,6 +1137,35 @@ function removeMgmtToken(id: string, scope: string) {
   const updated = JSON.stringify(tokens);
   try { sessionStorage.setItem(mgmtTokensKeyFor(scope), updated); } catch {}
   try { localStorage.setItem(mgmtTokensKeyFor(scope), updated); } catch {}
+}
+
+function findMgmtToken(id: string, scope: string): string | undefined {
+  if (!id) return undefined;
+  const currentTokens = getSavedMgmtTokens(scope);
+  if (currentTokens[id]) return currentTokens[id];
+  if (scope !== ANON_SCOPE) {
+    const anonTokens = getSavedMgmtTokens(ANON_SCOPE);
+    if (anonTokens[id]) return anonTokens[id];
+  }
+  try {
+    for (const storage of [sessionStorage, localStorage]) {
+      for (let i = 0; i < storage.length; i++) {
+        const key = storage.key(i);
+        if (key && key.includes('mgmt_tokens')) {
+          const val = storage.getItem(key);
+          if (val) {
+            try {
+              const parsed = JSON.parse(val);
+              if (parsed && typeof parsed === 'object' && parsed[id]) {
+                return parsed[id];
+              }
+            } catch {}
+          }
+        }
+      }
+    }
+  } catch {}
+  return undefined;
 }
 
 function getStoredIdempotencyKey(identity: string): string {
@@ -1102,10 +1236,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
 
   const [branchId, setBranchId] = useState(() => {
     if (qrBranchId) return qrBranchId;
-    const v = sessionStorage.getItem(STORAGE_BRANCH_KEY) || (typeof localStorage !== 'undefined' ? localStorage.getItem(STORAGE_BRANCH_KEY) : null);
-    if (v && v !== 'undefined' && v !== 'null') return v;
-    const defaultBranch = typeof localStorage !== 'undefined' ? localStorage.getItem('user_default_branch_id') : null;
-    return defaultBranch || '';
+    return '';
   });
   const [serviceId, setServiceId] = useState(() => {
     const urlServiceId = new URLSearchParams(window.location.search).get('serviceId');
@@ -1150,6 +1281,8 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
   // Владелец талонов. Талоны храним и показываем строго по текущему пользователю,
   // чтобы новый пользователь не видел талоны, созданные другим.
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
+  const [appointmentEmail, setAppointmentEmail] = useState<string>('');
   const ownerScope = currentUserId ?? ANON_SCOPE;
   const [tickets, setTickets] = useState<Ticket[]>(() => getCachedTickets(ANON_SCOPE));
   const [kioskTicket, setKioskTicket] = useState<Ticket | null>(null);
@@ -1204,6 +1337,36 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
   const [creating, setCreating] = useState(false);
   const [cancellingTicketId, setCancellingTicketId] = useState<string | null>(null);
   const [arriving, setArriving] = useState(false);
+
+  // Transient appointment confirmation modal state (never rendered in My Tickets)
+  const [pendingAppointmentTicket, setPendingAppointmentTicket] = useState<Ticket | null>(null);
+  const [isConfirmationDialogOpen, setIsConfirmationDialogOpen] = useState(false);
+
+  useEffect(() => {
+    const flow = getPendingAppointmentFlow(ownerScope);
+    if (flow?.ticketId) {
+      api.getTicket(flow.ticketId)
+        .then((t) => {
+          const decision = confirmationRestoreDecision(t);
+          if (decision === 'open') {
+            setPendingAppointmentTicket(t);
+            setIsConfirmationDialogOpen(true);
+            setScreen('booking');
+            if (t.branchId) setBranchId(t.branchId);
+            if (t.serviceId) setServiceId(t.serviceId);
+          } else if (decision === 'confirmed') {
+            clearPendingAppointmentFlow(ownerScope);
+            addSavedTicketId(t.id, ownerScope);
+            setTickets((prev) => [t, ...prev.filter((item) => item.id !== t.id)]);
+          } else {
+            clearPendingAppointmentFlow(ownerScope);
+          }
+        })
+        .catch(() => {
+          clearPendingAppointmentFlow(ownerScope);
+        });
+    }
+  }, [ownerScope]);
 
   // Live workloads belong to SmartRouteHero. Keeping this record empty here
   // preserves map/list props without starting recommendation polling on Home.
@@ -1332,13 +1495,6 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
       setScreen('booking');
       setBookingStep(1);
     } else if (action === 'walkin') {
-      const scheduleStatus = getBranchScheduleStatus(b, workloads[b.id]);
-      if (scheduleStatus.isClosed) {
-        setScreen('booking');
-        setBookingStep(1);
-        setNotice('Отделение сейчас закрыто. Запись доступна на следующий рабочий день.');
-        return;
-      }
       setScreen('walkin');
       setWalkinStep(1);
     }
@@ -1374,8 +1530,21 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
     let active = true;
     const refreshOwner = () => {
       getMe()
-        .then((me) => { if (active) setCurrentUserId(me?.id ?? null); })
-        .catch(() => { if (active) setCurrentUserId(null); });
+        .then((me) => {
+          if (active) {
+            setCurrentUserId(me?.id ?? null);
+            setCurrentUserEmail(me?.email ?? null);
+            if (me?.email) {
+              setAppointmentEmail((prev) => prev || me.email);
+            }
+          }
+        })
+        .catch(() => {
+          if (active) {
+            setCurrentUserId(null);
+            setCurrentUserEmail(null);
+          }
+        });
     };
     refreshOwner();
     // Реагируем на вход/выход через шапку: «мои талоны» пересчитываются для нового владельца.
@@ -1400,17 +1569,23 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
       setLoading(true);
       setError(null);
       const loaded = await api.listBranches();
-      setBranches(loaded);
-      setBranchId(current => {
-        if (current) return current;
-        const userDefault = (typeof localStorage !== 'undefined')
-          ? (localStorage.getItem('user_default_branch_id') || localStorage.getItem(STORAGE_BRANCH_KEY))
-          : null;
-        if (userDefault && loaded.some(b => b.id === userDefault)) {
-          return userDefault;
-        }
-        return loaded[0]?.id || '';
-      });
+      const seenIds = new Set<string>();
+      const seenAddresses = new Set<string>();
+      const deduped: Branch[] = [];
+      for (const b of loaded) {
+        if (!b || seenIds.has(b.id)) continue;
+        const normAddr = (b.address || '').toLowerCase().replace(/^(г\.|город|ул\.|улица)\s*/g, '').trim();
+        if (normAddr && seenAddresses.has(normAddr)) continue;
+
+        seenIds.add(b.id);
+        if (normAddr) seenAddresses.add(normAddr);
+
+        deduped.push({
+          ...b,
+          name: cleanBranchName(b.name),
+        });
+      }
+      setBranches(deduped);
     } catch (err: any) {
       setError(friendlyError(err, 'Не удалось загрузить данные отделений'));
     } finally {
@@ -1454,8 +1629,14 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
         waitMinutes: waitMin, totalMinutes: totalMin, metro: loc?.metro };
     });
 
-    const openBranches = list.filter(b => !getBranchScheduleStatus({ code: b.loc?.code, name: b.name, workHours: b.workHours }, workloads[b.id]).isClosed);
-    const eligibleBranches = openBranches.length > 0 ? openBranches : list;
+    const eligibleBranches = list.filter(b => {
+      const eligibility = isBranchEligibleForWalkIn(
+        { code: b.loc?.code, name: b.name, workHours: b.workHours },
+        workloads[b.id],
+        b.travelMinutes || 0
+      );
+      return eligibility.eligible;
+    });
 
     const sortedByDist = eligibleBranches.filter(b => b.distanceMeters !== undefined).sort((a, b) => a.distanceMeters! - b.distanceMeters!);
     const closest = sortedByDist[0] || null;
@@ -1603,6 +1784,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
     if (kiosk) return;
     const params = new URLSearchParams(window.location.search);
     const action = params.get('action');
+    const linkedTicketId = params.get('ticketId');
     if (!action) return;
 
     window.history.replaceState({}, '', window.location.pathname);
@@ -1615,6 +1797,24 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
       setScreen('walkin');
     } else if (action === 'my') {
       setScreen('my');
+      if (linkedTicketId) {
+        void api.getTicket(linkedTicketId)
+          .then((linkedTicket) => {
+            if (linkedTicket.status === 'PENDING_CONFIRMATION') return;
+            addSavedTicketId(linkedTicket.id, ownerScope);
+            clearPendingAppointmentFlow(ownerScope);
+            if (linkedTicket.managementToken) {
+              saveMgmtToken(linkedTicket.id, linkedTicket.managementToken, ownerScope);
+            }
+            setTickets((previous) => [
+              linkedTicket,
+              ...previous.filter((item) => item.id !== linkedTicket.id),
+            ]);
+          })
+          .catch(() => {
+            setPollError('Не удалось загрузить подтверждённую запись. Попробуйте ещё раз.');
+          });
+      }
     }
   }, []);
 
@@ -1915,6 +2115,8 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
 
   const resetBooking = () => {
     setBookingStep(0);
+    setBranchId('');
+    sessionStorage.removeItem(STORAGE_BRANCH_KEY);
     setServiceId('');
     sessionStorage.removeItem(STORAGE_SERVICE_KEY);
     setScheduledAtInput('');
@@ -1923,6 +2125,10 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
 
   const resetWalkin = () => {
     setWalkinStep(qrBranchId ? 1 : 0);
+    if (!qrBranchId) {
+      setBranchId('');
+      sessionStorage.removeItem(STORAGE_BRANCH_KEY);
+    }
     setServiceId('');
     sessionStorage.removeItem(STORAGE_SERVICE_KEY);
     setError(null);
@@ -1978,7 +2184,8 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
         branchId,
         serviceId,
         scheduledAt.toISOString(),
-        keyFor(identity)
+        keyFor(identity),
+        appointmentEmail.trim() || undefined,
       );
       clearStoredIdempotencyKey(identity);
       requestKey.current = null;
@@ -1999,6 +2206,13 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
         } catch {}
       }
 
+      if (finalTicket.status === 'PENDING_CONFIRMATION') {
+        savePendingAppointmentFlow(finalTicket.id, mgmtToken ?? undefined, ownerScope);
+        setPendingAppointmentTicket(finalTicket);
+        setIsConfirmationDialogOpen(true);
+        return;
+      }
+
       addSavedTicketId(finalTicket.id, ownerScope);
       setTickets(prev => [finalTicket, ...prev]);
       setAppointments(prev => ({ ...prev, [finalTicket.id]: created }));
@@ -2012,8 +2226,8 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
   };
 
   const cancel = async (ticket: Ticket) => {
-    if (cancellingTicketId || (ticket.status !== 'SCHEDULED' && ticket.status !== 'WAITING')) return;
-    const isAppointment = ticket.source === 'APPOINTMENT' && ticket.status === 'SCHEDULED';
+    if (cancellingTicketId || (ticket.status !== 'SCHEDULED' && ticket.status !== 'WAITING' && ticket.status !== 'PENDING_CONFIRMATION')) return;
+    const isAppointment = ticket.source === 'APPOINTMENT' && (ticket.status === 'SCHEDULED' || ticket.status === 'PENDING_CONFIRMATION');
     const confirmMessage = isAppointment
       ? 'Вы уверены, что хотите отменить предварительную запись?'
       : 'Вы уверены, что хотите отказаться от талона и покинуть очередь?';
@@ -2081,13 +2295,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
     if (screen === 'booking') {
       setBookingStep(1);
     } else if (screen === 'walkin') {
-      if (scheduleStatus?.isClosed) {
-        setScreen('booking');
-        setBookingStep(1);
-        setNotice('Отделение сейчас закрыто. Запись доступна на следующий рабочий день.');
-      } else {
-        setWalkinStep(1);
-      }
+      setWalkinStep(1);
     }
 
     if (id !== branchId) {
@@ -2168,22 +2376,43 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
     history.pending = history.pending.filter(item => item.id !== ticket.id);
     if (kind === 'reviewed' && typeof rating === 'number') {
       try {
-        await api.submitFeedback(ticket.id, rating, comment, ticket.managementToken || getSavedMgmtTokens(ownerScope)[ticket.id]);
-      } catch (err) {
-        setError(friendlyError(err, 'Не удалось отправить оценку'));
-        return;
+        const token = findMgmtToken(ticket.id, ownerScope) || ticket.managementToken;
+        let submitted = false;
+        if (token) {
+          try {
+            await api.submitFeedback(ticket.id, rating, comment, token);
+            submitted = true;
+          } catch (feedErr: any) {
+            if (feedErr?.status === 409 || feedErr?.message?.includes('conflict') || feedErr?.message?.includes('already')) {
+              submitted = true;
+            }
+          }
+        }
+        if (!submitted) {
+          if (ticket.branchId) {
+            await api.submitBranchReview(ticket.branchId, rating, comment);
+          } else {
+            await api.submitFeedback(ticket.id, rating, comment);
+          }
+        }
+      } catch (err: any) {
+        if (err?.status !== 409) {
+          setError(friendlyError(err, 'Не удалось отправить оценку'));
+          return;
+        }
       }
-    } else if (!history.dismissed.includes(ticket.id)) history.dismissed.push(ticket.id);
+    }
+    if (!history.dismissed.includes(ticket.id)) history.dismissed.push(ticket.id);
     saveVisitRatingHistory(ownerScope, history);
     setVisitRatingQueue(history.pending);
   };
 
   const savedCount = tickets.length > 0
-    ? tickets.filter(t => !terminalStatuses.has(t.status)).length
+    ? tickets.filter(t => !terminalStatuses.has(t.status) && t.status !== 'PENDING_CONFIRMATION').length
     : getSavedTicketIds(ownerScope).length;
 
   const renderHome = () => {
-    const activeTicket = tickets.find(ticket => !terminalStatuses.has(ticket.status)) ?? null;
+    const activeTicket = tickets.find(ticket => !terminalStatuses.has(ticket.status) && ticket.status !== 'PENDING_CONFIRMATION') ?? null;
     const rec: any = null;
     const fastest: any = null;
     const totalMin = 0;
@@ -2203,6 +2432,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
           ticketsLoading={ticketsLoading}
           error={pollError}
           activeTicket={activeTicket}
+          isTicketArrived={activeTicket ? Boolean(activeTicket.arrivedAt || arrivalAcknowledgedTicketIds.has(activeTicket.id)) : false}
           position={activeTicket ? positions[activeTicket.id] : undefined}
           eta={activeTicket ? etas[activeTicket.id] : undefined}
           branch={activeTicket ? branches.find(branch => branch.id === activeTicket.branchId) : undefined}
@@ -2225,7 +2455,16 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
             }}
             onOpenRoute={(branch, saved) => { setRouteOfferBranch(branch as RankedBranch); setRouteOfferTimeSaved(saved); }}
             onOpenMap={() => handleOpenMap()}
-            onBook={branch => { handleBranchSelect(branch); setScreen('booking'); setBookingStep(1); }}
+            onBook={branch => {
+              if (branch) {
+                handleBranchSelect(branch);
+                setScreen('booking');
+                setBookingStep(1);
+              } else {
+                setScreen('booking');
+                setBookingStep(0);
+              }
+            }}
           />}
         />
 
@@ -2444,7 +2683,10 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                 Карта отделений
               </h3>
               <p className="text-xs text-slate-500 leading-snug">
-                26 отделений и маршруты
+                {(() => {
+                  const count = branches.length > 0 ? branches.length : MOSCOW_BRANCHES.length;
+                  return `${count} ${getBranchPlural(count)} и маршруты`;
+                })()}
               </p>
             </div>
           </button>
@@ -2648,6 +2890,28 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                 onDayOffChange={setIsAppointmentDateDayOff}
               />
 
+              <div className="pt-2 border-t border-slate-100 space-y-1.5">
+                <label htmlFor="appointment-email-input" className="text-xs font-bold text-slate-700 flex items-center justify-between">
+                  <span>Электронная почта для подтверждения</span>
+                  <span className="text-[11px] font-normal text-slate-500">15 минут на подтверждение</span>
+                </label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                  <input
+                    id="appointment-email-input"
+                    type="email"
+                    value={appointmentEmail}
+                    onChange={(e) => setAppointmentEmail(e.target.value)}
+                    placeholder="name@example.com"
+                    disabled={creating}
+                    className="w-full h-11 pl-9 pr-3 rounded-xl border border-slate-200 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-[#003B73]"
+                  />
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  На этот адрес придёт 6-значный код. У вас будет 15 минут, чтобы подтвердить запись.
+                </p>
+              </div>
+
               <button
                 type="button"
                 className="w-full min-h-[48px] py-3 bg-[#003B73] hover:bg-[#054FA6] active:bg-[#00274D] text-white rounded-xl font-bold text-xs uppercase tracking-wider transition-all shadow-md active:scale-[0.99] disabled:opacity-50 flex items-center justify-center gap-2"
@@ -2657,12 +2921,12 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                 {creating ? (
                   <>
                     <span className="w-4 h-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
-                    <span>Оформляем...</span>
+                    <span>Отправляем код...</span>
                   </>
                 ) : isAppointmentDateDayOff ? (
                   <span>Выберите рабочий день</span>
                 ) : (
-                  <span>Подтвердить запись</span>
+                  <span>Получить код</span>
                 )}
               </button>
               </div>
@@ -2822,6 +3086,33 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                 <span>Отделение: <strong>{branches.find(b => b.id === branchId)?.name}</strong></span>
               </div>
 
+              {(() => {
+                const branchObj = branches.find(b => b.id === branchId);
+                const scheduleStatus = branchObj ? getBranchScheduleStatus(branchObj, workloads[branchId]) : null;
+                if (!scheduleStatus?.isClosed) return null;
+                return (
+                  <div className="p-3.5 bg-amber-50/90 border border-amber-200/90 rounded-2xl text-xs text-amber-950 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+                    <div className="flex items-start sm:items-center gap-2.5">
+                      <Clock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5 sm:mt-0" />
+                      <div>
+                        <span className="font-bold">Отделение сейчас закрыто ({scheduleStatus.closedUntilText}).</span>
+                        <span className="block sm:inline sm:ml-1 text-amber-900/90">Талон в живую очередь недоступен, но вы можете записаться онлайн.</span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setScreen('booking');
+                        setBookingStep(1);
+                      }}
+                      className="inline-flex items-center justify-center px-3.5 py-1.5 rounded-xl bg-[#003B73] hover:bg-[#054FA6] text-white text-xs font-bold transition-colors cursor-pointer shrink-0"
+                    >
+                      Записаться онлайн
+                    </button>
+                  </div>
+                );
+              })()}
+
               {!kiosk && <BranchWorkloadCard branch={branches.find(b => b.id === branchId)} />}
 
               <h3 className="text-sm font-bold text-slate-800">Выберите услугу</h3>
@@ -2849,21 +3140,29 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
               )}
 
               <div className="sticky bottom-3 sm:static z-20 pt-2 pb-1 bg-[#F8FAFC]/90 backdrop-blur-xs sm:bg-transparent">
-                <button
-                  type="button"
-                  className="w-full min-h-[48px] py-3.5 bg-[#003B73] hover:bg-[#054FA6] active:bg-[#00274D] text-white rounded-2xl font-black text-xs uppercase tracking-wider transition-all shadow-lg active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                  disabled={creating || !services.some(s => s.id === serviceId)}
-                  onClick={createQrTicket}
-                >
-                  {creating ? (
-                    <>
-                      <span className="w-4 h-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
-                      <span>Оформляем…</span>
-                    </>
-                  ) : (
-                    <span>Получить талон</span>
-                  )}
-                </button>
+                {(() => {
+                  const branchObj = branches.find(b => b.id === branchId);
+                  const isClosed = branchObj ? getBranchScheduleStatus(branchObj, workloads[branchId]).isClosed : false;
+                  return (
+                    <button
+                      type="button"
+                      className="w-full min-h-[48px] py-3.5 bg-[#003B73] hover:bg-[#054FA6] active:bg-[#00274D] text-white rounded-2xl font-black text-xs uppercase tracking-wider transition-all shadow-lg active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                      disabled={creating || !services.some(s => s.id === serviceId) || isClosed}
+                      onClick={createQrTicket}
+                    >
+                      {creating ? (
+                        <>
+                          <span className="w-4 h-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                          <span>Оформляем…</span>
+                        </>
+                      ) : isClosed ? (
+                        <span>Отделение сейчас закрыто</span>
+                      ) : (
+                        <span>Получить талон</span>
+                      )}
+                    </button>
+                  );
+                })()}
               </div>
             </div>
           )}
@@ -2893,46 +3192,57 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
           {notice && <NoticeBanner message={notice} onClose={() => setNotice(null)} />}
           {pollError && <div role="status" className="p-3.5 rounded-2xl bg-blue-50 border border-blue-200 text-[#054FA6] text-xs font-semibold">{pollError}</div>}
 
-          {ticketsLoading && tickets.length === 0 ? (
-            <div className="cx-request-state" role="status">Загружаем ваши талоны…</div>
-          ) : pollError && tickets.length === 0 ? (
-            <div className="cx-request-state" role="status">Восстанавливаем соединение. Ваши талоны сохранены, повторная загрузка выполняется автоматически.</div>
-          ) : tickets.length === 0 ? (
-            <div className="text-center py-16 px-4 bg-white rounded-3xl border border-slate-200 shadow-sm space-y-3">
-              <div className="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto text-slate-400">
-                <TicketIcon size={32} />
-              </div>
-              <h3 className="text-base font-bold text-slate-800">У вас нет активных талонов</h3>
-              <p className="text-xs text-slate-500 max-w-xs mx-auto">
-                Оформите талон или выберите предварительную запись на главной странице
-              </p>
-              <button
-                type="button"
-                onClick={() => setScreen('home')}
-                className="px-5 py-2.5 bg-[#003B73] hover:bg-[#054FA6] text-white font-bold text-xs uppercase tracking-wider rounded-xl shadow-sm transition-colors mt-2"
-              >
-                Оформить талон
-              </button>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {tickets.map(ticket => {
-                const position = positions[ticket.id];
-                const appointment = appointments[ticket.id];
-                const branch = branches.find(b => b.id === ticket.branchId);
-                const eta = etas[ticket.id];
-                const managementToken = getSavedMgmtTokens(ownerScope)[ticket.id] || ticket.managementToken || undefined;
-                const canExportAppointmentCalendar = ticket.source === 'APPOINTMENT'
-                  && appointment
-                  && isAppointmentCalendarEventAvailable(appointment, branch);
+          {(() => {
+            const visibleTickets = tickets.filter(t => t.status !== 'PENDING_CONFIRMATION');
+            if (ticketsLoading && visibleTickets.length === 0) {
+              return <div className="cx-request-state" role="status">Загружаем ваши талоны…</div>;
+            }
+            if (pollError && visibleTickets.length === 0) {
+              return <div className="cx-request-state" role="status">Восстанавливаем соединение. Ваши талоны сохранены, повторная загрузка выполняется автоматически.</div>;
+            }
+            if (visibleTickets.length === 0) {
+              return (
+                <div className="text-center py-16 px-4 bg-white rounded-3xl border border-slate-200 shadow-sm space-y-3">
+                  <div className="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto text-slate-400">
+                    <TicketIcon size={32} />
+                  </div>
+                  <h3 className="text-base font-bold text-slate-800">У вас нет активных талонов</h3>
+                  <p className="text-xs text-slate-500 max-w-xs mx-auto">
+                    Оформите талон или выберите предварительную запись на главной странице
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setScreen('home')}
+                    className="px-5 py-2.5 bg-[#003B73] hover:bg-[#054FA6] text-white font-bold text-xs uppercase tracking-wider rounded-xl shadow-sm transition-colors mt-2"
+                  >
+                    Оформить талон
+                  </button>
+                </div>
+              );
+            }
 
-                return (
-                  <div key={ticket.id} className="cx-active-ticket">
-                    {/* Branded Ticket Header */}
-                    <div className="cx-ticket-header" aria-live="polite" aria-atomic="true">
-                      <span className="cx-ticket-num font-mono">{ticket.publicNumber}</span>
-                      <StatusBadge status={ticket.status} source={ticket.source} />
-                    </div>
+            return (
+              <div className="space-y-4">
+                {visibleTickets.map(ticket => {
+                  const position = positions[ticket.id];
+                  const isArrived = Boolean(ticket.arrivedAt || arrivalAcknowledgedTicketIds.has(ticket.id));
+                  const appointment = appointments[ticket.id] || (ticket.source === 'APPOINTMENT' ? { ticket, scheduledAt: ticket.queueEnteredAt } : undefined);
+                  const branch = branches.find(b => b.id === ticket.branchId);
+                  const eta = etas[ticket.id];
+                  const managementToken = findMgmtToken(ticket.id, ownerScope) || getSavedMgmtTokens(ownerScope)[ticket.id] || ticket.managementToken || undefined;
+                  const canExportAppointmentCalendar = ticket.source === 'APPOINTMENT'
+                    && ticket.status === 'SCHEDULED'
+                    && !isArrived
+                    && Boolean(appointment)
+                    && isAppointmentCalendarEventAvailable(appointment, branch);
+
+                  return (
+                    <div key={ticket.id} className="cx-active-ticket">
+                      {/* Branded Ticket Header */}
+                      <div className="cx-ticket-header" aria-live="polite" aria-atomic="true">
+                        <span className="cx-ticket-num font-mono">{ticket.publicNumber}</span>
+                        <StatusBadge status={ticket.status} source={ticket.source} />
+                      </div>
 
                     {/* Animated Timeline */}
                     <div className="my-2.5 py-2 px-2 bg-slate-50/90 rounded-2xl border border-slate-200/80 overflow-x-auto shadow-2xs">
@@ -2942,9 +3252,10 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                         return (
                           <Timeline8
                             currentStep={getTicketTimelineStep(ticket.status, isTicketArrived)}
+                            status={ticket.status}
                             items={[
                               { id: 1, title: 'Выдан', description: position?.position ? `${position.position} в очереди` : 'Талон выдан' },
-                              { id: 2, title: 'Приглашение к окну', description: isCalledOrServing && ticket.window?.number ? `Окно №${ticket.window.number}` : 'Приглашение' },
+                              { id: 2, title: 'Приглашение к окну', description: isCalledOrServing && ticket.window?.number ? `Окно №${ticket.window.number}` : (isTicketArrived && ticket.status === 'SCHEDULED' ? 'Ожидание вызова' : 'Приглашение') },
                               { id: 3, title: 'Завершён', description: 'Готово' },
                             ]}
                             className="w-full max-w-full"
@@ -2957,7 +3268,19 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                     <div className="cx-ticket-details">
                       <div className="cx-ticket-row">
                         <span>Услуга</span>
-                        <strong>{services.find(s => s.id === ticket.serviceId)?.name || ticket.serviceId}</strong>
+                        <strong>
+                          {(() => {
+                            const found = (ticket as any).serviceName || services.find(s => s.id === ticket.serviceId)?.name;
+                            if (ticket.source === 'APPOINTMENT') {
+                              if (found && !found.includes('-')) return `Онлайн-запись: ${found}`;
+                              if (ticket.serviceId?.includes('2222')) return 'Онлайн-запись: Посылки';
+                              return 'Онлайн-запись';
+                            }
+                            if (found && !found.includes('-')) return found;
+                            if (ticket.serviceId?.includes('2222')) return 'Посылки';
+                            return 'Почтовые услуги';
+                          })()}
+                        </strong>
                       </div>
                       <div className="cx-ticket-row">
                         <span>Отделение</span>
@@ -3037,7 +3360,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                       )}
                     </div>
 
-                    {!terminalStatuses.has(ticket.status) && <NotificationControls ticket={ticket} managementToken={getSavedMgmtTokens(ownerScope)[ticket.id] || ticket.managementToken} />}
+                    {!terminalStatuses.has(ticket.status) && <NotificationControls ticket={ticket} managementToken={findMgmtToken(ticket.id, ownerScope) || ticket.managementToken} currentUserId={currentUserId} />}
 
 
 
@@ -3049,20 +3372,22 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                       {ticket.status === 'SCHEDULED' && ticket.source === 'APPOINTMENT' && (
                         (ticket.arrivedAt || arrivalAcknowledgedTicketIds.has(ticket.id)) ? (
                           <div className="cx-ticket-alert cx-ticket-alert-success">
-                            Ожидайте вызова, ваше прибытие отмечено
+                            Ранний приход отмечен: талон ожидает вызова в живой очереди
                           </div>
                         ) : (
-                          <button
-                            type="button"
-                            className="cx-btn cx-btn-primary cx-btn-block"
-                            onClick={() => arrive(ticket)}
-                            disabled={arriving}
-                          >
-                            {arriving ? 'Отмечаем...' : 'Я уже в отделении'}
-                          </button>
+                          ticket.scheduledAt && new Date(ticket.scheduledAt).getTime() > Date.now() ? (
+                            <button
+                              type="button"
+                              className="cx-btn cx-btn-primary cx-btn-block"
+                              onClick={() => arrive(ticket)}
+                              disabled={arriving}
+                            >
+                              {arriving ? 'Отмечаем...' : 'Я в отделении раньше времени'}
+                            </button>
+                          ) : null
                         )
                       )}
-                      {(ticket.status === 'SCHEDULED' || ticket.status === 'WAITING') && (
+                      {(ticket.status === 'SCHEDULED' || ticket.status === 'WAITING' || ticket.status === 'PENDING_CONFIRMATION') && (
                         <button
                           type="button"
                           className="cx-btn cx-btn-danger cx-btn-block"
@@ -3071,7 +3396,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                         >
                           {cancellingTicketId === ticket.id
                             ? 'Отменяем...'
-                            : (ticket.status === 'SCHEDULED' ? 'Отменить запись' : 'Отказаться от талона')}
+                            : (ticket.status === 'WAITING' ? 'Отказаться от талона' : 'Отменить запись')}
                         </button>
                       )}
                       {terminalStatuses.has(ticket.status) && ticket.status !== 'COMPLETED' && (
@@ -3088,9 +3413,10 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                 );
               })}
             </div>
-          )}
-        </div>
+          );
+        })()}
       </div>
+    </div>
     );
   };
 
@@ -3172,6 +3498,41 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
           onSubmit={(rating, comment) => finishVisitRating('reviewed', rating, comment)}
         />
       )}
+
+      {/* Accessible OTP Confirmation Dialog for appointments */}
+      <AppointmentConfirmationDialog
+        key={pendingAppointmentTicket?.id || 'none'}
+        open={isConfirmationDialogOpen}
+        ticket={pendingAppointmentTicket}
+        branch={branches.find(b => b.id === pendingAppointmentTicket?.branchId)}
+        onOpenChange={(open) => setIsConfirmationDialogOpen(open)}
+        onSuccess={(confirmedTicket) => {
+          clearPendingAppointmentFlow(ownerScope);
+          addSavedTicketId(confirmedTicket.id, ownerScope);
+          const mgmtToken = confirmedTicket.managementToken || (pendingAppointmentTicket && findMgmtToken(pendingAppointmentTicket.id, ownerScope));
+          if (mgmtToken) {
+            saveMgmtToken(confirmedTicket.id, mgmtToken, ownerScope);
+          }
+          setTickets(prev => [confirmedTicket, ...prev.filter(t => t.id !== confirmedTicket.id)]);
+          setAppointments(prev => ({
+            ...prev,
+            [confirmedTicket.id]: {
+              ticket: confirmedTicket,
+              scheduledAt: confirmedTicket.queueEnteredAt || (confirmedTicket as any).scheduledAt || new Date().toISOString(),
+            },
+          }));
+          setIsConfirmationDialogOpen(false);
+          setPendingAppointmentTicket(null);
+          setNotice('Запись успешно подтверждена!');
+          setScreen('my');
+          pollAll();
+        }}
+        onCancel={() => {
+          clearPendingAppointmentFlow(ownerScope);
+          setIsConfirmationDialogOpen(false);
+          setPendingAppointmentTicket(null);
+        }}
+      />
 
     </div>
   );

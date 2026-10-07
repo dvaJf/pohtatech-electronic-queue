@@ -4,20 +4,34 @@ import { cn } from "@/lib/utils";
 interface TimelineContextValue {
   activeStep?: number;
   orientation?: "horizontal" | "vertical";
+  status?: string;
+}
+
+interface TimelineItemContextValue {
+  step: number;
+  isCompleted: boolean;
+  isCurrent: boolean;
 }
 
 const TimelineContext = React.createContext<TimelineContextValue>({});
+const TimelineItemContext = React.createContext<TimelineItemContextValue>({
+  step: 1,
+  isCompleted: false,
+  isCurrent: false,
+});
 
 export interface TimelineProps extends React.HTMLAttributes<HTMLDivElement> {
   defaultValue?: number;
   value?: number;
   orientation?: "horizontal" | "vertical";
+  status?: string;
 }
 
 export function Timeline({
   defaultValue = 1,
   value,
   orientation = "horizontal",
+  status,
   className,
   children,
   ...props
@@ -25,7 +39,7 @@ export function Timeline({
   const activeStep = value !== undefined ? value : defaultValue;
 
   return (
-    <TimelineContext.Provider value={{ activeStep, orientation }}>
+    <TimelineContext.Provider value={{ activeStep, orientation, status }}>
       <div
         className={cn(
           "relative flex font-['Manrope']",
@@ -57,18 +71,20 @@ export function TimelineItem({
   const isCurrent = activeStep !== undefined && step === activeStep;
 
   return (
-    <div
-      data-step={step}
-      data-state={isCurrent ? "current" : isCompleted ? "completed" : "pending"}
-      className={cn(
-        "relative flex flex-col group flex-1 items-center text-center min-w-0 px-1",
-        orientation === "horizontal" ? "min-w-0" : "w-full text-left",
-        className
-      )}
-      {...props}
-    >
-      {children}
-    </div>
+    <TimelineItemContext.Provider value={{ step, isCompleted, isCurrent }}>
+      <div
+        data-step={step}
+        data-state={isCurrent ? "current" : isCompleted ? "completed" : "pending"}
+        className={cn(
+          "relative flex flex-col group flex-1 items-center text-center min-w-0 px-1",
+          orientation === "horizontal" ? "min-w-0" : "w-full text-left",
+          className
+        )}
+        {...props}
+      >
+        {children}
+      </div>
+    </TimelineItemContext.Provider>
   );
 }
 
@@ -112,15 +128,95 @@ export function TimelineSeparator({
   className,
   ...props
 }: React.HTMLAttributes<HTMLDivElement>) {
+  const { activeStep, orientation, status } = React.useContext(TimelineContext);
+  const { step, isCompleted, isCurrent } = React.useContext(TimelineItemContext);
+
+  // Business logic:
+  // "если вызвали загорелась первая половина, а если обслуживают вторая тоже."
+  // - Step 1 right: 1st half of the stripe between Step 1 and Step 2.
+  //   Active on CALLED, SERVING, COMPLETED (or activeStep >= 2).
+  // - Step 2 left: 2nd half of the stripe between Step 1 and Step 2.
+  //   Active on SERVING, COMPLETED (or when step is completed).
+  // When CALLED: 1st half is blue, 2nd half is gray.
+  // When SERVING: both 1st and 2nd halves are blue!
+
+  let isLeftActive = false;
+  let isRightActive = false;
+
+  if (step === 1) {
+    isLeftActive = false;
+    if (status) {
+      isRightActive = status === 'CALLED' || status === 'SERVING' || status === 'COMPLETED';
+    } else {
+      isRightActive = isCompleted || (activeStep !== undefined && activeStep >= 2);
+    }
+  } else if (step === 2) {
+    if (status) {
+      isLeftActive = status === 'SERVING' || status === 'COMPLETED';
+      isRightActive = status === 'COMPLETED';
+    } else {
+      isLeftActive = isCompleted;
+      isRightActive = isCompleted;
+    }
+  } else {
+    if (status) {
+      isLeftActive = status === 'COMPLETED';
+    } else {
+      isLeftActive = isCompleted || isCurrent;
+    }
+    isRightActive = false;
+  }
+
+  if (orientation === "vertical") {
+    return (
+      <div
+        className={cn(
+          "absolute left-1/2 -translate-x-1/2 top-0 bottom-0 w-[2px] z-0 flex flex-col",
+          className
+        )}
+        {...props}
+      >
+        <div
+          className={cn(
+            "w-full h-1/2 transition-colors duration-300",
+            "group-first:opacity-0",
+            isLeftActive ? "bg-[#003B73]" : "bg-slate-200"
+          )}
+        />
+        <div
+          className={cn(
+            "w-full h-1/2 transition-colors duration-300",
+            "group-last:opacity-0",
+            isRightActive ? "bg-[#003B73]" : "bg-slate-200"
+          )}
+        />
+      </div>
+    );
+  }
+
   return (
     <div
       className={cn(
-        "absolute top-1/2 -translate-y-1/2 left-0 right-0 h-[2px] bg-slate-200 -z-0 group-first:left-1/2 group-last:right-1/2",
-        "group-data-[state=completed]:bg-[#003B73] transition-colors duration-300",
+        "absolute top-1/2 -translate-y-1/2 left-0 right-0 h-[2px] z-0 flex",
         className
       )}
       {...props}
-    />
+    >
+      <div
+        className={cn(
+          "h-full w-1/2 transition-colors duration-300",
+          "group-first:opacity-0",
+          isLeftActive ? "bg-[#003B73]" : "bg-slate-200"
+        )}
+      />
+      <div
+        className={cn(
+          "h-full w-1/2 transition-colors duration-300",
+          "group-last:opacity-0",
+          isRightActive ? "bg-[#003B73]" : "bg-slate-200"
+        )}
+      />
+    </div>
   );
 }
 
@@ -170,7 +266,7 @@ export function TimelineIndicator({
   return (
     <div
       className={cn(
-        "relative z-10 flex h-6 w-6 sm:h-7 sm:w-7 items-center justify-center rounded-full border-2 transition-all duration-300",
+        "relative z-10 flex h-6 w-6 sm:h-7 sm:w-7 shrink-0 aspect-square items-center justify-center rounded-full border-2 transition-all duration-300",
         "group-data-[state=completed]:bg-[#003B73] group-data-[state=completed]:border-[#003B73] group-data-[state=completed]:text-white shadow-xs",
         "group-data-[state=current]:bg-blue-50 group-data-[state=current]:border-[#003B73] group-data-[state=current]:text-[#003B73] group-data-[state=current]:scale-110 shadow-md ring-4 ring-blue-100/70",
         "group-data-[state=pending]:bg-white group-data-[state=pending]:border-slate-300 group-data-[state=pending]:text-slate-400",

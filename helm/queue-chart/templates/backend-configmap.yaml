@@ -13,4 +13,5 @@ data:
   NOTIFICATION_TIMEOUT_SECONDS: {{ .Values.backend.config.notificationTimeoutSeconds | quote }}
   NOTIFICATION_RETRY_INTERVAL_MS: {{ .Values.backend.config.notificationRetryIntervalMs | quote }}
   NOTIFICATION_MAX_ATTEMPTS: {{ .Values.backend.config.notificationMaxAttempts | quote }}
+  ALLOW_TEST_APPOINTMENT_CONFIRM: {{ .Values.backend.config.allowTestAppointmentConfirm | quote }}
   OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4318"

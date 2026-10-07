@@ -123,8 +123,8 @@ export function getBranchWeeklySchedule(
   let matchedConfig = code ? AUTHENTIC_BRANCH_SCHEDULES[code] : undefined;
 
   if (!matchedConfig && name) {
-    if (name.includes('Мясницкая') || name.includes('Главпочтамт')) matchedConfig = AUTHENTIC_BRANCH_SCHEDULES['101000'];
-    else if (name.includes('Тверская')) matchedConfig = AUTHENTIC_BRANCH_SCHEDULES['125009'];
+    if (name.includes('Мясницкая') || (code === '101000')) matchedConfig = AUTHENTIC_BRANCH_SCHEDULES['101000'];
+    else if (name.includes('Тверская') && !name.includes('1-я Тверская')) matchedConfig = AUTHENTIC_BRANCH_SCHEDULES['125009'];
     else if (name.includes('Комсомольская')) matchedConfig = AUTHENTIC_BRANCH_SCHEDULES['107140'];
     else if (name.includes('Рождественка')) matchedConfig = AUTHENTIC_BRANCH_SCHEDULES['107031'];
     else if (name.includes('Покровка')) matchedConfig = AUTHENTIC_BRANCH_SCHEDULES['101000-2'];
@@ -136,8 +136,18 @@ export function getBranchWeeklySchedule(
 
   const weekdayHours = rawWorkHours?.trim() || matchedConfig?.weekday || '08:00–20:00';
   const isCustomWorkHours = Boolean(rawWorkHours && (!matchedConfig || rawWorkHours.trim() !== matchedConfig.weekday));
-  const saturdayHours = isCustomWorkHours ? weekdayHours : (matchedConfig ? matchedConfig.saturday : '09:00–18:00');
-  const sundayHours = isCustomWorkHours ? (weekdayHours.includes('22:00') ? weekdayHours : null) : (matchedConfig !== undefined ? matchedConfig.sunday : (weekdayHours.includes('22:00') ? '09:00–18:00' : null));
+  const saturdayHours = isCustomWorkHours
+    ? (weekdayHours.includes('22:00') ? weekdayHours : (weekdayHours.includes('21:00') ? weekdayHours : '09:00–18:00'))
+    : (matchedConfig ? matchedConfig.saturday : '09:00–18:00');
+  const sundayHours = matchedConfig && !isCustomWorkHours
+    ? matchedConfig.sunday
+    : (weekdayHours.includes('22:00')
+        ? weekdayHours
+        : (weekdayHours.includes('21:00')
+            ? (weekdayHours.startsWith('08:') ? '09:00–21:00' : weekdayHours)
+            : (weekdayHours.includes('20:00')
+                ? '09:00–20:00'
+                : '09:00–18:00')));
 
   return DAY_NAMES.map((d, index) => {
     let hoursText = weekdayHours;
@@ -293,3 +303,63 @@ function findNextOpenDay(
   }
   return null;
 }
+
+/**
+ * Walk-in eligibility check:
+ * A branch is eligible for immediate queueing / Smart Route recommendation ONLY if:
+ * 1. It is currently open according to its official schedule and timezone.
+ * 2. It has active operational capacity (windows not all closed / shift not closed).
+ * 3. The user will arrive before closing (now + travelMinutes < closeMinutes).
+ * 4. The user has reasonable time to be served (arrival + estimated queue <= closing time).
+ */
+export function isBranchEligibleForWalkIn(
+  branch: { code?: string; name?: string; workHours?: string; isShiftClosed?: boolean },
+  workload?: BranchWorkload,
+  travelMinutes = 0,
+  referenceDate = new Date()
+): { eligible: boolean; reason?: string } {
+  // Synthetic / unit test branch without postal code or schedule metadata
+  if (!branch.workHours && !branch.code) {
+    if (branch.isShiftClosed) {
+      return { eligible: false, reason: 'Смена закрыта' };
+    }
+    if (workload && typeof workload.activeWindows === 'number' && workload.activeWindows <= 0) {
+      return { eligible: false, reason: 'Нет открытых окон обслуживания' };
+    }
+    return { eligible: true };
+  }
+
+  const status = getBranchScheduleStatus(branch, workload, referenceDate);
+  if (status.isClosed) {
+    return { eligible: false, reason: status.closedUntilText || 'Отделение закрыто' };
+  }
+
+  // Проверка открытых окон
+  if (workload && typeof workload.activeWindows === 'number' && workload.activeWindows <= 0) {
+    return { eligible: false, reason: 'Нет открытых окон обслуживания' };
+  }
+
+  // Проверка прибытия до закрытия
+  const moscowNow = getMoscowTimeComponents(referenceDate);
+  const currentTotalMinutes = moscowNow.hour * 60 + moscowNow.minute;
+  const today = status.todaySchedule;
+  if (today?.closeTime) {
+    const [ch, cm] = today.closeTime.split(':').map(Number);
+    const closeTotalMinutes = (ch || 0) * 60 + (cm || 0);
+
+    // Дорога
+    const arrivalTimeMinutes = currentTotalMinutes + travelMinutes;
+    if (arrivalTimeMinutes >= closeTotalMinutes) {
+      return { eligible: false, reason: 'Отделение закроется до вашего прибытия' };
+    }
+
+    // Дорога + минимальное обслуживание (не успеет обслужиться до закрытия)
+    const queueWait = workload?.estimatedWaitSeconds ? Math.ceil(workload.estimatedWaitSeconds / 60) : 0;
+    if (arrivalTimeMinutes + queueWait > closeTotalMinutes + 5) {
+      return { eligible: false, reason: 'Отделение закроется до окончания обслуживания' };
+    }
+  }
+
+  return { eligible: true };
+}
+

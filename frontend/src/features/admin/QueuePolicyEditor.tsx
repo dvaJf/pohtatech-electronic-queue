@@ -71,21 +71,29 @@ export const QueuePolicyEditor: React.FC<QueuePolicyEditorProps> = ({
       const data = await api.getQueuePolicy(branchId);
       if (id !== requestId.current) return;
       setPolicy(data);
+      const initialInterval = data.scheduledPromotionIntervalMinutes ?? data.antiStarvationThresholdMinutes;
+      const initialGrace = data.scheduledAppointmentGraceMinutes ?? data.appointmentGraceMinutes;
       setValues({
         appointmentDuePriority: data.appointmentDuePriority,
         qrPriority: data.qrPriority,
         livePriority: data.livePriority,
-        antiStarvationThresholdMinutes: data.antiStarvationThresholdMinutes,
+        antiStarvationThresholdMinutes: initialInterval,
         antiStarvationPointsPerMinute: data.antiStarvationPointsPerMinute,
-        appointmentGraceMinutes: data.appointmentGraceMinutes,
+        appointmentGraceMinutes: initialGrace,
         appointmentLatePenaltyPerMinute: data.appointmentLatePenaltyPerMinute,
         appointmentLatePenaltyMaxPoints: data.appointmentLatePenaltyMaxPoints,
       });
-      if (data.appointmentDuePriority === 100 && data.qrPriority === 20 && data.livePriority === 10) {
+      if (
+        data.appointmentDuePriority === 100 &&
+        data.qrPriority === 20 &&
+        data.livePriority === 10 &&
+        initialInterval === 15 &&
+        initialGrace === 10
+      ) {
         setSelectedPreset('balance');
-      } else if (data.appointmentDuePriority === 80 && data.livePriority === 20) {
+      } else if (data.appointmentDuePriority === 80 && data.livePriority === 20 && initialInterval === 10) {
         setSelectedPreset('rush');
-      } else if (data.appointmentDuePriority >= 200) {
+      } else if (data.appointmentDuePriority >= 200 && initialInterval >= 20) {
         setSelectedPreset('appointment');
       } else {
         setSelectedPreset(null);
@@ -154,7 +162,7 @@ export const QueuePolicyEditor: React.FC<QueuePolicyEditorProps> = ({
         livePriority: 10,
         antiStarvationThresholdMinutes: 15,
         antiStarvationPointsPerMinute: 10,
-        appointmentGraceMinutes: 15,
+        appointmentGraceMinutes: 10,
         appointmentLatePenaltyPerMinute: 5,
         appointmentLatePenaltyMaxPoints: 90,
       }));
@@ -166,7 +174,7 @@ export const QueuePolicyEditor: React.FC<QueuePolicyEditorProps> = ({
         livePriority: 20,
         antiStarvationThresholdMinutes: 10,
         antiStarvationPointsPerMinute: 20,
-        appointmentGraceMinutes: 10,
+        appointmentGraceMinutes: 5,
         appointmentLatePenaltyPerMinute: 8,
         appointmentLatePenaltyMaxPoints: 75,
       }));
@@ -176,9 +184,9 @@ export const QueuePolicyEditor: React.FC<QueuePolicyEditorProps> = ({
         appointmentDuePriority: 250,
         qrPriority: 10,
         livePriority: 10,
-        antiStarvationThresholdMinutes: 25,
+        antiStarvationThresholdMinutes: 20,
         antiStarvationPointsPerMinute: 5,
-        appointmentGraceMinutes: 30,
+        appointmentGraceMinutes: 15,
         appointmentLatePenaltyPerMinute: 5,
         appointmentLatePenaltyMaxPoints: 100,
       }));
@@ -193,7 +201,7 @@ export const QueuePolicyEditor: React.FC<QueuePolicyEditorProps> = ({
     values.antiStarvationThresholdMinutes >= 20 ? 'low' : values.antiStarvationThresholdMinutes >= 12 ? 'medium' : 'high';
 
   const gracePeriodLevel =
-    values.appointmentGraceMinutes <= 8 ? 'low' : values.appointmentGraceMinutes <= 18 ? 'medium' : 'high';
+    values.appointmentGraceMinutes <= 7 ? 'low' : values.appointmentGraceMinutes <= 12 ? 'medium' : 'high';
 
   const latePenaltyLevel =
     values.appointmentLatePenaltyPerMinute <= 3 ? 'low' : values.appointmentLatePenaltyPerMinute <= 7 ? 'medium' : 'high';
@@ -202,21 +210,29 @@ export const QueuePolicyEditor: React.FC<QueuePolicyEditorProps> = ({
     selectedPreset === 'balance' ||
     (!selectedPreset &&
       values.appointmentDuePriority === 100 &&
-      channelPriorityLevel === 'medium' &&
-      starvationGuardLevel === 'medium');
+      values.qrPriority === 20 &&
+      values.livePriority === 10 &&
+      values.antiStarvationThresholdMinutes === 15 &&
+      values.appointmentGraceMinutes === 10 &&
+      latePenaltyLevel === 'medium');
 
   const isRushActive =
     selectedPreset === 'rush' ||
     (!selectedPreset &&
       values.appointmentDuePriority === 80 &&
-      channelPriorityLevel === 'high' &&
-      starvationGuardLevel === 'high');
+      values.qrPriority === 10 &&
+      values.livePriority === 20 &&
+      values.antiStarvationThresholdMinutes === 10 &&
+      values.appointmentGraceMinutes === 5);
 
   const isAppointmentActive =
     selectedPreset === 'appointment' ||
     (!selectedPreset &&
-      values.appointmentDuePriority >= 180 &&
-      channelPriorityLevel === 'low');
+      values.appointmentDuePriority >= 200 &&
+      values.qrPriority === 10 &&
+      values.livePriority === 10 &&
+      values.antiStarvationThresholdMinutes >= 20 &&
+      values.appointmentGraceMinutes >= 15);
 
   const handleSave = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -238,16 +254,17 @@ export const QueuePolicyEditor: React.FC<QueuePolicyEditorProps> = ({
         appointmentDuePriority: updated.appointmentDuePriority,
         qrPriority: updated.qrPriority,
         livePriority: updated.livePriority,
-        antiStarvationThresholdMinutes: updated.antiStarvationThresholdMinutes,
+        antiStarvationThresholdMinutes: updated.scheduledPromotionIntervalMinutes ?? updated.antiStarvationThresholdMinutes,
         antiStarvationPointsPerMinute: updated.antiStarvationPointsPerMinute,
-        appointmentGraceMinutes: updated.appointmentGraceMinutes,
+        appointmentGraceMinutes: updated.scheduledAppointmentGraceMinutes ?? updated.appointmentGraceMinutes,
         appointmentLatePenaltyPerMinute: updated.appointmentLatePenaltyPerMinute,
         appointmentLatePenaltyMaxPoints: updated.appointmentLatePenaltyMaxPoints,
       });
       setNotice({
         type: 'success',
-        message: `Правила очереди успешно сохранены! Версия обновлена: v${updated.version}`,
+        message: 'Правила очереди успешно сохранены и вступят в силу со следующего календарного дня!',
       });
+      setTimeout(() => setNotice(null), 8000);
     } catch (err) {
       if (id !== requestId.current) return;
       if (err instanceof AdminApiError && err.status === 409 && err.code === 'POLICY_VERSION_CONFLICT') {
@@ -289,24 +306,37 @@ export const QueuePolicyEditor: React.FC<QueuePolicyEditorProps> = ({
             </div>
           </div>
 
-          {policy && (
-            <div className="flex items-center gap-2">
-              <span className="font-mono text-xs font-bold bg-blue-50 text-[#054FA6] px-3 py-1 rounded-full border border-blue-200">
-                Версия правил: v{policy.version}
-              </span>
-            </div>
-          )}
+          {/* Policy version badge removed by user request */}
         </div>
+
+        {policy && policy.scheduledEffectiveOn && (
+          <div
+            role="status"
+            className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-start gap-3 shadow-sm"
+          >
+            <Clock className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+            <div>
+              <div className="font-bold">
+                Запланировано изменение со следующего дня ({policy.scheduledEffectiveOn})
+              </div>
+              <div className="text-[11px] text-amber-800 mt-0.5">
+                Интервал повышения: {policy.scheduledPromotionIntervalMinutes ?? policy.antiStarvationThresholdMinutes} мин,
+                льготный период записи: {policy.scheduledAppointmentGraceMinutes ?? policy.appointmentGraceMinutes} мин.
+                Текущие настройки активны до конца дня.
+              </div>
+            </div>
+          </div>
+        )}
 
         {notice && (
           <div
             role="alert"
-            className={`p-3.5 rounded-2xl text-xs font-semibold flex items-center justify-between gap-2 shadow-sm ${
+            className={`p-3.5 rounded-2xl text-xs flex items-center justify-between gap-2 shadow-sm animate-fadeIn ${
               notice.type === 'success'
-                ? 'bg-emerald-50 border border-emerald-200 text-emerald-800'
+                ? 'bg-emerald-50 border border-emerald-200 text-emerald-800 font-bold'
                 : notice.type === 'warning'
-                ? 'bg-amber-50 border border-amber-200 text-amber-900'
-                : 'bg-red-50 border border-red-200 text-red-700'
+                ? 'bg-amber-50 border border-amber-200 text-amber-900 font-semibold'
+                : 'bg-rose-50 border border-rose-200 text-rose-800 font-bold'
             }`}
           >
             <div className="flex items-center gap-2">
@@ -320,7 +350,11 @@ export const QueuePolicyEditor: React.FC<QueuePolicyEditorProps> = ({
             <button
               type="button"
               onClick={() => setNotice(null)}
-              className="text-slate-400 hover:text-slate-600 px-1 font-bold"
+              className={
+                notice.type === 'success'
+                  ? 'text-emerald-700 hover:text-emerald-900 px-1 font-bold'
+                  : 'text-slate-400 hover:text-slate-600 px-1 font-bold'
+              }
               aria-label="Закрыть уведомление"
             >
               ✕
@@ -474,33 +508,33 @@ export const QueuePolicyEditor: React.FC<QueuePolicyEditorProps> = ({
                 </div>
               </div>
 
-              {/* Параметр 2: Защита от долгого ожидания */}
+              {/* Параметр 2: Повышать приоритет каждые (ступенчатое старение) */}
               <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-sm space-y-3">
                 <div className="flex items-start justify-between">
                   <div>
-                    <h3 className="text-xs font-bold text-slate-900">Защита от долгого ожидания</h3>
+                    <h3 className="text-xs font-bold text-slate-900">Повышать приоритет каждые</h3>
                     <p className="text-[11px] text-slate-500 mt-0.5">
-                      Порог времени, после которого талон форсированно продвигается к вызову
+                      Интервал перехода талонов на следующий уровень (LIVE → QR → APPOINTMENT)
                     </p>
                   </div>
                 </div>
                 <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-100 rounded-xl text-xs font-bold">
                   <button
                     type="button"
-                    onClick={() => { setSelectedPreset(null); setValues(v => ({ ...v, antiStarvationThresholdMinutes: 25 })); }}
+                    onClick={() => { setSelectedPreset(null); setValues(v => ({ ...v, antiStarvationThresholdMinutes: 10 })); }}
                     className={`py-1.5 rounded-lg transition-all ${
-                      starvationGuardLevel === 'low'
-                        ? 'bg-white text-slate-900 shadow-sm'
+                      values.antiStarvationThresholdMinutes === 10
+                        ? 'bg-white text-[#003B73] shadow-sm font-black'
                         : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
-                    Мягкая (25 мин)
+                    10 минут
                   </button>
                   <button
                     type="button"
                     onClick={() => { setSelectedPreset(null); setValues(v => ({ ...v, antiStarvationThresholdMinutes: 15 })); }}
                     className={`py-1.5 rounded-lg transition-all ${
-                      starvationGuardLevel === 'medium'
+                      values.antiStarvationThresholdMinutes === 15
                         ? 'bg-white text-[#003B73] shadow-sm font-black'
                         : 'text-slate-600 hover:text-slate-900'
                     }`}
@@ -509,25 +543,25 @@ export const QueuePolicyEditor: React.FC<QueuePolicyEditorProps> = ({
                   </button>
                   <button
                     type="button"
-                    onClick={() => { setSelectedPreset(null); setValues(v => ({ ...v, antiStarvationThresholdMinutes: 10 })); }}
+                    onClick={() => { setSelectedPreset(null); setValues(v => ({ ...v, antiStarvationThresholdMinutes: 20 })); }}
                     className={`py-1.5 rounded-lg transition-all ${
-                      starvationGuardLevel === 'high'
-                        ? 'bg-white text-amber-700 shadow-sm font-black'
+                      values.antiStarvationThresholdMinutes === 20
+                        ? 'bg-white text-[#003B73] shadow-sm font-black'
                         : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
-                    10 мин (Жёсткая)
+                    20 минут
                   </button>
                 </div>
               </div>
 
-              {/* Параметр 3: Льготный период для записи */}
+              {/* Параметр 3: Льготное опоздание записи */}
               <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-sm space-y-3">
                 <div className="flex items-start justify-between">
                   <div>
-                    <h3 className="text-xs font-bold text-slate-900">Льготное окно для записи</h3>
+                    <h3 className="text-xs font-bold text-slate-900">Льготное опоздание записи</h3>
                     <p className="text-[11px] text-slate-500 mt-0.5">
-                      Сколько времени после наступления слота клиент сохраняет максимальный приоритет
+                      Время после наступления слота до понижения на уровень QR
                     </p>
                   </div>
                 </div>
@@ -536,8 +570,8 @@ export const QueuePolicyEditor: React.FC<QueuePolicyEditorProps> = ({
                     type="button"
                     onClick={() => { setSelectedPreset(null); setValues(v => ({ ...v, appointmentGraceMinutes: 5 })); }}
                     className={`py-1.5 rounded-lg transition-all ${
-                      gracePeriodLevel === 'low'
-                        ? 'bg-white text-slate-900 shadow-sm'
+                      values.appointmentGraceMinutes === 5
+                        ? 'bg-white text-[#003B73] shadow-sm font-black'
                         : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
@@ -545,25 +579,25 @@ export const QueuePolicyEditor: React.FC<QueuePolicyEditorProps> = ({
                   </button>
                   <button
                     type="button"
-                    onClick={() => { setSelectedPreset(null); setValues(v => ({ ...v, appointmentGraceMinutes: 15 })); }}
+                    onClick={() => { setSelectedPreset(null); setValues(v => ({ ...v, appointmentGraceMinutes: 10 })); }}
                     className={`py-1.5 rounded-lg transition-all ${
-                      gracePeriodLevel === 'medium'
+                      values.appointmentGraceMinutes === 10
                         ? 'bg-white text-[#003B73] shadow-sm font-black'
                         : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
-                    15 минут ★
+                    10 минут ★
                   </button>
                   <button
                     type="button"
-                    onClick={() => { setSelectedPreset(null); setValues(v => ({ ...v, appointmentGraceMinutes: 30 })); }}
+                    onClick={() => { setSelectedPreset(null); setValues(v => ({ ...v, appointmentGraceMinutes: 15 })); }}
                     className={`py-1.5 rounded-lg transition-all ${
-                      gracePeriodLevel === 'high'
-                        ? 'bg-white text-emerald-700 shadow-sm font-black'
+                      values.appointmentGraceMinutes === 15
+                        ? 'bg-white text-[#003B73] shadow-sm font-black'
                         : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
-                    30 минут
+                    15 минут
                   </button>
                 </div>
               </div>
@@ -634,11 +668,11 @@ export const QueuePolicyEditor: React.FC<QueuePolicyEditorProps> = ({
                 <div className="p-4 border-t border-slate-200 bg-white space-y-4">
                   <div className="p-3 bg-slate-100 rounded-xl space-y-1 font-mono text-[11px] text-slate-700">
                     <div className="font-bold text-[#003B73]">
-                      Канонический порядок вызова (Queue Engine):
+                      Канонический порядок вызова (Tiered Queue Engine):
                     </div>
-                    <div>ORDER BY due_at ASC, source_rank ASC, checkin_at ASC, id ASC</div>
+                    <div>ORDER BY effective_tier ASC, tier_entered_at ASC, created_at ASC, id ASC</div>
                     <div className="text-[10px] text-slate-500 font-sans mt-0.5">
-                      Талоны упорядочиваются по целевому сроку обслуживания (дедлайну due_at). Защита от стагнации сдвигает расчетный дедлайн ожидания.
+                      Ступенчатый приоритет: APPOINTMENT (0) → QR (1) → LIVE (2). Старение каждые T минут. Сохранение активируется со следующего календарного дня.
                     </div>
                   </div>
 

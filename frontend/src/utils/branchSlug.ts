@@ -8,6 +8,15 @@ export interface BranchPostalRef {
 }
 
 /**
+ * Очищает название отделения от избыточного почтового индекса в конце строки
+ * (например: «Главпочтамт г. Казань 420000» -> «Главпочтамт г. Казань»).
+ */
+export function cleanBranchName(name: string): string {
+  if (!name) return '';
+  return name.replace(/\s+\d{6}$/, '').trim();
+}
+
+/**
  * Официальный каталог отделений Почты России с индексами (pochta.ru).
  */
 export const POSTAL_BRANCHES: BranchPostalRef[] = [

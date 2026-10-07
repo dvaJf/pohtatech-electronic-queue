@@ -29,7 +29,7 @@ func completedFor(t *testing.T, ctx context.Context, p *Postgres, branch, window
 
 func TestFeedbackBranchIsolationAndEligibility(t *testing.T) {
 	ctx, p, _ := integration(t)
-	branchB, windowB := "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+	branchB, windowB := "00000000-0000-0000-0000-000000000002", "00000000-0000-0000-0000-000000000003"
 	execSQL(t, ctx, p, `INSERT INTO branches(id,name,address) VALUES($1::uuid,'B','B')`, branchB)
 	execSQL(t, ctx, p, `INSERT INTO branch_services(branch_id,service_id) VALUES($1::uuid,$2::uuid)`, branchB, parcels)
 	execSQL(t, ctx, p, `INSERT INTO queue_policies(branch_id,appointment_due_priority,qr_priority,live_priority,anti_starvation_threshold_minutes,anti_starvation_points_per_minute,appointment_grace_minutes,appointment_late_penalty_per_minute,appointment_late_penalty_max_points,version) SELECT $1::uuid,appointment_due_priority,qr_priority,live_priority,anti_starvation_threshold_minutes,anti_starvation_points_per_minute,appointment_grace_minutes,appointment_late_penalty_per_minute,appointment_late_penalty_max_points,version FROM queue_policies WHERE branch_id=$2::uuid`, branchB, demoBranch)
@@ -173,9 +173,7 @@ func TestFeedbackAnalyticsThirtyDayWindows(t *testing.T) {
 
 func TestFeedbackMigrationRoundTrip(t *testing.T) {
 	ctx, p, m := integration(t)
-	if err := m.Steps(-1); err != nil {
-		t.Fatal(err)
-	}
+	downTo(t, m, 23) // Replay 000024_ticket_feedback, independent of the head.
 	var exists *string
 	if err := p.pool.QueryRow(ctx, `SELECT to_regclass('ticket_feedback')::text`).Scan(&exists); err != nil {
 		t.Fatal(err)

@@ -12,11 +12,9 @@ import (
 )
 
 var (
-	rxTimeColon = regexp.MustCompile(`(?i)(?:на|в|к)?\s*(\d{1,2})[:.](\d{2})`)
-	rxTimeHour  = regexp.MustCompile(`(?i)(?:на|в|к)\s*(\d{1,2})\s*(?:час(?:а|ов)?|ч\b)`)
-	rxTomorrow  = regexp.MustCompile(`(?i)\bзавтра\b`)
-	rxDayAfter  = regexp.MustCompile(`(?i)\bпослезавтра\b`)
-	rxToday     = regexp.MustCompile(`(?i)\bсегодня\b`)
+	rxTimeColon  = regexp.MustCompile(`(?i)(?:на|в|к)?\s*(\d{1,2})[:.](\d{2})`)
+	rxTimeHour   = regexp.MustCompile(`(?i)(?:на|в|к)\s*(\d{1,2})\s*(?:час(?:а|ов)?|ч\b)`)
+	rxDirectHour = regexp.MustCompile(`(?i)(?:на|в|к)\s+(\d{1,2})\b`)
 )
 
 // ClassifyIntent parses user input and NLU data into a VoiceIntent, extracting slots and scheduled time.
@@ -49,7 +47,7 @@ func ClassifyIntent(req AliceReqBody, hasPendingAction bool) (voice.VoiceIntent,
 	}
 
 	// 2. Cancellation
-	if containsAny(cmd, "отмени", "отменить", "отмена записи", "не пойду на почту", "сними запись") {
+	if containsAny(cmd, "отмени", "отменить", "отмена", "удали", "удалить", "удаление", "сними", "снять запись", "не пойду", "не хочу идти", "отказаться") {
 		return voice.IntentCancelTicket, scheduledAt, slots
 	}
 
@@ -87,6 +85,12 @@ func ClassifyIntent(req AliceReqBody, hasPendingAction bool) (voice.VoiceIntent,
 	// 7. Specific appointment booking (Feature: user asks to book for a specific time)
 	if scheduledAt != nil || containsAny(cmd, "ко времени", "на время", "запиши на час", "запиши на два", "запиши на три") {
 		return voice.IntentBookAppointment, scheduledAt, slots
+	}
+
+	// 7.5 Postal service / tasks
+	if containsAny(cmd, "посылк", "письм", "отправ", "получ", "бандерол", "марк", "перевод", "корреспонденц", "уведомлен") {
+		slots["service"] = "parcel"
+		return voice.IntentTakeTicket, scheduledAt, slots
 	}
 
 	// 8. General take ticket / live queue
@@ -149,7 +153,7 @@ func extractLocationSlots(req AliceReqBody, cmd string, slots map[string]string)
 					slots["street"] = geo.Street
 					return
 				}
-				if geo.City != "" && geo.City != "Москва" {
+				if geo.City != "" {
 					slots["street"] = geo.City
 					return
 				}
@@ -162,6 +166,8 @@ func extractLocationSlots(req AliceReqBody, cmd string, slots map[string]string)
 		stem      string
 		canonical string
 	}{
+		// Moscow
+		{"москв", "москва"},
 		{"арбат", "арбат"},
 		{"тверск", "тверская"},
 		{"рождественк", "рождественка"},
@@ -185,6 +191,32 @@ func extractLocationSlots(req AliceReqBody, cmd string, slots map[string]string)
 		{"шмитовск", "шмитовский"},
 		{"мясницк", "мясницкая"},
 		{"рязан", "рязань"},
+		{"ленинградск", "ленинградский"},
+		{"кутузовск", "кутузовский"},
+		{"варшавск", "варшавское"},
+		{"каширск", "каширское"},
+		{"лубянк", "лубянка"},
+		{"таганск", "таганская"},
+		{"павелецк", "павелецкая"},
+		{"курск", "курская"},
+		{"киевск", "киевская"},
+		// Kazan & Tatarstan
+		{"казан", "казань"},
+		{"бауман", "баумана"},
+		{"кремлевск", "кремлевская"},
+		{"кремлёвск", "кремлевская"},
+		{"декабрист", "декабристов"},
+		{"ямашев", "ямашева"},
+		{"вишневск", "вишневского"},
+		{"чуйков", "чуйкова"},
+		{"ершов", "ершова"},
+		{"фучик", "фучика"},
+		{"чистопольск", "чистопольская"},
+		{"иннополис", "иннополис"},
+		{"университетск", "университетская"},
+		{"ибрагимов", "ибрагимова"},
+		{"побед", "проспект победы"},
+		{"татарстан", "татарстан"},
 	}
 	for _, spot := range knownSpots {
 		if strings.Contains(cmd, spot.stem) {
@@ -211,6 +243,9 @@ func extractScheduledTime(req AliceReqBody, cmd string, slots map[string]string)
 			if err := json.Unmarshal(ent.Value, &dt); err == nil {
 				if dt.DayIsRelative != nil && *dt.DayIsRelative && dt.Day != nil {
 					targetDate = now.AddDate(0, 0, *dt.Day)
+					if *dt.Day == 1 {
+						slots["target_date"] = "tomorrow"
+					}
 				} else if dt.Day != nil {
 					m := int(now.Month())
 					if dt.Month != nil {
@@ -235,13 +270,16 @@ func extractScheduledTime(req AliceReqBody, cmd string, slots map[string]string)
 		}
 	}
 
-	// 2. Regex fallback for date: "завтра", "послезавтра", "сегодня"
-	if rxTomorrow.MatchString(cmd) {
-		targetDate = now.AddDate(0, 0, 1)
-	} else if rxDayAfter.MatchString(cmd) {
+	// 2. Date extraction: "послезавтра", "завтра", "сегодня"
+	if strings.Contains(cmd, "послезавтра") {
 		targetDate = now.AddDate(0, 0, 2)
-	} else if rxToday.MatchString(cmd) {
+		slots["target_date"] = "day_after"
+	} else if strings.Contains(cmd, "завтра") {
+		targetDate = now.AddDate(0, 0, 1)
+		slots["target_date"] = "tomorrow"
+	} else if strings.Contains(cmd, "сегодня") {
 		targetDate = now
+		slots["target_date"] = "today"
 	}
 
 	// 3. Regex fallback for time: "15:30", "14.00"
@@ -256,10 +294,9 @@ func extractScheduledTime(req AliceReqBody, cmd string, slots map[string]string)
 			}
 		} else if m := rxTimeHour.FindStringSubmatch(cmd); len(m) == 2 {
 			h, _ := strconv.Atoi(m[1])
-			// If user says "на 2 часа дня" -> 14:00, "на 3 часа" -> 15:00
 			if h < 8 && strings.Contains(cmd, "дня") {
 				h += 12
-			} else if h < 7 {
+			} else if h < 7 && !strings.Contains(cmd, "утра") {
 				h += 12 // assume PM if e.g. 2, 3, 4, 5, 6
 			}
 			if h >= 0 && h < 24 {
@@ -267,6 +304,80 @@ func extractScheduledTime(req AliceReqBody, cmd string, slots map[string]string)
 				minute = 0
 				hasTime = true
 			}
+		} else if m := rxDirectHour.FindStringSubmatch(cmd); len(m) == 2 {
+			// e.g. "на 15", "в 14", "к 11", "в 10"
+			h, _ := strconv.Atoi(m[1])
+			if h >= 1 && h <= 7 && !strings.Contains(cmd, "утра") {
+				h += 12
+			}
+			if h >= 8 && h <= 21 {
+				hour = h
+				minute = 0
+				hasTime = true
+			}
+		}
+	}
+
+	// 4. Word numbers for hours: "в два", "на три часа", "в десять утра", etc.
+	if !hasTime {
+		wordMatches := []struct {
+			word string
+			hour int
+		}{
+			{"одиннадцать", 11}, {"двенадцать", 12}, {"полдень", 12},
+			{"десять", 10}, {"девять", 9}, {"восемь", 8},
+			{"семь", 19}, {"шесть", 18}, {"пять", 17},
+			{"четыре", 16}, {"три", 15}, {"два", 14}, {"час", 13},
+		}
+		for _, wm := range wordMatches {
+			if strings.Contains(cmd, wm.word) {
+				h := wm.hour
+				if strings.Contains(cmd, "утра") && h > 12 {
+					h -= 12
+				}
+				hour = h
+				minute = 0
+				hasTime = true
+				break
+			}
+		}
+	}
+
+	// 5. Natural parts of day: "утром", "в обед", "вечером", "как можно скорее"
+	if !hasTime {
+		if strings.Contains(cmd, "утром") || strings.Contains(cmd, "с утра") {
+			hour = 10
+			minute = 0
+			hasTime = true
+		} else if strings.Contains(cmd, "в обед") || strings.Contains(cmd, "днем") || strings.Contains(cmd, "днём") {
+			hour = 13
+			minute = 0
+			hasTime = true
+		} else if strings.Contains(cmd, "вечером") || strings.Contains(cmd, "после работы") {
+			hour = 18
+			minute = 0
+			hasTime = true
+		} else if containsAny(cmd, "скорее", "побыстрее", "ближайшее", "как можно скорее", "сейчас") {
+			soon := now.Add(35 * time.Minute)
+			mn := soon.Minute()
+			if mn < 15 {
+				mn = 0
+			} else if mn < 45 {
+				mn = 30
+			} else {
+				soon = soon.Add(1 * time.Hour)
+				mn = 0
+			}
+			if soon.Hour() >= 20 {
+				targetDate = now.AddDate(0, 0, 1)
+				hour = 10
+				minute = 0
+			} else {
+				targetDate = now
+				hour = soon.Hour()
+				minute = mn
+			}
+			hasTime = true
 		}
 	}
 

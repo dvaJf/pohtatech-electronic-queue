@@ -173,9 +173,7 @@ func TestFeedbackAnalyticsThirtyDayWindows(t *testing.T) {
 
 func TestFeedbackMigrationRoundTrip(t *testing.T) {
 	ctx, p, m := integration(t)
-	if err := m.Steps(-1); err != nil {
-		t.Fatal(err)
-	}
+	downTo(t, m, 23) // Replay 000024_ticket_feedback, independent of the head.
 	var exists *string
 	if err := p.pool.QueryRow(ctx, `SELECT to_regclass('ticket_feedback')::text`).Scan(&exists); err != nil {
 		t.Fatal(err)

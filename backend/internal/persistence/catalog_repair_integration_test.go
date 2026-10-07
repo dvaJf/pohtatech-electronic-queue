@@ -5,14 +5,12 @@ import "testing"
 func TestCanonicalBranchCatalogRepairMigration(t *testing.T) {
 	ctx, p, m := integration(t)
 
-	if err := m.Steps(-1); err != nil {
-		t.Fatal(err)
-	}
+	downTo(t, m, 33) // Replay 000034_restore_canonical_branch_catalog.
 	const branchID = "9e364b61-0543-5502-b048-50b2e65879a3"
 	if _, err := p.pool.Exec(ctx, `UPDATE branches SET name='Потерянное отделение', address='старый адрес', latitude=0, longitude=0 WHERE id=$1`, branchID); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.Steps(1); err != nil {
+	if err := m.Up(); err != nil {
 		t.Fatal(err)
 	}
 

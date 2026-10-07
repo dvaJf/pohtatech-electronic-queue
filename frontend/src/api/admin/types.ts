@@ -75,7 +75,7 @@ export interface AdminQueueTicket {
   serviceName: string;
   queueEnteredAt: string;
   waitTimeMinutes: number;
-  status: 'WAITING' | 'CALLED' | 'SERVING';
+  status: 'SCHEDULED' | 'WAITING' | 'CALLED' | 'SERVING';
 }
 
 export interface PriorityRule {

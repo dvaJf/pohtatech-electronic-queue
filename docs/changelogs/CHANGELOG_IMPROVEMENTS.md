@@ -205,5 +205,5 @@ const data = await retryWithBackoff(
 ## Контакты
 
 **Команда:** 5_pointers<br>
-**Репозиторий:** git.codenrock.com/codenrock/.../tsifrovaya-ochered-novogo-pokoleniya<br>
+**Репозиторий:** https://github.com/dvaJf/po-htatech-electronic-queue<br>
 **Документация:** См. README.md и docs/

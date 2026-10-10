@@ -7,8 +7,8 @@
 
 ArgoCD отслеживает:
 - **Application Name**: `queue-system` (namespace: `argocd`)
-- **Repo URL**: `https://git.codenrock.com/codenrock/khakaton-postcode-challenge-ot-pochtatekha/5-ukazateley/tsifrovaya-ochered-novogo-pokoleniya.git`
-- **Target Revision**: `infra/k8s-gitops`
+- **Repo URL**: `https://github.com/dvaJf/po-htatech-electronic-queue.git`
+- **Target Revision**: `main`
 - **Path**: `helm/queue-chart`
 - **Target Namespace**: `queue-system`
 - **Sync Policy**: Automated (`selfHeal: true`, `prune: false`)

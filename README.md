@@ -59,8 +59,8 @@
 
 ```bash
 # 1. Клонирование репозитория
-git clone https://github.com/your-username/tsifrovaya-ochered-novogo-pokoleniya.git
-cd tsifrovaya-ochered-novogo-pokoleniya
+git clone https://github.com/dvaJf/po-htatech-electronic-queue.git
+cd po-htatech-electronic-queue
 
 # 2. Подготовка конфигурации окружения
 cp .env.example .env

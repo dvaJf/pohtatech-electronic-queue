@@ -8,8 +8,8 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: 'https://git.codenrock.com/codenrock/khakaton-postcode-challenge-ot-pochtatekha/5-ukazateley/tsifrovaya-ochered-novogo-pokoleniya.git'
-    targetRevision: infra/k8s-gitops
+    repoURL: 'https://github.com/dvaJf/po-htatech-electronic-queue.git'
+    targetRevision: main
     path: helm/queue-chart
     helm:
       valueFiles:

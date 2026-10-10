@@ -5,8 +5,6 @@
  */
 
 :root {
-  /* === ЦВЕТОВАЯ ПАЛИТРА ПОЧТЫ РОССИИ === */
-  
   /* Основные фирменные цвета */
   --pochta-blue-primary: #003B73;        /* Основной синий Почты России */
   --pochta-blue-secondary: #0055A5;      /* Вторичный синий */
@@ -38,8 +36,6 @@
   --pochta-info: #0288D1;                /* Информация */
   --pochta-info-bg: #E3F2FD;             /* Фон информации */
   
-  /* === ТИПОГРАФИКА === */
-  
   /* Шрифты */
   --font-family-base: 'Onest', 'Manrope', 'Golos Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 
                       'Helvetica Neue', Arial, sans-serif, 
@@ -62,8 +58,6 @@
   --font-weight-semibold: 600;
   --font-weight-bold: 700;
   
-  /* === ИНТЕРВАЛЫ === */
-  
   --spacing-xs: 0.25rem;   /* 4px */
   --spacing-sm: 0.5rem;    /* 8px */
   --spacing-md: 1rem;      /* 16px */
@@ -72,7 +66,6 @@
   --spacing-2xl: 3rem;     /* 48px */
   --spacing-3xl: 4rem;     /* 64px */
   
-  /* === РАДИУСЫ СКРУГЛЕНИЯ === */
   /* Минималистичный подход - меньше скруглений */
   
   --radius-none: 0;
@@ -81,7 +74,6 @@
   --radius-lg: 8px;
   --radius-full: 9999px;
   
-  /* === ТЕНИ === */
   /* Легкие, едва заметные тени */
   
   --shadow-xs: 0 1px 2px rgba(10, 25, 41, 0.04);
@@ -89,21 +81,15 @@
   --shadow-md: 0 2px 4px rgba(10, 25, 41, 0.08);
   --shadow-lg: 0 4px 8px rgba(10, 25, 41, 0.10);
   
-  /* === ПЕРЕХОДЫ === */
-  
   --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
   --transition-base: 200ms cubic-bezier(0.4, 0, 0.2, 1);
   --transition-slow: 300ms cubic-bezier(0.4, 0, 0.2, 1);
-  
-  /* === ШИРИНА КОНТЕЙНЕРОВ === */
   
   --container-sm: 640px;
   --container-md: 768px;
   --container-lg: 1024px;
   --container-xl: 1280px;
 }
-
-/* === RESET И БАЗОВЫЕ СТИЛИ === */
 
 *,
 *::before,
@@ -126,8 +112,6 @@ body {
   color: var(--pochta-text-primary);
   background-color: var(--pochta-bg-secondary);
 }
-
-/* === ТИПОГРАФИЧЕСКИЕ ЭЛЕМЕНТЫ === */
 
 h1, h2, h3, h4, h5, h6 {
   font-weight: var(--font-weight-semibold);
@@ -156,8 +140,6 @@ p {
   margin-bottom: var(--spacing-md);
   line-height: 1.6;
 }
-
-/* === КНОПКИ === */
 
 .pochta-btn {
   display: inline-flex;
@@ -254,8 +236,6 @@ p {
   background-color: var(--pochta-bg-tertiary);
 }
 
-/* === КАРТОЧКИ === */
-
 .pochta-card {
   background-color: var(--pochta-bg-primary);
   border: 1px solid var(--pochta-border-light);
@@ -280,8 +260,6 @@ p {
 .pochta-card-body {
   color: var(--pochta-text-primary);
 }
-
-/* === ИНПУТЫ === */
 
 .pochta-input,
 .pochta-select,
@@ -361,8 +339,6 @@ p {
   color: var(--pochta-text-secondary);
 }
 
-/* === АЛЕРТЫ === */
-
 .pochta-alert {
   padding: var(--spacing-md);
   border-radius: var(--radius-md);
@@ -395,8 +371,6 @@ p {
   color: #01579B;
 }
 
-/* === ТАБЛИЦЫ === */
-
 .pochta-table {
   width: 100%;
   border-collapse: collapse;
@@ -425,16 +399,12 @@ p {
   background-color: var(--pochta-bg-secondary);
 }
 
-/* === РАЗДЕЛИТЕЛИ === */
-
 .pochta-divider {
   height: 1px;
   background-color: var(--pochta-border-light);
   border: none;
   margin: var(--spacing-lg) 0;
 }
-
-/* === УТИЛИТЫ === */
 
 .text-center {
   text-align: center;
@@ -471,8 +441,6 @@ p {
 .bg-gray {
   background-color: var(--pochta-bg-secondary);
 }
-
-/* === СЕТКА === */
 
 .pochta-container {
   width: 100%;
@@ -525,8 +493,6 @@ p {
   justify-content: space-between;
 }
 
-/* === СПЕЦИФИЧНЫЕ КОМПОНЕНТЫ ПОЧТЫ === */
-
 .pochta-header {
   background-color: var(--pochta-bg-primary);
   border-bottom: 1px solid var(--pochta-border-light);
@@ -550,8 +516,6 @@ p {
   text-align: center;
 }
 
-/* === АДАПТИВНОСТЬ === */
-
 @media (max-width: 768px) {
   :root {
     --font-size-3xl: 1.5rem;
@@ -567,8 +531,6 @@ p {
     padding: var(--spacing-md);
   }
 }
-
-/* === ПЕЧАТЬ === */
 
 @media print {
   body {

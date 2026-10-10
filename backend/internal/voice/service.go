@@ -35,19 +35,16 @@ func NewVoiceService(usecases application.UseCases, sessions SessionStore, logge
 }
 
 func (s *VoiceService) HandleRequest(ctx context.Context, req VoiceRequest) (VoiceResponse, error) {
-	// 1. Resolve or create user from external Yandex account
-	user := s.resolveUser(ctx, req)
+		user := s.resolveUser(ctx, req)
 
-	// 2. Resolve active pending action (from request session_state or server session store)
-	pendingAction := req.PendingAction
+		pendingAction := req.PendingAction
 	if pendingAction == nil && req.SessionID != "" {
 		if act, ok := s.sessions.GetPendingAction(req.SessionID); ok {
 			pendingAction = act
 		}
 	}
 
-	// 3. Dispatch by intent
-	switch req.Intent {
+		switch req.Intent {
 	case IntentConfirm:
 		return s.handleConfirm(ctx, req, user, pendingAction)
 
@@ -104,11 +101,7 @@ func (s *VoiceService) resolveUser(ctx context.Context, req VoiceRequest) domain
 	}
 	return u
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
 // CONFIRM ("Да")
-// ─────────────────────────────────────────────────────────────────────────────
-
 func (s *VoiceService) handleConfirm(ctx context.Context, req VoiceRequest, user domain.User, pending *PendingAction) (VoiceResponse, error) {
 	if pending == nil || time.Now().After(pending.ExpiresAt) {
 		if req.SessionID != "" {
@@ -188,11 +181,7 @@ func (s *VoiceService) handleConfirm(ctx context.Context, req VoiceRequest, user
 
 	return s.handleHelp()
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
 // REJECT ("Нет", "Отмена")
-// ─────────────────────────────────────────────────────────────────────────────
-
 func (s *VoiceService) handleReject(ctx context.Context, req VoiceRequest) (VoiceResponse, error) {
 	if req.SessionID != "" {
 		s.sessions.ClearPendingAction(req.SessionID)
@@ -202,14 +191,9 @@ func (s *VoiceService) handleReject(ctx context.Context, req VoiceRequest) (Voic
 		Buttons: []string{"Запиши меня на почту", "Запиши на 15:30", "Где быстрее?"},
 	}, nil
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
 // TAKE_TICKET ("Запиши меня на почту")
-// ─────────────────────────────────────────────────────────────────────────────
-
 func (s *VoiceService) handleTakeTicket(ctx context.Context, req VoiceRequest, user domain.User) (VoiceResponse, error) {
-	// Check if customer already has active ticket
-	if active, err := s.usecases.FindActiveTicketByClient(ctx, user.ID); err == nil && active != nil {
+		if active, err := s.usecases.FindActiveTicketByClient(ctx, user.ID); err == nil && active != nil {
 		branchName := "отделении"
 		if b, bErr := s.findBranchByID(ctx, active.BranchID); bErr == nil {
 			branchName = b.Name
@@ -244,8 +228,7 @@ func (s *VoiceService) handleTakeTicket(ctx context.Context, req VoiceRequest, u
 
 	best := candidates[0]
 
-	// Check if branch is already closed today
-	if !isTomorrow {
+		if !isTomorrow {
 		isOpenNow, openStr, closeStr := IsBranchOpenNow(best.Branch.WorkHours, nowMSK)
 		if !isOpenNow && nowMSK.Hour() >= 18 {
 			return VoiceResponse{
@@ -278,11 +261,7 @@ func (s *VoiceService) handleTakeTicket(ctx context.Context, req VoiceRequest, u
 		Buttons: timeButtons,
 	}, nil
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
 // BOOK_APPOINTMENT ("Запиши меня на 15:30", "Запиши на завтра в 14:00")
-// ─────────────────────────────────────────────────────────────────────────────
-
 func (s *VoiceService) handleBookAppointment(ctx context.Context, req VoiceRequest, user domain.User) (VoiceResponse, error) {
 	scheduledAt := req.ScheduledAt
 	if scheduledAt == nil {
@@ -304,8 +283,7 @@ func (s *VoiceService) handleBookAppointment(ctx context.Context, req VoiceReque
 
 	best := candidates[0]
 
-	// Check if requested appointment time falls within branch work hours
-	msk := time.FixedZone("MSK", 3*3600)
+		msk := time.FixedZone("MSK", 3*3600)
 	nowMSK := time.Now().In(msk)
 	if ok, openStr, closeStr := IsTimeWithinWorkHours(best.Branch.WorkHours, *scheduledAt); !ok {
 		timeStr := scheduledAt.In(msk).Format("15:04")
@@ -339,11 +317,7 @@ func (s *VoiceService) handleBookAppointment(ctx context.Context, req VoiceReque
 		Buttons:              []string{"Да, записать", "Нет"},
 	}, nil
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
 // TICKET_STATUS ("Сколько мне осталось?")
-// ─────────────────────────────────────────────────────────────────────────────
-
 func (s *VoiceService) handleTicketStatus(ctx context.Context, req VoiceRequest, user domain.User) (VoiceResponse, error) {
 	active, err := s.usecases.FindActiveTicketByClient(ctx, user.ID)
 	if err != nil || active == nil {
@@ -395,11 +369,7 @@ func (s *VoiceService) handleTicketStatus(ctx context.Context, req VoiceRequest,
 		Buttons: []string{"Отмени запись", "Где быстрее?"},
 	}, nil
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
 // CANCEL_TICKET ("Отмени запись")
-// ─────────────────────────────────────────────────────────────────────────────
-
 func (s *VoiceService) handleCancelTicket(ctx context.Context, req VoiceRequest, user domain.User) (VoiceResponse, error) {
 	active, err := s.usecases.FindActiveTicketByClient(ctx, user.ID)
 	if err != nil || active == nil {
@@ -433,11 +403,7 @@ func (s *VoiceService) handleCancelTicket(ctx context.Context, req VoiceRequest,
 		Buttons:              []string{"Да, отменить", "Нет, оставить"},
 	}, nil
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
 // FASTEST_BRANCH / NEAREST_BRANCH
-// ─────────────────────────────────────────────────────────────────────────────
-
 func (s *VoiceService) handleFastestBranch(ctx context.Context, req VoiceRequest, user domain.User) (VoiceResponse, error) {
 	candidates, err := s.rankBranches(ctx, req.Location, req.Slots["street"])
 	if err != nil || len(candidates) == 0 {
@@ -475,8 +441,7 @@ func (s *VoiceService) handleNearestBranch(ctx context.Context, req VoiceRequest
 	nowMSK := time.Now().In(msk)
 	timeButtons := generateSuggestedTimeButtons(nowMSK, false)
 
-	// Sort by physical distance
-	sort.Slice(candidates, func(i, j int) bool {
+		sort.Slice(candidates, func(i, j int) bool {
 		return candidates[i].DistanceKm < candidates[j].DistanceKm
 	})
 	nearest := candidates[0]
@@ -506,11 +471,7 @@ func (s *VoiceService) handleHelp() (VoiceResponse, error) {
 		Buttons: timeButtons,
 	}, nil
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Branch Ranking & Helpers
-// ─────────────────────────────────────────────────────────────────────────────
-
 func (s *VoiceService) rankBranches(ctx context.Context, loc *UserLocation, streetQuery string) ([]BranchCandidate, error) {
 	branches, err := s.usecases.ListBranches(ctx)
 	if err != nil {
@@ -520,7 +481,7 @@ func (s *VoiceService) rankBranches(ctx context.Context, loc *UserLocation, stre
 		return nil, nil
 	}
 
-	// Default coordinates if location unknown (Innopolis center for hackathon)
+	// Default coordinates if location unknown
 	userLat := 55.752176
 	userLng := 48.744474
 	if loc != nil && loc.Latitude != 0 && loc.Longitude != 0 {
@@ -601,8 +562,7 @@ func (s *VoiceService) rankBranches(ctx context.Context, loc *UserLocation, stre
 func (s *VoiceService) resolveDefaultServiceID(ctx context.Context, branchID string) string {
 	services, err := s.usecases.ListBranchServices(ctx, branchID)
 	if err == nil && len(services) > 0 {
-		// Prefer parcel / postal services if present
-		for _, srv := range services {
+				for _, srv := range services {
 			lower := strings.ToLower(srv.Name + " " + srv.Code)
 			if strings.Contains(lower, "посылк") || strings.Contains(lower, "parcel") {
 				return srv.ID
@@ -717,8 +677,7 @@ func (s *VoiceService) handleLinkAccount(ctx context.Context, req VoiceRequest, 
 		extID = "anonymous_alice_user"
 	}
 
-	// Link external account
-	err := s.usecases.LinkExternalAccount(ctx, user.ID, "yandex_alice", extID)
+		err := s.usecases.LinkExternalAccount(ctx, user.ID, "yandex_alice", extID)
 	if err != nil {
 		s.logger.WarnContext(ctx, "failed to link external account", "error", err, "acc", acc)
 	}

@@ -51,25 +51,20 @@ export function OperatorWorkspace() {
   const [notice, setNotice] = useState('');
   const [revision, setRevision] = useState(0);
 
-  // Side panel TV queue state
-  const [tvQueue, setTvQueue] = useState<Array<{ publicNumber: string; source?: string; serviceName?: string }>>([]);
+    const [tvQueue, setTvQueue] = useState<Array<{ publicNumber: string; source?: string; serviceName?: string }>>([]);
   const [queueTotal, setQueueTotal] = useState(0);
   const [nextAppointment, setNextAppointment] = useState<NextAppointmentSlot | null>(null);
 
-  // Elapsed timer for active service
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+    const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
-  // Redirect modal state
-  const [showRedirectModal, setShowRedirectModal] = useState(false);
+    const [showRedirectModal, setShowRedirectModal] = useState(false);
   const [redirectServiceId, setRedirectServiceId] = useState('');
   const [redirectWindowId, setRedirectWindowId] = useState('');
 
-  // Incident modal state
-  const [showIncidentModal, setShowIncidentModal] = useState(false);
+    const [showIncidentModal, setShowIncidentModal] = useState(false);
   const [incidentCategory, setIncidentCategory] = useState('Сбой оборудования');
   const [incidentDescription, setIncidentDescription] = useState('');
   const [incidentSubmitting, setIncidentSubmitting] = useState(false);
-
 
   const epoch = useRef(0);
   const busy = useRef(false);
@@ -260,8 +255,7 @@ export function OperatorWorkspace() {
     return () => { ++epoch.current; clearTimeout(timer); };
   }, [branchId, windowId, revision]);
 
-  // Timer counter
-  useEffect(() => {
+    useEffect(() => {
     if (!current || (current.status !== 'CALLED' && current.status !== 'SERVING')) {
       setElapsedSeconds(0);
       return;

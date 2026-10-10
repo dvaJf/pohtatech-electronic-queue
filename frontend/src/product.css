@@ -1,4 +1,3 @@
-/* === ПЕРЕМЕННЫЕ ДИЗАЙН-СИСТЕМЫ ПОЧТЫ РОССИИ === */
 :root {
   /* Bump when a CDN cache object must be retired without changing tokens. */
   --stylesheet-revision: 20261004;
@@ -813,7 +812,6 @@ html[data-reduced-motion] *, html[data-reduced-motion] *::before, html[data-redu
   }
 }
 
-/* === УНИВЕРСАЛЬНЫЙ АККУРАТНЫЙ СКРОЛЛБАР === */
 .scrollbar-thin {
   scrollbar-width: thin;
   scrollbar-color: #cbd5e1 #f8fafc;
@@ -855,7 +853,6 @@ html[data-reduced-motion] *, html[data-reduced-motion] *::before, html[data-redu
   height: 0;
 }
 
-/* === DAYPICKER CALENDAR HIGH CONTRAST & CLEAN BUTTON STYLES === */
 .rdp-root [data-selected="true"] button,
 .rdp-root [aria-selected="true"] button,
 .rdp-root td.selected button,
@@ -914,7 +911,6 @@ html[data-reduced-motion] *, html[data-reduced-motion] *::before, html[data-redu
   text-transform: uppercase !important;
 }
 
-/* === CALENDAR SLOTS PERMANENT VISIBLE SCROLLBAR === */
 .calendar-slots-scroll {
   overflow-y: auto !important;
   scrollbar-width: thin !important;
@@ -947,7 +943,6 @@ html[data-reduced-motion] *, html[data-reduced-motion] *::before, html[data-redu
   height: 0 !important;
 }
 
-/* === A11Y MODAL HIGH CONTRAST BUTTON OVERRIDES === */
 #a11y-settings {
   background: #ffffff !important;
   color: #0f172a !important;

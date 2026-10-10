@@ -28,7 +28,6 @@ func (p *Postgres) ReconcileStaleTickets(ctx context.Context, authoritativeTime 
 	}
 	defer tx.Rollback(context.Background())
 
-	// Expire pending appointments that exceeded 15 minutes confirmation window
 	_, _ = tx.Exec(ctx, `
 		UPDATE tickets
 		SET status = 'CANCELLED'
@@ -36,7 +35,6 @@ func (p *Postgres) ReconcileStaleTickets(ctx context.Context, authoritativeTime 
 		  AND confirmation_expires_at <= $1::timestamptz
 	`, authoritativeTime)
 
-	// Find tickets in CALLED status where called_at + timeout < authoritativeTime
 	cutoff := authoritativeTime.Add(-time.Duration(timeoutSec) * time.Second)
 
 	rows, err := tx.Query(ctx, `
@@ -66,7 +64,6 @@ func (p *Postgres) ReconcileStaleTickets(ctx context.Context, authoritativeTime 
 	for _, t := range staleTickets {
 		from := t.Status
 		if t.RecallCount < maxRecalls {
-			// Recall: increment recall_count, update called_at to authoritativeTime
 			newRecall := t.RecallCount + 1
 			_, err = tx.Exec(ctx, `
 				UPDATE tickets
@@ -90,7 +87,6 @@ func (p *Postgres) ReconcileStaleTickets(ctx context.Context, authoritativeTime 
 				return err
 			}
 		} else {
-			// Max recalls exceeded: transition to NO_SHOW, free the window
 			_, err = tx.Exec(ctx, `
 				UPDATE tickets
 				SET status = 'NO_SHOW', no_show_at = $1::timestamptz

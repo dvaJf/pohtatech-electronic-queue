@@ -22,10 +22,6 @@ import (
 	"postcode/backend/internal/sms"
 )
 
-// ─────────────────────────────────────────────────────────────────────────────
-// DTOs
-// ─────────────────────────────────────────────────────────────────────────────
-
 type registerRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
@@ -78,11 +74,7 @@ func toUserDTO(u domain.User) userDTO {
 		PhoneVerified: u.PhoneVerified,
 	}
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
 // POST /api/v1/auth/register
-// ─────────────────────────────────────────────────────────────────────────────
-
 func (a *API) Register(w http.ResponseWriter, r *http.Request) {
 	var req registerRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -124,11 +116,7 @@ func (a *API) Register(w http.ResponseWriter, r *http.Request) {
 		"user":                 toUserDTO(u),
 	})
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
 // POST /api/v1/auth/confirm-code
-// ─────────────────────────────────────────────────────────────────────────────
-
 func (a *API) ConfirmEmailCode(w http.ResponseWriter, r *http.Request) {
 	var req confirmCodeRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -164,11 +152,7 @@ func (a *API) ConfirmEmailCode(w http.ResponseWriter, r *http.Request) {
 		"user":   toUserDTO(u),
 	})
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
 // GET /api/v1/auth/confirm?token=...
-// ─────────────────────────────────────────────────────────────────────────────
-
 func (a *API) ConfirmEmail(w http.ResponseWriter, r *http.Request) {
 	token := r.URL.Query().Get("token")
 	if token == "" {
@@ -202,11 +186,7 @@ func (a *API) ConfirmEmail(w http.ResponseWriter, r *http.Request) {
 	}
 	http.Redirect(w, r, returnURL, http.StatusTemporaryRedirect)
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
 // POST /api/v1/auth/resend-code
-// ─────────────────────────────────────────────────────────────────────────────
-
 func (a *API) ResendEmailCode(w http.ResponseWriter, r *http.Request) {
 	var req resendCodeRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -255,11 +235,7 @@ func getAppBaseURL(r *http.Request) string {
 	}
 	return fmt.Sprintf("%s://%s", scheme, r.Host)
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
 // POST /api/v1/auth/login
-// ─────────────────────────────────────────────────────────────────────────────
-
 const sessionCookie = "session"
 
 type loginLimiter struct {
@@ -355,11 +331,7 @@ func (a *API) Login(w http.ResponseWriter, r *http.Request) {
 	})
 	writeJSONResponse(w, http.StatusOK, map[string]string{"status": "ok"})
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
 // POST /api/v1/auth/logout
-// ─────────────────────────────────────────────────────────────────────────────
-
 func (a *API) Logout(w http.ResponseWriter, r *http.Request) {
 	cookie, err := r.Cookie(sessionCookie)
 	if err == nil {
@@ -381,11 +353,7 @@ func (a *API) Logout(w http.ResponseWriter, r *http.Request) {
 	})
 	writeJSONResponse(w, http.StatusOK, map[string]string{"status": "ok"})
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
 // GET /api/v1/auth/me
-// ─────────────────────────────────────────────────────────────────────────────
-
 func (a *API) GetMe(w http.ResponseWriter, r *http.Request) {
 	u, ok := userFromContext(r.Context())
 	if !ok {
@@ -394,11 +362,7 @@ func (a *API) GetMe(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSONResponse(w, http.StatusOK, toUserDTO(u))
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
 // GET /api/v1/admin/users  (только opc_chief)
-// ─────────────────────────────────────────────────────────────────────────────
-
 func (a *API) ListUsers(w http.ResponseWriter, r *http.Request) {
 	limit, offset, ok := paginationParams(w, r)
 	if !ok {
@@ -437,11 +401,7 @@ func paginationParams(w http.ResponseWriter, r *http.Request) (int, int, bool) {
 	}
 	return limit, offset, true
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
 // PUT /api/v1/admin/users/{userID}/role  (только opc_chief)
-// ─────────────────────────────────────────────────────────────────────────────
-
 func (a *API) ChangeUserRole(w http.ResponseWriter, r *http.Request) {
 	userID := chi.URLParam(r, "userID")
 	var req changeRoleRequest
@@ -463,11 +423,7 @@ func (a *API) ChangeUserRole(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSONResponse(w, http.StatusOK, toUserDTO(u))
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
 // POST /api/v1/auth/profile/phone/send-code
-// ─────────────────────────────────────────────────────────────────────────────
-
 func (a *API) SendPhoneCode(w http.ResponseWriter, r *http.Request) {
 	u, ok := userFromContext(r.Context())
 	if !ok {
@@ -499,8 +455,7 @@ func (a *API) SendPhoneCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Dispatch SMS
-	msg := fmt.Sprintf("Код подтверждения для Почты России: %s", code)
+		msg := fmt.Sprintf("Код подтверждения для Почты России: %s", code)
 	if a.smsClient != nil {
 		_ = a.smsClient.Send(r.Context(), normalized, msg)
 	}
@@ -511,11 +466,7 @@ func (a *API) SendPhoneCode(w http.ResponseWriter, r *http.Request) {
 		"expiresIn": 300,
 	})
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
 // POST /api/v1/auth/profile/phone/verify-code
-// ─────────────────────────────────────────────────────────────────────────────
-
 func (a *API) VerifyPhoneCode(w http.ResponseWriter, r *http.Request) {
 	u, ok := userFromContext(r.Context())
 	if !ok {

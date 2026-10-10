@@ -355,8 +355,7 @@ func (p *Postgres) CallNextAt(ctx context.Context, windowID string, decisionTime
 	}
 	defer tx.Rollback(context.Background())
 
-	// Idempotency check by request_id if provided
-	if reqID != "" {
+		if reqID != "" {
 		var replayID string
 		err = tx.QueryRow(ctx, `SELECT ticket_id::text FROM ticket_events WHERE request_id=$1 AND type='CALLED' ORDER BY id DESC LIMIT 1`, reqID).Scan(&replayID)
 		if err == nil {
@@ -380,8 +379,7 @@ func (p *Postgres) CallNextAt(ctx context.Context, windowID string, decisionTime
 	var busyID *string
 	err = tx.QueryRow(ctx, `SELECT id::text FROM tickets WHERE window_id=$1 AND status IN ('CALLED','SERVING') LIMIT 1`, id).Scan(&busyID)
 	if err == nil && busyID != nil {
-		// If same request_id as the call event that assigned this ticket, replay
-		if reqID != "" {
+				if reqID != "" {
 			var match bool
 			_ = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM ticket_events WHERE ticket_id=$1::uuid AND request_id=$2 AND type='CALLED')`, *busyID, reqID).Scan(&match)
 			if match {
@@ -507,8 +505,7 @@ func (p *Postgres) CallNextAt(ctx context.Context, windowID string, decisionTime
 	winner := candidates[0]
 	from := winner.Status
 
-	// Update winning ticket to CALLED
-	_, err = tx.Exec(ctx, `
+		_, err = tx.Exec(ctx, `
 		UPDATE tickets
 		SET status = 'CALLED', window_id = $1::uuid, called_at = $2::timestamptz
 		WHERE id = $3::uuid
@@ -517,8 +514,7 @@ func (p *Postgres) CallNextAt(ctx context.Context, windowID string, decisionTime
 		return empty, dbError(err)
 	}
 
-	// Rescan winner to get updated window and called_at
-	t, err := scanTicket(tx.QueryRow(ctx, ticketSelect+`WHERE t.id=$1::uuid`, winner.ID))
+		t, err := scanTicket(tx.QueryRow(ctx, ticketSelect+`WHERE t.id=$1::uuid`, winner.ID))
 	if err != nil {
 		return empty, err
 	}
@@ -541,15 +537,13 @@ func (p *Postgres) CallNextAt(ctx context.Context, windowID string, decisionTime
 		return empty, err
 	}
 
-	// Enqueue notification in outbox; failure must not abort successful CallNext
-	_ = p.enqueueCallNotification(ctx, tx, t)
+		_ = p.enqueueCallNotification(ctx, tx, t)
 
 	if err = tx.Commit(ctx); err != nil {
 		return empty, dbError(err)
 	}
 
-	// Promote/enqueue near-turn notification for newly eligible top waiting tickets (position <= 2)
-	_ = p.enqueueNearTurnForTopCandidates(ctx, nil, branch, decisionTime)
+		_ = p.enqueueNearTurnForTopCandidates(ctx, nil, branch, decisionTime)
 
 	return t, nil
 }
@@ -577,8 +571,7 @@ func (p *Postgres) CallSpecificTicketAt(ctx context.Context, windowID string, ti
 	}
 	defer tx.Rollback(context.Background())
 
-	// Idempotency check by request_id if provided
-	if reqID != "" {
+		if reqID != "" {
 		var replayID string
 		err = tx.QueryRow(ctx, `SELECT ticket_id::text FROM ticket_events WHERE request_id=$1 AND type='CALLED' ORDER BY id DESC LIMIT 1`, reqID).Scan(&replayID)
 		if err == nil {
@@ -623,8 +616,7 @@ func (p *Postgres) CallSpecificTicketAt(ctx context.Context, windowID string, ti
 		return empty, dbError(pErr)
 	}
 
-	// Query target ticket by id or public_number
-	row := tx.QueryRow(ctx, `
+		row := tx.QueryRow(ctx, `
 		SELECT `+ticketColumns+`
 		FROM tickets t
 		LEFT JOIN windows w ON w.id = t.window_id
@@ -700,15 +692,13 @@ func (p *Postgres) CallSpecificTicketAt(ctx context.Context, windowID string, ti
 		return empty, err
 	}
 
-	// Enqueue notification in outbox; failure must not abort successful call
-	_ = p.enqueueCallNotification(ctx, tx, t)
+		_ = p.enqueueCallNotification(ctx, tx, t)
 
 	if err = tx.Commit(ctx); err != nil {
 		return empty, dbError(err)
 	}
 
-	// Promote/enqueue near-turn notification for newly eligible top waiting tickets (position <= 2)
-	_ = p.enqueueNearTurnForTopCandidates(ctx, nil, t.BranchID, decisionTime)
+		_ = p.enqueueNearTurnForTopCandidates(ctx, nil, t.BranchID, decisionTime)
 
 	return t, nil
 }
@@ -789,14 +779,12 @@ func (p *Postgres) ChangeWindowStatus(ctx context.Context, windowID string, stat
 	policy := p.GetPolicy()
 
 	if status == domain.WindowStatusClosed {
-		// Check for active ticket at this window
-		var activeID *string
+				var activeID *string
 		var activeStatus *domain.TicketStatus
 		err = tx.QueryRow(ctx, `SELECT id::text, status FROM tickets WHERE window_id=$1 AND status IN ('CALLED', 'SERVING') FOR UPDATE`, id).Scan(&activeID, &activeStatus)
 		if err == nil && activeID != nil && activeStatus != nil {
 			if policy.WindowClose.Policy == domain.WindowCloseReturnToQueue {
-				// Return to WAITING queue with original due_at and clear window
-				t, scanErr := scanTicket(tx.QueryRow(ctx, ticketSelect+`WHERE t.id=$1::uuid`, *activeID))
+								t, scanErr := scanTicket(tx.QueryRow(ctx, ticketSelect+`WHERE t.id=$1::uuid`, *activeID))
 				if scanErr == nil {
 					fromStatus := *activeStatus
 					if _, updateErr := tx.Exec(ctx, `UPDATE tickets SET status='WAITING', window_id=NULL WHERE id=$1::uuid`, *activeID); updateErr != nil {
@@ -1302,5 +1290,4 @@ func (p *Postgres) CancelTicketByTelegram(ctx context.Context, chatID string) (*
 	}
 	return &res, nil
 }
-
 

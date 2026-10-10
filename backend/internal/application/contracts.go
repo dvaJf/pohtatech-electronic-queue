@@ -1,4 +1,4 @@
-// Package application defines the transport-independent Sprint #1 boundary.
+// Package application defines core application interfaces and contracts.
 package application
 
 import (

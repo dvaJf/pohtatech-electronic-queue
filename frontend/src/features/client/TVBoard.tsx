@@ -7,7 +7,6 @@ import { subscribeToTVCalls } from '../../utils/tvNotification';
 import { MOSCOW_BRANCHES } from './map/branchLocations';
 import { resolveBranchIdFromSlug, getBranchDisplayName, getBranchSlug } from '../../utils/branchSlug';
 
-/* ─────────────────────── types ─────────────────────── */
 interface TVCall {
   windowId: number | string;
   windowName?: string;
@@ -21,7 +20,6 @@ interface TVWaiting {
   serviceTitle: string;
 }
 
-/* ───────────────── Sber-style animated arrow ──────────────── */
 function SberArrow() {
   return (
     <div className="tv-sber-arrow">
@@ -59,7 +57,6 @@ function SberArrow() {
   );
 }
 
-/* ──────────────── 3-people queue illustration icon ──────────────── */
 function PeopleGroupIcon({
   className = '',
   width = 96,
@@ -101,7 +98,6 @@ function PeopleGroupIcon({
   );
 }
 
-/* ────────────── flash overlay for new call ──────────── */
 function FlashOverlay({
   ticket,
   windowId,
@@ -140,10 +136,8 @@ export interface TVBoardProps {
   branchId?: string;
 }
 
-/* ══════════════════════ MAIN TV BOARD ══════════════════════ */
 export function TVBoard({ branchId: propBranchId }: TVBoardProps = {}) {
-  /* ── state ── */
-  const [now, setNow] = useState(() => new Date());
+    const [now, setNow] = useState(() => new Date());
   const [branches, setBranches] = useState<Array<{ id: string; name: string }>>(() =>
     MOSCOW_BRANCHES.map(b => ({ id: b.id, name: b.name }))
   );
@@ -163,15 +157,13 @@ export function TVBoard({ branchId: propBranchId }: TVBoardProps = {}) {
 
   const [rawBranchParam, setRawBranchParam] = useState<string>(resolveRawBranchParam);
 
-  /* ── sync prop changes ── */
-  useEffect(() => {
+    useEffect(() => {
     if (propBranchId && propBranchId !== rawBranchParam) {
       setRawBranchParam(propBranchId);
     }
   }, [propBranchId]);
 
-  /* ── canonical UUID for API queries and subscriptions ── */
-  const selectedBranchId = useMemo(() => {
+    const selectedBranchId = useMemo(() => {
     return resolveBranchIdFromSlug(rawBranchParam, branches);
   }, [rawBranchParam, branches]);
 
@@ -188,14 +180,12 @@ export function TVBoard({ branchId: propBranchId }: TVBoardProps = {}) {
     unlockSpeechSynthesis();
   };
 
-  /* ── clock ── */
-  useEffect(() => {
+    useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(id);
   }, []);
 
-  /* ── branches ── */
-  useEffect(() => {
+    useEffect(() => {
     fetch('/api/v1/branches')
       .then(r => r.ok ? r.json() : null)
       .then(d => {
@@ -220,11 +210,9 @@ export function TVBoard({ branchId: propBranchId }: TVBoardProps = {}) {
       .catch(() => {});
   }, [rawBranchParam]);
 
-  /* ── live data for this specific branch ── */
-  const { data: tvData, isLoading, error } = useTVQueue(selectedBranchId, 2500);
+    const { data: tvData, isLoading, error } = useTVQueue(selectedBranchId, 2500);
 
-  /* ── sound announcements & cross-tab calls ── */
-  const lastAnnouncedRef = useRef<Map<number, string>>(new Map());
+    const lastAnnouncedRef = useRef<Map<number, string>>(new Map());
   const lastAnnouncedTimestampRef = useRef<Map<string, number>>(new Map());
   const isInitialRef = useRef(true);
 
@@ -243,8 +231,7 @@ export function TVBoard({ branchId: propBranchId }: TVBoardProps = {}) {
     setFlash({ ticket: ticketNumber, windowId, isRepeat });
   };
 
-  /* ── listen to operator cross-tab calls strictly for this branch ── */
-  useEffect(() => {
+    useEffect(() => {
     const unsubscribe = subscribeToTVCalls((ticketNumber, windowNumber, isRepeat, eventBranchId) => {
       // If event specified a branch, only process if it matches this TV board's branch!
       if (eventBranchId && selectedBranchId) {
@@ -304,8 +291,7 @@ export function TVBoard({ branchId: propBranchId }: TVBoardProps = {}) {
     }
   }, [flash, tvData]);
 
-  /* ── enable sound on first click / touch / keydown (autoplay policy) ── */
-  useEffect(() => {
+    useEffect(() => {
     const onGesture = () => {
       handleUnlockAudio();
       document.removeEventListener('click', onGesture);
@@ -322,8 +308,7 @@ export function TVBoard({ branchId: propBranchId }: TVBoardProps = {}) {
     };
   }, []);
 
-  /* ── derived data ── */
-  const calls: TVCall[] = useMemo(() => {
+    const calls: TVCall[] = useMemo(() => {
     if (!tvData?.windows) return [];
     const list = (tvData.windows as Array<{
       number: number;
@@ -350,8 +335,7 @@ export function TVBoard({ branchId: propBranchId }: TVBoardProps = {}) {
     return list;
   }, [tvData]);
 
-  /* ── network online & sync tracking ── */
-  const [isOnline, setIsOnline] = useState<boolean>(() =>
+    const [isOnline, setIsOnline] = useState<boolean>(() =>
     typeof navigator !== 'undefined' ? navigator.onLine : true
   );
   const [lastSyncTs, setLastSyncTs] = useState<number>(() => Date.now());
@@ -411,11 +395,9 @@ export function TVBoard({ branchId: propBranchId }: TVBoardProps = {}) {
     month: 'long',
   });
 
-  /* ═════════════════════ RENDER ═════════════════════ */
-  return (
+    return (
     <div className="tv-root">
-      {/* ── FLASH OVERLAY ── */}
-      {flash && (
+            {flash && (
         <FlashOverlay
           key={flashKeyRef.current}
           ticket={flash.ticket}
@@ -425,8 +407,7 @@ export function TVBoard({ branchId: propBranchId }: TVBoardProps = {}) {
         />
       )}
 
-      {/* ── TOP BAR ── */}
-      <header className="tv-topbar">
+            <header className="tv-topbar">
         <div className="tv-topbar-left">
           <PochtaEmblem className="tv-emblem" bg="#003B73" fg="#FFFFFF" />
           <div className="tv-brand-block">
@@ -470,8 +451,7 @@ export function TVBoard({ branchId: propBranchId }: TVBoardProps = {}) {
         </div>
       </header>
 
-      {/* ── CONTENT ── */}
-      <div className="tv-content">
+            <div className="tv-content">
         {/* LEFT: Active calls */}
         <section className="tv-calls-section">
           <div className="tv-section-header">
@@ -545,15 +525,13 @@ export function TVBoard({ branchId: propBranchId }: TVBoardProps = {}) {
         </section>
       </div>
 
-      {/* ── STYLES (scoped) ── */}
-      <style>{tvStyles}</style>
+            <style>{tvStyles}</style>
     </div>
   );
 }
 
-/* ═════════════════════ CSS ═════════════════════ */
 const tvStyles = `
-/* ═══════════════════════ TV ROOT — LIGHT DESIGN ═══════════════════════ */
+
 .tv-root {
   position: fixed;
   inset: 0;
@@ -568,7 +546,6 @@ const tvStyles = `
   cursor: default;
 }
 
-/* ═══════════════════════ TOP BAR ═══════════════════════ */
 .tv-topbar {
   display: flex;
   align-items: center;
@@ -677,7 +654,6 @@ const tvStyles = `
   color: #003B73;
 }
 
-/* ═══════════════════════ CONTENT ═══════════════════════ */
 .tv-content {
   flex: 1;
   display: grid;
@@ -691,7 +667,7 @@ const tvStyles = `
   overflow: hidden;
 }
 
-/* ─── SECTION HEADERS ─── */
+/* SECTION HEADERS */
 .tv-section-header {
   display: flex;
   align-items: center;
@@ -717,7 +693,6 @@ const tvStyles = `
   background: #F59E0B;
 }
 
-/* ═══════════════════════ CALL CARDS ═══════════════════════ */
 .tv-calls-section {
   display: flex;
   flex-direction: column;
@@ -820,7 +795,6 @@ const tvStyles = `
   flex-shrink: 0;
 }
 
-/* ═══════════════════════ SBER-STYLE ANIMATED ARROW ═══════════════════════ */
 .tv-sber-arrow {
   display: flex;
   align-items: center;
@@ -855,7 +829,6 @@ const tvStyles = `
   100% { opacity: 0.12; stroke-width: 3; }
 }
 
-/* ═══════════════════════ WAITING — CHIP GRID (no scroll) ═══════════════════════ */
 .tv-waiting-section {
   display: flex;
   flex-direction: column;
@@ -914,7 +887,6 @@ const tvStyles = `
   text-overflow: ellipsis;
 }
 
-/* ═══════════════════════ EMPTY STATES ═══════════════════════ */
 .tv-empty {
   grid-column: 1 / -1;
   flex: 1;
@@ -956,7 +928,6 @@ const tvStyles = `
   text-align: center;
 }
 
-/* ═══════════════════════ FLASH OVERLAY ═══════════════════════ */
 .tv-flash-overlay {
   position: fixed;
   inset: 0;
@@ -1010,7 +981,6 @@ const tvStyles = `
   max-width: 100%;
 }
 
-/* ═══════════════════════ ANIMATIONS ═══════════════════════ */
 @keyframes tv-pulse {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.5; transform: scale(0.85); }

@@ -17,10 +17,6 @@ import (
 
 const sessionTTL = 7 * 24 * time.Hour
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Register
-// ─────────────────────────────────────────────────────────────────────────────
-
 func (p *Postgres) Register(ctx context.Context, email, password string) (domain.User, error) {
 	email = strings.TrimSpace(strings.ToLower(email))
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
@@ -28,8 +24,7 @@ func (p *Postgres) Register(ctx context.Context, email, password string) (domain
 		return domain.User{}, fmt.Errorf("hashing password: %w", err)
 	}
 
-	// Генерация 6-значного кода и токена
-	codeBytes := make([]byte, 3)
+		codeBytes := make([]byte, 3)
 	if _, err := rand.Read(codeBytes); err != nil {
 		return domain.User{}, fmt.Errorf("generating code: %w", err)
 	}
@@ -42,8 +37,7 @@ func (p *Postgres) Register(ctx context.Context, email, password string) (domain
 	}
 	expiresAt := time.Now().Add(15 * time.Minute)
 
-	// Для тестовых доменов (.invalid) подтверждение автоматическое
-	autoConfirm := strings.HasSuffix(email, ".invalid")
+		autoConfirm := strings.HasSuffix(email, ".invalid")
 	confirmed := autoConfirm
 
 	var u domain.User
@@ -62,18 +56,13 @@ func (p *Postgres) Register(ctx context.Context, email, password string) (domain
 		&u.IsTerminal, &u.Confirmed, &u.ConfirmToken, &u.ConfirmCode, &u.ConfirmCodeExpiresAt, &u.CreatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
-		// Конфликт с уже подтвержденным пользователем
-		return domain.User{}, application.ErrIdempotencyConflict
+				return domain.User{}, application.ErrIdempotencyConflict
 	}
 	if err != nil {
 		return domain.User{}, dbError(err)
 	}
 	return u, nil
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// ConfirmEmail (стандартная заглушка)
-// ─────────────────────────────────────────────────────────────────────────────
 
 func (p *Postgres) ConfirmEmail(ctx context.Context, token string) error {
 	tag, err := p.pool.Exec(ctx, `
@@ -89,9 +78,7 @@ func (p *Postgres) ConfirmEmail(ctx context.Context, token string) error {
 	return nil
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // ConfirmEmailByCode — подтверждает пользователя по 6-значному коду и создает сессию
-// ─────────────────────────────────────────────────────────────────────────────
 
 func (p *Postgres) ConfirmEmailByCode(ctx context.Context, email, code string) (domain.Session, domain.User, error) {
 	email = strings.TrimSpace(strings.ToLower(email))
@@ -131,9 +118,7 @@ func (p *Postgres) ConfirmEmailByCode(ctx context.Context, email, code string) (
 	return domain.Session{Token: token, UserID: u.ID, ExpiresAt: expiresAt}, u, nil
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // ConfirmEmailByToken — подтверждает пользователя по URL-токену и создает сессию
-// ─────────────────────────────────────────────────────────────────────────────
 
 func (p *Postgres) ConfirmEmailByToken(ctx context.Context, token string) (domain.Session, domain.User, error) {
 	token = strings.TrimSpace(token)
@@ -171,9 +156,7 @@ func (p *Postgres) ConfirmEmailByToken(ctx context.Context, token string) (domai
 	return domain.Session{Token: sessToken, UserID: u.ID, ExpiresAt: expiresAt}, u, nil
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // ResendEmailConfirmation — генерирует новый код и токен для неподтвержденного пользователя
-// ─────────────────────────────────────────────────────────────────────────────
 
 func (p *Postgres) ResendEmailConfirmation(ctx context.Context, email string) (string, string, error) {
 	email = strings.TrimSpace(strings.ToLower(email))
@@ -205,10 +188,6 @@ func (p *Postgres) ResendEmailConfirmation(ctx context.Context, email string) (s
 
 	return code, token, nil
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Login
-// ─────────────────────────────────────────────────────────────────────────────
 
 func (p *Postgres) Login(ctx context.Context, email, password string) (domain.Session, error) {
 	var u domain.User
@@ -243,10 +222,6 @@ func (p *Postgres) Login(ctx context.Context, email, password string) (domain.Se
 	}
 	return domain.Session{Token: token, UserID: u.ID, ExpiresAt: expiresAt}, nil
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// LoginOAuth (VK, Yandex, etc.)
-// ─────────────────────────────────────────────────────────────────────────────
 
 func (p *Postgres) LoginOAuth(ctx context.Context, email string) (domain.Session, error) {
 	var u domain.User
@@ -286,8 +261,7 @@ func (p *Postgres) LoginOAuth(ctx context.Context, email string) (domain.Session
 		return domain.Session{}, dbError(err)
 	}
 
-	// Link existing Alice tickets and external accounts to this OAuth user:
-	_, _ = p.pool.Exec(ctx, `
+		_, _ = p.pool.Exec(ctx, `
 		UPDATE external_accounts 
 		SET user_id = $1::uuid, updated_at = clock_timestamp() 
 		WHERE provider = 'yandex_alice' 
@@ -302,18 +276,10 @@ func (p *Postgres) LoginOAuth(ctx context.Context, email string) (domain.Session
 	return domain.Session{Token: token, UserID: u.ID, ExpiresAt: expiresAt}, nil
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Logout
-// ─────────────────────────────────────────────────────────────────────────────
-
 func (p *Postgres) Logout(ctx context.Context, token string) error {
 	_, err := p.pool.Exec(ctx, `DELETE FROM sessions WHERE token = $1`, token)
 	return dbError(err)
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// GetSessionUser
-// ─────────────────────────────────────────────────────────────────────────────
 
 func (p *Postgres) GetSessionUser(ctx context.Context, token string) (domain.User, error) {
 	var u domain.User
@@ -328,10 +294,6 @@ func (p *Postgres) GetSessionUser(ctx context.Context, token string) (domain.Use
 	}
 	return u, dbError(err)
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Phone Verification & SMS
-// ─────────────────────────────────────────────────────────────────────────────
 
 // SetUserPhoneCode saves a verification code and its expiry for a user's phone.
 func (p *Postgres) SetUserPhoneCode(ctx context.Context, userID, phone, code string, expiresAt time.Time) error {
@@ -427,10 +389,6 @@ func (p *Postgres) MarkSMSAppointmentReminderSent(ctx context.Context, ticketID 
 	return dbError(err)
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// ListUsers (только для opc_chief)
-// ─────────────────────────────────────────────────────────────────────────────
-
 func (p *Postgres) ListUsers(ctx context.Context, limit, offset int, search, role string) (domain.UserPage, error) {
 	var page domain.UserPage
 	query := `
@@ -470,10 +428,6 @@ func (p *Postgres) ListUsers(ctx context.Context, limit, offset int, search, rol
 	return page, dbError(err)
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// ChangeUserRole (только для opc_chief)
-// ─────────────────────────────────────────────────────────────────────────────
-
 func (p *Postgres) ChangeUserRole(ctx context.Context, userID string, role domain.UserRole) (domain.User, error) {
 	var u domain.User
 	err := p.pool.QueryRow(ctx, `
@@ -486,10 +440,6 @@ func (p *Postgres) ChangeUserRole(ctx context.Context, userID string, role domai
 	return u, dbError(err)
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────────────────────────────────────
-
 func randomToken() (string, error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
@@ -498,10 +448,6 @@ func randomToken() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GetOrCreateExternalUser (для голосовых помощников / внешних аккаунтов)
-// ─────────────────────────────────────────────────────────────────────────────
-
 func (p *Postgres) GetOrCreateExternalUser(ctx context.Context, provider, externalUserID string) (domain.User, error) {
 	provider = strings.TrimSpace(strings.ToLower(provider))
 	externalUserID = strings.TrimSpace(externalUserID)
@@ -509,8 +455,7 @@ func (p *Postgres) GetOrCreateExternalUser(ctx context.Context, provider, extern
 		return domain.User{}, errors.New("provider and externalUserID required")
 	}
 
-	// 1. Поиск существующей связки в external_accounts
-	var userID string
+		var userID string
 	err := p.pool.QueryRow(ctx, `
 		SELECT user_id::text
 		FROM external_accounts
@@ -556,8 +501,7 @@ func (p *Postgres) GetOrCreateExternalUser(ctx context.Context, provider, extern
 		}
 	}
 
-	// 2. Проверка: если это yandex_alice и в системе уже есть зарегистрированный пользователь — автоматически связываем!
-	if provider == "yandex_alice" {
+		if provider == "yandex_alice" {
 		var oauthUser domain.User
 		oauthErr := p.pool.QueryRow(ctx, `
 			SELECT id::text, email, password_hash, role, is_terminal, confirmed, phone, phone_verified, created_at
@@ -578,8 +522,7 @@ func (p *Postgres) GetOrCreateExternalUser(ctx context.Context, provider, extern
 				ON CONFLICT (provider, external_user_id) DO UPDATE SET user_id = $1::uuid, updated_at = clock_timestamp()
 			`, oauthUser.ID, provider, externalUserID)
 
-			// Перепривязываем ранее созданные талоны Алисы к этому пользователю Яндекс
-			_, _ = p.pool.Exec(ctx, `
+						_, _ = p.pool.Exec(ctx, `
 				UPDATE tickets 
 				SET client_id = $1 
 				WHERE client_id IN (
@@ -593,8 +536,7 @@ func (p *Postgres) GetOrCreateExternalUser(ctx context.Context, provider, extern
 		}
 	}
 
-	// 3. Создание пользователя и связки external_accounts
-	cleanID := strings.ReplaceAll(externalUserID, "-", "")
+		cleanID := strings.ReplaceAll(externalUserID, "-", "")
 	if len(cleanID) > 24 {
 		cleanID = cleanID[:24]
 	}

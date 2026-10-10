@@ -52,8 +52,7 @@ func (p *Postgres) GetAdminOverview(ctx context.Context, branchID string) (domai
 		return overview, err
 	}
 
-	// 1. Branch name
-	if err = p.pool.QueryRow(ctx, `SELECT name FROM branches WHERE id=$1`, id).Scan(&overview.BranchName); err != nil {
+		if err = p.pool.QueryRow(ctx, `SELECT name FROM branches WHERE id=$1`, id).Scan(&overview.BranchName); err != nil {
 		return overview, dbError(err)
 	}
 
@@ -99,9 +98,7 @@ func (p *Postgres) GetAdminOverview(ctx context.Context, branchID string) (domai
 	rowsFeedback.Close()
 	overview.Quality = q
 
-	// 2. Ticket metrics — single query
-	// Fix: ::int cast applied to the full AVG/MAX expressions, not to the filter predicate.
-	err = p.pool.QueryRow(ctx, `
+			err = p.pool.QueryRow(ctx, `
 		SELECT
 			COUNT(CASE WHEN status = 'WAITING' OR (status = 'SCHEDULED' AND (arrived_at IS NOT NULL OR scheduled_at <= NOW())) THEN 1 END),
 			COUNT(CASE WHEN status = 'COMPLETED' AND (queue_entered_at AT TIME ZONE 'Europe/Moscow')::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Moscow')::date THEN 1 END),
@@ -128,8 +125,7 @@ func (p *Postgres) GetAdminOverview(ctx context.Context, branchID string) (domai
 		return overview, dbError(err)
 	}
 
-	// 3. Window counts — single query
-	if err = p.pool.QueryRow(ctx, `
+		if err = p.pool.QueryRow(ctx, `
 		SELECT
 			COUNT(CASE WHEN status = 'OPEN' THEN 1 END),
 			COUNT(*)
@@ -139,15 +135,12 @@ func (p *Postgres) GetAdminOverview(ctx context.Context, branchID string) (domai
 		return overview, dbError(err)
 	}
 
-	// 4. Build window list (already uses an efficient single query internally)
-	windows, err := p.ListBranchWindows(ctx, branchID)
+		windows, err := p.ListBranchWindows(ctx, branchID)
 	if err != nil {
 		return overview, err
 	}
 
-	// 5. Batch-load current active ticket per window (one query for all windows)
-	//    Result: map[windowID] → (publicNumber, serviceName)
-	type activeTicket struct {
+			type activeTicket struct {
 		publicNumber string
 		serviceName  string
 	}
@@ -175,8 +168,7 @@ func (p *Postgres) GetAdminOverview(ctx context.Context, branchID string) (domai
 		return overview, dbError(err)
 	}
 
-	// 6. Batch-load served-today count per window (one query for all windows)
-	servedByWindow := make(map[string]int)
+		servedByWindow := make(map[string]int)
 	rows2, err := p.pool.Query(ctx, `
 		SELECT window_id::text, COUNT(*)
 		FROM tickets
@@ -201,8 +193,7 @@ func (p *Postgres) GetAdminOverview(ctx context.Context, branchID string) (domai
 		return overview, dbError(err)
 	}
 
-	// 7. Assemble AdminWindow list
-	overview.Windows = make([]domain.AdminWindow, 0, len(windows))
+		overview.Windows = make([]domain.AdminWindow, 0, len(windows))
 	for _, w := range windows {
 		aw := domain.AdminWindow{
 			ID:          w.ID,
@@ -219,9 +210,7 @@ func (p *Postgres) GetAdminOverview(ctx context.Context, branchID string) (domai
 	}
 	p.calculateWindowRecommendation(ctx, branchID, &overview)
 
-
-	// 8. Queue (WAITING, CALLED, SERVING) — single query
-	qrows, err := p.pool.Query(ctx, `
+		qrows, err := p.pool.Query(ctx, `
 		SELECT t.id::text, t.public_number, t.source, t.service_id::text, s.name, t.queue_entered_at, t.status,
 			   EXTRACT(EPOCH FROM (NOW() - t.queue_entered_at)) / 60
 		FROM tickets t
@@ -249,8 +238,7 @@ func (p *Postgres) GetAdminOverview(ctx context.Context, branchID string) (domai
 		qt.WaitTimeMinutes = int(waitTime)
 		overview.Queue = append(overview.Queue, qt)
 
-		// Anomaly: exceeded wait time while still waiting
-		if qt.Status == domain.TicketStatusWaiting && qt.WaitTimeMinutes > 15 {
+				if qt.Status == domain.TicketStatusWaiting && qt.WaitTimeMinutes > 15 {
 			overview.Anomalies = append(overview.Anomalies, domain.AnomalyTicket{
 				ID:              qt.ID,
 				PublicNumber:    qt.PublicNumber,
@@ -265,8 +253,7 @@ func (p *Postgres) GetAdminOverview(ctx context.Context, branchID string) (domai
 		return overview, dbError(err)
 	}
 
-	// 8b. Load NO_SHOW anomalies today
-	nsRows, err := p.pool.Query(ctx, `
+		nsRows, err := p.pool.Query(ctx, `
 		SELECT id::text, public_number, no_show_at
 		FROM tickets
 		WHERE branch_id = $1 AND status = 'NO_SHOW' AND (queue_entered_at AT TIME ZONE 'Europe/Moscow')::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Moscow')::date
@@ -294,8 +281,7 @@ func (p *Postgres) GetAdminOverview(ctx context.Context, branchID string) (domai
 		}
 	}
 
-	// 8c. Load operator reported incidents
-	incRows, err := p.pool.Query(ctx, `
+		incRows, err := p.pool.Query(ctx, `
 		SELECT oi.id::text, COALESCE('Окно ' || w.number::text, 'СБОЙ'), oi.category || ': ' || oi.description, oi.created_at,
 		       GREATEST(0, EXTRACT(EPOCH FROM (NOW() - oi.created_at)) / 60)::int
 		FROM operator_incidents oi
@@ -323,8 +309,7 @@ func (p *Postgres) GetAdminOverview(ctx context.Context, branchID string) (domai
 		}
 	}
 
-	// 9. Priority rules from DB
-	overview.Priorities, err = p.loadPriorityRules(ctx, id)
+		overview.Priorities, err = p.loadPriorityRules(ctx, id)
 	if err != nil {
 		return overview, err
 	}
@@ -437,16 +422,14 @@ func defaultPriorityRules() []domain.PriorityRule {
 // renumberBranchWindowsTx renumbers all windows of a branch sequentially (1..N)
 // safely handling the UNIQUE (branch_id, number) constraint by shifting numbers first.
 func renumberBranchWindowsTx(ctx context.Context, tx pgx.Tx, bid pgtype.UUID) error {
-	// Step 1: Temporarily shift numbers to prevent UNIQUE (branch_id, number) collisions
-	if _, err := tx.Exec(ctx, `
+		if _, err := tx.Exec(ctx, `
 		UPDATE windows 
 		SET number = number + 100000 
 		WHERE branch_id = $1`, bid); err != nil {
 		return dbError(err)
 	}
 
-	// Step 2: Reassign clean sequential 1..N order
-	if _, err := tx.Exec(ctx, `
+		if _, err := tx.Exec(ctx, `
 		WITH ordered AS (
 			SELECT id, ROW_NUMBER() OVER (ORDER BY number ASC) AS new_num
 			FROM windows
@@ -545,13 +528,11 @@ func (p *Postgres) DeleteWindow(ctx context.Context, windowID string) error {
 		return fmt.Errorf("cannot delete window with active ticket: %w", application.ErrWindowBusy)
 	}
 
-	// Delete window capabilities
-	if _, err = tx.Exec(ctx, `DELETE FROM window_services WHERE window_id=$1`, wid); err != nil {
+		if _, err = tx.Exec(ctx, `DELETE FROM window_services WHERE window_id=$1`, wid); err != nil {
 		return dbError(err)
 	}
 
-	// Delete window
-	res, err := tx.Exec(ctx, `DELETE FROM windows WHERE id=$1`, wid)
+		res, err := tx.Exec(ctx, `DELETE FROM windows WHERE id=$1`, wid)
 	if err != nil {
 		return dbError(err)
 	}
@@ -559,8 +540,7 @@ func (p *Postgres) DeleteWindow(ctx context.Context, windowID string) error {
 		return application.ErrNotFound
 	}
 
-	// Renumber remaining windows sequentially: 1, 2, 3...
-	bid, err := uuid(branchID)
+		bid, err := uuid(branchID)
 	if err != nil {
 		return err
 	}
@@ -660,8 +640,7 @@ func (p *Postgres) calculateWindowRecommendation(ctx context.Context, branchID s
 	}
 	avgWait := float64(overview.Metrics.AvgWaitTimeMinutes)
 
-	// 1. Current load calculation ("загрузка сейчас")
-	windowsForCurrent := 0
+		windowsForCurrent := 0
 	if waitingCount > 0 {
 		targetForQueue := int(math.Ceil(float64(waitingCount) / 2.5))
 		if targetForQueue > openCount {
@@ -681,8 +660,7 @@ func (p *Postgres) calculateWindowRecommendation(ctx context.Context, branchID s
 		}
 	}
 
-	// 2. Statistical load in the nearest hour ("статистическая загрузка в ближайший час")
-	windowsForUpcoming := 0
+		windowsForUpcoming := 0
 	var upcomingWorkload *domain.HourlyWorkload
 	if p.pool != nil {
 		if wl, err := p.GetBranchWorkload(ctx, branchID); err == nil {
@@ -732,8 +710,7 @@ func (p *Postgres) calculateWindowRecommendation(ctx context.Context, branchID s
 		}
 	}
 
-	// 3. Combined recommendation
-	if windowsForCurrent == 0 && windowsForUpcoming == 0 {
+		if windowsForCurrent == 0 && windowsForUpcoming == 0 {
 		return
 	}
 
@@ -771,8 +748,7 @@ func (p *Postgres) calculateWindowRecommendation(ctx context.Context, branchID s
 		return
 	}
 
-	// 4. Severity & reason construction
-	severity := "warning"
+		severity := "warning"
 	if (hasP90 && p90 > 15.0 && waitingCount > openCount) ||
 		(waitingCount >= openCount*3 && waitingCount > 3) ||
 		(upcomingWorkload != nil && upcomingWorkload.LoadPercent >= 80 && openCount <= totalCount/2) {

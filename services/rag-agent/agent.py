@@ -69,8 +69,6 @@ SYSTEM_PROMPT = """Ты — интеллектуальный цифровой а
 
 def _build_session_context(context: Dict[str, Any], cards: List[Dict[str, Any]], matched_service_name: str = "") -> str:
     ctx_parts = []
-
-    # 1. User profile
     user = context.get("user") or {}
     user_name = user.get("name") or user.get("fio")
     user_email = user.get("email")
@@ -86,8 +84,6 @@ def _build_session_context(context: Dict[str, Any], cards: List[Dict[str, Any]],
         )
     else:
         ctx_parts.append("👤 ПОЛЬЗОВАТЕЛЬ: Гость (не авторизован в личном кабинете).")
-
-    # 2. User location and nearest branch
     loc = context.get("location") or {}
     coords = loc.get("coordinates") or {"lat": loc.get("lat"), "lng": loc.get("lng")}
     nb = loc.get("nearest_branch")
@@ -103,8 +99,6 @@ def _build_session_context(context: Dict[str, Any], cards: List[Dict[str, Any]],
                 f"(Инструкция: если пользователь спрашивает «Где я?», «Какое отделение ко мне ближе всего?», «Как мне добраться?», обязательно сообщи эти точные координаты, адрес и расстояние)."
             )
         ctx_parts.append(loc_text)
-
-    # 3. Active tickets in personal cabinet
     tickets = context.get("active_tickets") or []
     if tickets:
         t_lines = []
@@ -122,12 +116,8 @@ def _build_session_context(context: Dict[str, Any], cards: List[Dict[str, Any]],
         ctx_parts.append(f"🎫 Активный талон в сессии: {context['ticket_id']}")
     else:
         ctx_parts.append("🎫 АКТИВНЫЕ ТАЛОНЫ: В личном кабинете пользователя сейчас нет активных талонов.")
-
-    # 4. Selected branch
     if context.get("branch_id"):
         ctx_parts.append(f"🏢 Выбранное в интерфейсе отделение (ID): {context['branch_id']}")
-
-    # 5. Executed actions in current turn
     if cards:
         for card in cards:
             if card["type"] == "ticket_created":
@@ -510,8 +500,6 @@ def _extract_conversation_state(messages: List[Dict[str, str]], context: Dict[st
     user = context.get("user") or {}
     session_key = str(user.get("id") or user.get("email") or context.get("ticket_id") or "default_user")
     existing_pending = context.get("pending_booking") or _PENDING_BOOKINGS.get(session_key) or _PENDING_BOOKINGS.get("default_user")
-
-    # 1. Match Branch (current message -> prior messages -> assistant message if user says 'туда' -> pending booking -> context -> default)
     matched_branch = None
     for b in BRANCH_CATALOG:
         if any(k in last_user_lower for k in b["keywords"]):
@@ -553,8 +541,6 @@ def _extract_conversation_state(messages: List[Dict[str, str]], context: Dict[st
         matched_branch = next((b for b in BRANCH_CATALOG if b["id"] == context["location"]["nearest_branch"]["id"]), None)
     if not matched_branch:
         matched_branch = next((b for b in BRANCH_CATALOG if "покровк" in b["keywords"]), BRANCH_CATALOG[0])
-
-    # 2. Match Service
     service_keywords = {
         "PARCELS": ["посылк", "посылка", "посылки", "посылок", "посылку", "ems", "1 класс", "первый класс", "посылочн", "тяжеловесн", "коробк", "бандерол", "груз"],
         "SEND": ["письм", "письмо", "письма", "письме", "открытк", "корреспонденц", "уведомлен", "марк"],
@@ -582,8 +568,6 @@ def _extract_conversation_state(messages: List[Dict[str, str]], context: Dict[st
                 break
     if not matched_service_code:
         matched_service_code = "PARCELS"
-
-    # 3. Match Date / Time
     date_indicators = [
         "январ", "феврал", "март", "апрел", " мая", " мае", " май", "июн", "июл", "август", "сентябр", "октябр", "октярб", "ноябр", "декабр",
         "сегодня", "завтра", "послезавтра", "часов", "утра", "дня", "вечера"
@@ -706,16 +690,12 @@ class RAGAgent:
             if m.get("role") == "user":
                 last_user_message = m.get("content", "")
                 break
-
-        # Priority 1: Multi-turn deterministic booking and context resolution
         booking_result = await self._handle_booking_intent(messages, context)
         if booking_result:
             return booking_result
 
         # Extract current state for enriched prompting
         state = _extract_conversation_state(messages, context)
-
-        # Priority 2: Check if Sber GigaChat is configured and available
         if GIGACHAT_CREDENTIALS and len(GIGACHAT_CREDENTIALS.strip()) > 10:
             try:
                 if not self.gigachat:
@@ -723,15 +703,11 @@ class RAGAgent:
                 return await self._chat_with_gigachat(messages, context, last_user_message, state)
             except Exception as e:
                 logger.warning(f"GigaChat call failed ({e}), trying next provider...")
-
-        # Priority 3: Check if OpenAI is configured and available
         if OPENAI_API_KEY and len(OPENAI_API_KEY.strip()) > 5:
             try:
                 return await self._chat_with_llm(messages, context, last_user_message)
             except Exception as e:
                 logger.warning(f"LLM call failed ({e}), switching to autonomous RAG engine.")
-
-        # Priority 4: Autonomous high-quality RAG fallback with history retention
         return await self._chat_autonomous(last_user_message, context, messages=messages, state=state)
 
     async def _build_pending_booking(
@@ -798,8 +774,6 @@ class RAGAgent:
         state = _extract_conversation_state(messages, context)
         session_key = state["session_key"]
         existing_pending = state["existing_pending"]
-
-        # 1. Handle CONFIRMATION ("Да", "Подтверждаю")
         if state["is_confirm"]:
             pending = existing_pending
             if not pending and messages:
@@ -866,8 +840,6 @@ class RAGAgent:
                         "sources": [{"title": "Электронная очередь", "category": "Сервис"}],
                         "cards": []
                     }
-
-        # 2. Handle CANCELLATION ("Нет", "Отмена")
         if state["is_cancel"] and (session_key in _PENDING_BOOKINGS or "default_user" in _PENDING_BOOKINGS):
             _PENDING_BOOKINGS.pop(session_key, None)
             _PENDING_BOOKINGS.pop("default_user", None)
@@ -880,8 +852,6 @@ class RAGAgent:
         # If this is a ticket inquiry, do not hijack with booking intent
         if state.get("is_ticket_inquiry"):
             return None
-
-        # 3. Handle BOOKING INTENT or MODIFICATION or PROMPT REQUEST
         if not state["is_booking_intent"]:
             return None
 
@@ -942,8 +912,6 @@ class RAGAgent:
         """Executes dialogue using official Sber GigaChat API with RAG context and actions."""
         q_lower = user_query.lower()
         cards = []
-
-        # Action 1: Check ticket status if requested
         if any(w in q_lower for w in ["мой талон", "статус талона", "сколько ждать", "какой в очереди"]):
             ticket_id = context.get("ticket_id")
             if ticket_id:
@@ -988,7 +956,6 @@ class RAGAgent:
         user_query: str
     ) -> Dict[str, Any]:
         """Interacts with OpenAI-compatible API using function calling."""
-        # 1. Pre-retrieve relevant knowledge base chunks
         retrieved = self.kb.search(user_query, top_k=4)
         kb_context = self.kb.format_for_prompt(retrieved)
 
@@ -1073,8 +1040,6 @@ class RAGAgent:
         messages = messages or []
         state = state or _extract_conversation_state(messages, context)
         current_branch = state.get("matched_branch")
-
-        # Intent A: User identity & profile
         user = context.get("user") or {}
         user_name = user.get("name") or user.get("fio")
         user_email = user.get("email")
@@ -1104,8 +1069,6 @@ class RAGAgent:
                     "sources": [{"title": "Личный кабинет пользователя", "category": "Профиль"}],
                     "cards": []
                 }
-
-        # Intent B: User Location & Nearest Branch
         loc = context.get("location") or {}
         nb = loc.get("nearest_branch")
         if any(w in q_lower for w in ["где я нахожусь", "где я", "мое местоположение", "моё местоположение", "ближайшее отделение", "какое отделение ближе", "куда мне идти", "где почта"]):
@@ -1133,8 +1096,6 @@ class RAGAgent:
                     "sources": [{"title": "Интерактивная карта отделений", "category": "Навигация"}],
                     "cards": []
                 }
-
-        # Intent C: Active Tickets in Personal Cabinet
         is_tickets_query = state.get("is_ticket_inquiry") or any(
             w in q_lower for w in [
                 "какие у меня талоны", "мои талоны", "мои записи", "список талонов", "какой у меня талон",
@@ -1216,8 +1177,6 @@ class RAGAgent:
                     "sources": [{"title": "Личный кабинет", "category": "Сервис"}],
                     "cards": []
                 }
-
-        # Intent D: Branch details, schedule, or location follow-up (Context Aware)
         is_branch_query = any(w in q_lower for w in [
             "как работает", "до скольки", "график", "часы работы", "адрес", "где находится",
             "как добраться", "какое метро", "где оно", "как доехать", "режим работы", "расписание"
@@ -1237,8 +1196,6 @@ class RAGAgent:
                 "sources": [{"title": f"Отделение {current_branch['name']}", "category": "Отделения"}],
                 "cards": []
             }
-
-        # Intent E: Website Overview & Capabilities
         if any(w in q_lower for w in ["что умеет сайт", "о сайте", "возможности сайта", "разделы сайта", "как работает сайт", "что тут есть", "расскажи о сайте"]):
             return {
                 "text": (
@@ -1262,8 +1219,6 @@ class RAGAgent:
                 "sources": [{"title": "Возможности, разделы и сервисы веб-платформы Почты России", "category": "Веб-платформа"}],
                 "cards": []
             }
-
-        # Intent F: Check Specific Ticket Status
         status_keywords = ["мой талон", "статус талона", "сколько ждать", "какой в очереди", "позиция в очереди", "где мой талон"]
         if any(w in q_lower for w in status_keywords):
             ticket_id = context.get("ticket_id")
@@ -1304,8 +1259,6 @@ class RAGAgent:
                     "sources": [],
                     "cards": []
                 }
-
-        # Intent G: Knowledge Base Hybrid RAG Search
         retrieved = self.kb.search(query, top_k=3)
         if retrieved:
             sources = [{"title": r["title"], "category": r["category"]} for r in retrieved]
@@ -1321,8 +1274,6 @@ class RAGAgent:
                 "sources": sources,
                 "cards": []
             }
-
-        # Intent H: General fallback response
         greeting_prefix = f"Здравствуйте, {user_name}! " if user_name else "Здравствуйте! "
         return {
             "text": (

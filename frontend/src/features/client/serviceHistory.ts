@@ -13,13 +13,10 @@ export interface ClientServiceRecord {
 
 export const STORAGE_SERVICE_HISTORY_KEY = 'client_service_history';
 
-// Моковая история полностью удалена по требованию пользователя
 export const DEFAULT_CLIENT_HISTORY: ClientServiceRecord[] = [];
 
-// Моковые номера талонов, подлежащие очистке из хранилища
 const MOCK_PUBLIC_NUMBERS = new Set(['Q-001454', 'Q-000892', 'Q-000341']);
 
-// Вымышленные случайные имена операторов, подлежащие безусловной замене на реальные профили
 export const MOCK_OPERATOR_NAMES = new Set([
   'Иванова Анна',
   'Смирнов Дмитрий',
@@ -48,8 +45,7 @@ export function getClientServiceHistory(scope: string): ClientServiceRecord[] {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
         let changed = false;
-        // Очищаем старые тестовые моковые записи и заменяем вымышленные имена операторов
-        const cleaned = parsed
+                const cleaned = parsed
           .filter(
             (item: any) =>
               item &&
@@ -77,8 +73,7 @@ export function getClientServiceHistory(scope: string): ClientServiceRecord[] {
             localStorage.setItem(key, JSON.stringify(cleaned));
           } catch {}
         }
-        // Сортировка: новые визиты всегда сверху (по убыванию даты completedAt)
-        return cleaned.sort(
+                return cleaned.sort(
           (a, b) => new Date(b.completedAt || 0).getTime() - new Date(a.completedAt || 0).getTime()
         );
       }
@@ -92,8 +87,7 @@ export function saveClientServiceRecord(scope: string, record: ClientServiceReco
     if (typeof localStorage === 'undefined') return;
     const key = `${STORAGE_SERVICE_HISTORY_KEY}:${scope}`;
     const existing = getClientServiceHistory(scope);
-    // Новые визиты помещаются строго в начало массива (сверху прошлых)
-    const updated = [record, ...existing.filter(r => r.id !== record.id)]
+        const updated = [record, ...existing.filter(r => r.id !== record.id)]
       .sort((a, b) => new Date(b.completedAt || 0).getTime() - new Date(a.completedAt || 0).getTime())
       .slice(0, 50);
     localStorage.setItem(key, JSON.stringify(updated));
@@ -125,8 +119,7 @@ export function recordTicketOperator(
     }
     localStorage.setItem('operator_fio', trimmed);
 
-    // Синхронизируем имя оператора в сохранённых историях клиентов для этого талона или окна
-    for (let i = 0; i < localStorage.length; i++) {
+        for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
       if (key && key.startsWith(STORAGE_SERVICE_HISTORY_KEY)) {
         const raw = localStorage.getItem(key);
@@ -159,52 +152,44 @@ export function resolveOperatorName(
   ticket: { id?: string; branchId?: string; window?: { id?: string; number?: number } | null; operatorName?: string | null },
   defaultNames?: Record<number, string>
 ): string {
-  // 0. Если имя передано в талоне и это не моковое имя
-  if (ticket.operatorName && ticket.operatorName.trim() && !MOCK_OPERATOR_NAMES.has(ticket.operatorName.trim())) {
+    if (ticket.operatorName && ticket.operatorName.trim() && !MOCK_OPERATOR_NAMES.has(ticket.operatorName.trim())) {
     return ticket.operatorName.trim();
   }
 
   if (typeof localStorage !== 'undefined') {
-    // 1. По ID конкретного талона
-    if (ticket.id) {
+        if (ticket.id) {
       const fromTicket = localStorage.getItem(`ticket_operator_name:${ticket.id}`);
       if (fromTicket && fromTicket.trim() && !MOCK_OPERATOR_NAMES.has(fromTicket.trim())) {
         return fromTicket.trim();
       }
     }
-    // 2. По ID окна
-    if (ticket.window?.id) {
+        if (ticket.window?.id) {
       const fromWinId = localStorage.getItem(`window_operator_name:${ticket.window.id}`);
       if (fromWinId && fromWinId.trim() && !MOCK_OPERATOR_NAMES.has(fromWinId.trim())) {
         return fromWinId.trim();
       }
     }
-    // 3. По отделению и номеру окна
-    if (ticket.branchId && ticket.window?.number) {
+        if (ticket.branchId && ticket.window?.number) {
       const fromBranchWin = localStorage.getItem(`window_num_operator_name:${ticket.branchId}:${ticket.window.number}`);
       if (fromBranchWin && fromBranchWin.trim() && !MOCK_OPERATOR_NAMES.has(fromBranchWin.trim())) {
         return fromBranchWin.trim();
       }
     }
-    // 4. По номеру окна
-    if (ticket.window?.number) {
+        if (ticket.window?.number) {
       const fromWinNum = localStorage.getItem(`window_num_operator_name:${ticket.window.number}`);
       if (fromWinNum && fromWinNum.trim() && !MOCK_OPERATOR_NAMES.has(fromWinNum.trim())) {
         return fromWinNum.trim();
       }
     }
-    // 5. Имя оператора из профиля оператора
-    const opFio = localStorage.getItem('operator_fio');
+        const opFio = localStorage.getItem('operator_fio');
     if (opFio && opFio.trim() && !MOCK_OPERATOR_NAMES.has(opFio.trim())) {
       return opFio.trim();
     }
-    // 6. Имя из профиля администратора
-    const adminFio = localStorage.getItem('admin_fio') || localStorage.getItem('user_fio:admin@pochta.local');
+        const adminFio = localStorage.getItem('admin_fio') || localStorage.getItem('user_fio:admin@pochta.local');
     if (adminFio && adminFio.trim() && !MOCK_OPERATOR_NAMES.has(adminFio.trim())) {
       return adminFio.trim();
     }
-    // 7. Имя пользователя из общего профиля
-    const userFio = localStorage.getItem('user_fio');
+        const userFio = localStorage.getItem('user_fio');
     if (userFio && userFio.trim() && !MOCK_OPERATOR_NAMES.has(userFio.trim())) {
       return userFio.trim();
     }

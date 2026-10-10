@@ -15,11 +15,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 )
-
-// ─────────────────────────────────────────────────────────────────────────────
 // GET /api/v1/auth/oauth/{provider}/login
-// ─────────────────────────────────────────────────────────────────────────────
-
 func (a *API) OAuthLogin(w http.ResponseWriter, r *http.Request) {
 	provider := strings.ToLower(chi.URLParam(r, "provider"))
 	allowDemo := os.Getenv("ALLOW_DEMO_OAUTH") == "true" || os.Getenv("APP_ENV") == "test" || os.Getenv("APP_ENV") == "development"
@@ -63,11 +59,7 @@ func (a *API) OAuthLogin(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, r, http.StatusBadRequest, "UNSUPPORTED_PROVIDER", "supported provider is yandex")
 	}
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
 // GET /api/v1/auth/oauth/{provider}/callback
-// ─────────────────────────────────────────────────────────────────────────────
-
 func (a *API) OAuthCallback(w http.ResponseWriter, r *http.Request) {
 	provider := strings.ToLower(chi.URLParam(r, "provider"))
 	code := r.URL.Query().Get("code")
@@ -78,12 +70,10 @@ func (a *API) OAuthCallback(w http.ResponseWriter, r *http.Request) {
 
 	isSecure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 
-	// Validate OAuth state
-	stateQuery := r.URL.Query().Get("state")
+		stateQuery := r.URL.Query().Get("state")
 	stateCookie, cookieErr := r.Cookie("oauth_state")
 
-	// Clear oauth_state cookie
-	http.SetCookie(w, &http.Cookie{
+		http.SetCookie(w, &http.Cookie{
 		Name:     "oauth_state",
 		Value:    "",
 		Path:     "/",
@@ -164,10 +154,6 @@ func getFrontendReturnURL(r *http.Request, provider string) string {
 	return fmt.Sprintf("/?auth=success&provider=%s", provider)
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// OAuth Helpers
-// ─────────────────────────────────────────────────────────────────────────────
-
 func exchangeYandexCode(ctx context.Context, code string) (string, error) {
 	clientID := os.Getenv("YANDEX_CLIENT_ID")
 	clientSecret := os.Getenv("YANDEX_CLIENT_SECRET")
@@ -202,8 +188,7 @@ func exchangeYandexCode(ctx context.Context, code string) (string, error) {
 		return "", err
 	}
 
-	// Запрашиваем информацию о пользователе
-	infoReq, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://login.yandex.ru/info?format=json", nil)
+		infoReq, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://login.yandex.ru/info?format=json", nil)
 	if err != nil {
 		return "", err
 	}

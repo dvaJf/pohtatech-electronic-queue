@@ -47,7 +47,7 @@ func (a *API) RegisterRoutes(r chi.Router) {
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Use(a.loadSession)
 
-		// ── Auth (публичные) ──────────────────────────────────────────────
+		// Auth (публичные)
 		r.Route("/auth", func(r chi.Router) {
 			r.Post("/register", a.Register)
 			r.Get("/confirm", a.ConfirmEmail)
@@ -63,7 +63,7 @@ func (a *API) RegisterRoutes(r chi.Router) {
 			r.Post("/telegram/link", a.CreateUserTelegramLink)
 		})
 
-		// ── Клиент: публичные ─────────────────────────────────────────────
+		// Клиент: публичные
 		r.Get("/branches", a.ListBranches)
 		r.Get("/branches/{branchId}/services", a.ListBranchServices)
 		r.Post("/branches/{branchId}/tickets/qr", a.CreateQRTicket)
@@ -96,7 +96,7 @@ func (a *API) RegisterRoutes(r chi.Router) {
 		r.With(requireRole(domain.RoleOPCChief)).Post("/branches/{branchId}/windows", a.CreateWindow)
 		r.With(requireRole(domain.RoleOPCChief)).Delete("/windows/{windowId}", a.DeleteWindow)
 
-		// ── RAG AI Agent Proxy ──────────────────────────────────────────
+		// RAG AI Agent Proxy
 		agentURLStr := os.Getenv("RAG_AGENT_URL")
 		if agentURLStr == "" {
 			agentURLStr = "http://rag-agent:8095"
@@ -109,7 +109,7 @@ func (a *API) RegisterRoutes(r chi.Router) {
 			})
 		}
 
-		// ── Оператор (employee + opc_chief) ──────────────────────────────
+		// Оператор (employee + opc_chief)
 		r.Route("/operator", func(r chi.Router) {
 			r.Use(requireRole(domain.RoleEmployee, domain.RoleOPCChief))
 			r.Post("/branches/{branchId}/tickets/live", a.CreateLiveTicket)
@@ -124,7 +124,7 @@ func (a *API) RegisterRoutes(r chi.Router) {
 			r.Post("/branches/{branchId}/incidents", a.ReportIncident)
 		})
 
-		// ── Администратор (opc_chief; отдельные точки чтения/статуса окна доступны employee) ──
+		// Администратор (opc_chief; отдельные точки чтения/статуса окна доступны employee)
 		r.Route("/admin", func(r chi.Router) {
 			r.Use(requireRole(domain.RoleEmployee, domain.RoleOPCChief))
 
@@ -153,7 +153,7 @@ func (a *API) RegisterRoutes(r chi.Router) {
 			})
 		})
 
-		// ── Терминал (is_terminal=true) ───────────────────────────────────
+		// Терминал (is_terminal=true)
 		r.Route("/terminal", func(r chi.Router) {
 			r.Use(requireTerminal)
 			r.Post("/branches/{branchId}/tickets/live", a.CreateLiveTicket)
@@ -161,10 +161,6 @@ func (a *API) RegisterRoutes(r chi.Router) {
 		})
 	})
 }
-
-// -----------------------------------------------------------------------------
-// Responses DTOs
-// -----------------------------------------------------------------------------
 
 type ListBranchesResponse struct {
 	Items []BranchDTO `json:"items"`
@@ -240,10 +236,6 @@ type ErrorDetail struct {
 	Message   string `json:"message"`
 	RequestID string `json:"requestId"`
 }
-
-// -----------------------------------------------------------------------------
-// Mapping Helpers
-// -----------------------------------------------------------------------------
 
 // mapWindowDTO keeps every window response (operator list, status change, capability
 // change) identical, so the frontend can consume any of them with one mapper.
@@ -367,6 +359,5 @@ func writeJSONResponse(w http.ResponseWriter, status int, data any) {
 func (a *API) AliceWebhook(w http.ResponseWriter, r *http.Request) {
 	a.aliceHandler.ServeHTTP(w, r)
 }
-
 
 // Handlers are located in client_handlers.go, operator_handlers.go, and admin_handlers.go

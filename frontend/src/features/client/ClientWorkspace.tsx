@@ -1034,7 +1034,7 @@ function saveCachedTickets(scope: string, ticketList: Ticket[]) {
 
 // Талоны храним строго по владельцу: ключ `client_active_ticket_ids:<userId|anon>`.
 // Используем sessionStorage и localStorage для надёжного восстановления сессии
-// после перезагрузки страницы, обрыва связи или закрытия вкладки (Требование 14 ТЗ).
+// после перезагрузки страницы, обрыва связи или закрытия вкладки.
 function getSavedTicketIds(scope: string): string[] {
   try {
     const val = sessionStorage.getItem(ticketsKeyFor(scope)) || localStorage.getItem(ticketsKeyFor(scope));
@@ -1338,8 +1338,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
   const [cancellingTicketId, setCancellingTicketId] = useState<string | null>(null);
   const [arriving, setArriving] = useState(false);
 
-  // Transient appointment confirmation modal state (never rendered in My Tickets)
-  const [pendingAppointmentTicket, setPendingAppointmentTicket] = useState<Ticket | null>(null);
+    const [pendingAppointmentTicket, setPendingAppointmentTicket] = useState<Ticket | null>(null);
   const [isConfirmationDialogOpen, setIsConfirmationDialogOpen] = useState(false);
 
   useEffect(() => {
@@ -1419,8 +1418,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
     }
   }, [currentCoordinates]);
 
-  // Map Modal State
-  const [isMapModalOpen, setIsMapModalOpen] = useState(false);
+    const [isMapModalOpen, setIsMapModalOpen] = useState(false);
   const [mapInitialFilter, setMapInitialFilter] = useState<'all' | 'parcels' | 'letters' | 'pensions' | 'accessible'>('all');
   const [mapTargetBranchId, setMapTargetBranchId] = useState<string | null>(null);
 
@@ -1429,27 +1427,23 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
     if (!nearbyBranch) return false;
     const targetBranchId = nearbyBranch.id;
 
-    // 1. Проверяем в текущем состоянии tickets
-    if (tickets.some(t => !terminalStatuses.has(t.status) && t.branchId === targetBranchId)) {
+        if (tickets.some(t => !terminalStatuses.has(t.status) && t.branchId === targetBranchId)) {
       return true;
     }
 
-    // 2. Проверяем в синхронном кэше активных талонов (localStorage/sessionStorage)
-    const cached = getCachedTickets(ownerScope);
+        const cached = getCachedTickets(ownerScope);
     if (cached.some(t => !terminalStatuses.has(t.status) && t.branchId === targetBranchId)) {
       return true;
     }
 
-    // 3. Проверяем в предварительных записях (appointments)
-    if (Object.values(appointments).some(a => a.ticket && !terminalStatuses.has(a.ticket.status) && a.ticket.branchId === targetBranchId)) {
+        if (Object.values(appointments).some(a => a.ticket && !terminalStatuses.has(a.ticket.status) && a.ticket.branchId === targetBranchId)) {
       return true;
     }
 
     return false;
   }, [tickets, nearbyBranch, ownerScope, appointments]);
 
-  // Request GPS on mount and notify header
-  useEffect(() => {
+    useEffect(() => {
     const handleGeoRequest = () => requestGpsPermission();
     const handleGeoPreset = (e: Event) => {
       const custom = e as CustomEvent<{ mode: GeofenceSimulationMode }>;
@@ -1880,13 +1874,11 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
 
             let notifEnabled = true;
             try {
-              // 1. Проверяем статус в профиле: если в профиле явно выключено -> уведомлений не будет.
-              const profilePushEnabled = localStorage.getItem('user_browser_push_enabled') !== 'false';
+                            const profilePushEnabled = localStorage.getItem('user_browser_push_enabled') !== 'false';
               if (!profilePushEnabled) {
                 notifEnabled = false;
               }
-              // 2. Если в профиле включено, проверяем индивидуальный статус талона: если в конкретном талоне выключено -> не придет только для этого талона.
-              if (
+                            if (
                 localStorage.getItem(`ticket_notif_enabled:${nextTicket.id}`) === 'false' ||
                 localStorage.getItem(`ticket_webpush_disabled:${nextTicket.id}`) === 'true'
               ) {
@@ -1895,8 +1887,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
             } catch {}
 
             if (notifEnabled) {
-              // Звуковой гонг (Web Audio API)
-              try {
+                            try {
                 const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
                 if (AudioCtx) {
                   const ctx = new AudioCtx();
@@ -1914,8 +1905,7 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                 }
               } catch {}
 
-              // Системный Web Push / Notification браузера
-              try {
+                            try {
                 if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
                   if ('serviceWorker' in navigator) {
                     navigator.serviceWorker.ready.then(reg => {
@@ -3361,8 +3351,6 @@ export function ClientWorkspace({ qrBranchId, kiosk = false, resetToken = 0 }: {
                     </div>
 
                     {!terminalStatuses.has(ticket.status) && <NotificationControls ticket={ticket} managementToken={findMgmtToken(ticket.id, ownerScope) || ticket.managementToken} currentUserId={currentUserId} />}
-
-
 
                     {/* Actions Footer */}
                     <div className="cx-ticket-actions">

@@ -47,12 +47,10 @@ export const AdminWorkspace: React.FC = () => {
   const [anomaliesLoading, setAnomaliesLoading] = useState(false);
   const [anomaliesError, setAnomaliesError] = useState<string | null>(null);
 
-  // Real backend overview data
-  const [overview, setOverview] = useState<AdminBranchOverview | null>(null);
+    const [overview, setOverview] = useState<AdminBranchOverview | null>(null);
   const [openingRecommended, setOpeningRecommended] = useState(false);
 
-  // Initial branches fetch
-  useEffect(() => {
+    useEffect(() => {
     let active = true;
     setLoading(true);
     setError(null);
@@ -73,8 +71,7 @@ export const AdminWorkspace: React.FC = () => {
     };
   }, []);
 
-  // Poll overview for the selected branch
-  useEffect(() => {
+    useEffect(() => {
     if (!selectedBranchId) return;
     let active = true;
     let timer: number;
@@ -86,8 +83,7 @@ export const AdminWorkspace: React.FC = () => {
           setOverview(next);
         }
       } catch {
-        // silent retry in background
-      } finally {
+              } finally {
         const interval = activeTab === 'queue' ? 2500 : 5000;
         if (active) timer = window.setTimeout(loadOverview, interval);
       }

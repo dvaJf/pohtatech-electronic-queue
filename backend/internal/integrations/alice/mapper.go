@@ -44,7 +44,7 @@ func ToVoiceRequest(req AliceRequest) voice.VoiceRequest {
 			Source:    voice.LocationSourceGPS,
 		}
 	} else {
-		// 2. Default coordinates if no GPS available from dialog (Innopolis center for hackathon)
+		// 2. Default coordinates if no GPS available from dialog
 		loc = &voice.UserLocation{
 			Latitude:  55.752176,
 			Longitude: 48.744474,

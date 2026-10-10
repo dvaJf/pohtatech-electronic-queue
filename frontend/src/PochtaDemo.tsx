@@ -27,7 +27,6 @@ import { enqueueAnnouncement } from './utils/announcementQueue';
 import { parseMoscowDatetimeLocal, toMoscowDatetimeLocal } from './utils/time';
 
 /**
- * =============================================================================
  * АУТЕНТИЧНЫЕ ВЕКТОРНЫЕ SVG-АССЕТЫ АО «ПОЧТА РОССИИ»
  * Фирменные цвета по брендбуку:
  *  - Primary Digital Blue: #054FA6 (RGB 25, 40, 220)
@@ -36,7 +35,6 @@ import { parseMoscowDatetimeLocal, toMoscowDatetimeLocal } from './utils/time';
  *  - Light Accent Blue:    #86BBFF / #EBF3FC
  *  - Neutral Canvas:       #F8FAFC / #F1F5F9
  *  - High-Contrast Text:   #0F172A / #1E293B
- * =============================================================================
  */
 
 /**
@@ -524,8 +522,7 @@ export default function PochtaDemo({ currentPath = '/demo', navigate }: { curren
 
   const { overview } = useDemoIntegration(setTickets, setWindows);
 
-  // Веса алгоритма Queue Policy (Спринты 2-4)
-  const [policyConfig, setPolicyConfig] = useState({
+    const [policyConfig, setPolicyConfig] = useState({
     weightAppointment: 1.5,
     weightQr: 1.0,
     weightLive: 1.0,
@@ -1366,11 +1363,9 @@ export default function PochtaDemo({ currentPath = '/demo', navigate }: { curren
     ctx.textAlign = 'center';
     ctx.fillText('ПР', canvas.width / 2, qrStartY + qrBoxSize / 2 + 5);
 
-    // =========================================================================
-    // ОФИЦИАЛЬНЫЙ КАЛЕНДАРНЫЙ ШТЕМПЕЛЬ (ПЕЧАТЬ) ПОЧТЫ РОССИИ НА КАРТОЧКЕ
+        // ОФИЦИАЛЬНЫЙ КАЛЕНДАРНЫЙ ШТЕМПЕЛЬ (ПЕЧАТЬ) ПОЧТЫ РОССИИ НА КАРТОЧКЕ
     // Текст математически строго вписывается в хорду кругов и никогда не выходит за края!
-    // =========================================================================
-    ctx.save();
+        ctx.save();
     ctx.translate(460, 595);
     ctx.rotate(0.2);
 
@@ -1540,11 +1535,9 @@ export default function PochtaDemo({ currentPath = '/demo', navigate }: { curren
     return list;
   }, [queueScoring, tickets, overview]);
 
-  // ===========================================================================
-  // AUTH GATE: вход/регистрация обязательны для всех пользователей.
+    // AUTH GATE: вход/регистрация обязательны для всех пользователей.
   // Пока сессия не подтверждена — никакой интерфейс не рендерится.
-  // ===========================================================================
-  if (authLoading || !currentUser) {
+    if (authLoading || !currentUser) {
     const submitGateAuth = async (e: React.FormEvent<HTMLFormElement>) => {
       e.preventDefault();
       const email = (e.currentTarget.elements.namedItem('email') as HTMLInputElement).value;
@@ -1640,12 +1633,10 @@ export default function PochtaDemo({ currentPath = '/demo', navigate }: { curren
       isAccessibilityMode ? 'bg-[#030e1e] text-[#FFE600]' : 'bg-[#F8FAFC] text-[#0F172A]'
     }`}>
 
-      {/* ========================================================================= */}
-      {/* ПЛАВАЮЩИЙ ОСТРОВОК ГОЛОСОВОГО ВЫЗОВА (FLOATING VOICE DYNAMIC ISLAND)      */}
+            {/* ПЛАВАЮЩИЙ ОСТРОВОК ГОЛОСОВОГО ВЫЗОВА (FLOATING VOICE DYNAMIC ISLAND)      */}
       {/* Расположен внизу по центру: не перекрывает навигацию, вкладки и окна!     */}
       {/* Контрастный глубокий фон #070D1B с изумрудной каймой (не сливается)       */}
-      {/* ========================================================================= */}
-      {currentAnnouncement && (
+            {currentAnnouncement && (
         <aside
           role="status"
           aria-live="assertive"
@@ -1734,10 +1725,8 @@ export default function PochtaDemo({ currentPath = '/demo', navigate }: { curren
         </div>
       )}
 
-      {/* ========================================================================= */}
-      {/* ФИРМЕННАЯ ШАПКА ПОЧТЫ РОССИИ                                              */}
-      {/* ========================================================================= */}
-      <header className="bg-[#003B73] text-white shadow-lg sticky top-0 z-40">
+            {/* ФИРМЕННАЯ ШАПКА ПОЧТЫ РОССИИ                                              */}
+            <header className="bg-[#003B73] text-white shadow-lg sticky top-0 z-40">
         
         {/* Верхняя статусная линия */}
         <div className="max-w-7xl mx-auto px-4 py-2 flex flex-wrap items-center justify-between gap-3 border-b border-white/10">
@@ -1797,7 +1786,7 @@ export default function PochtaDemo({ currentPath = '/demo', navigate }: { curren
                   ? 'bg-[#FFE600] text-black border-black font-black'
                   : 'bg-black/25 border-white/15 text-blue-100 hover:bg-white/10'
               }`}
-              title="Версия для слабовидящих пользователей (ТЗ Спринт 4)"
+              title="Версия для слабовидящих пользователей "
             >
               <Eye className="w-3.5 h-3.5" />
               <span>Доступность</span>
@@ -1817,7 +1806,7 @@ export default function PochtaDemo({ currentPath = '/demo', navigate }: { curren
                   ? 'bg-amber-400 text-slate-900 border-amber-500 font-bold'
                   : 'bg-black/25 border-white/15 text-blue-100 hover:bg-white/10'
               }`}
-              title="Эмуляция потери связи и восстановления сессии (ТЗ Спринт 2)"
+              title="Эмуляция потери связи и восстановления сессии "
             >
               {isOfflineSimulated ? <WifiOff className="w-3.5 h-3.5" /> : <Wifi className="w-3.5 h-3.5 text-emerald-400" />}
               <span>{isOfflineSimulated ? 'Офлайн' : 'Онлайн'}</span>
@@ -1869,10 +1858,8 @@ export default function PochtaDemo({ currentPath = '/demo', navigate }: { curren
         <div className="h-[2px] w-full bg-[#D92534]"></div>
       </header>
 
-      {/* ========================================================================= */}
-      {/* ОСНОВНОЕ ТЕЛО СТРАНИЦЫ                                                    */}
-      {/* ========================================================================= */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 transition-all">
+            {/* ОСНОВНОЕ ТЕЛО СТРАНИЦЫ                                                    */}
+            <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 transition-all">
 
         {/* 0. ДЕМО-ХАБ (НОВЫЙ) */}
         {activeTab === 'hub' && (
@@ -1906,10 +1893,8 @@ export default function PochtaDemo({ currentPath = '/demo', navigate }: { curren
           </div>
         )}
 
-        {/* ========================================================================= */}
-        {/* ВКЛАДКА 1: БРОНИРОВАНИЕ ТАЛОНА                                           */}
-        {/* ========================================================================= */}
-        {(activeTab === 'client-booking' || activeTab === 'client-ticket') && (
+                {/* ВКЛАДКА 1: БРОНИРОВАНИЕ ТАЛОНА                                           */}
+                {(activeTab === 'client-booking' || activeTab === 'client-ticket') && (
            <ClientWorkspace />
         )}
         {activeTab === 'operator' && (
@@ -1960,8 +1945,7 @@ export default function PochtaDemo({ currentPath = '/demo', navigate }: { curren
                   </div>
                 </div>
 
-                {/* Селектор окон для тестирования одновременной работы (ТЗ Спринт 2) */}
-                <div className="flex items-center gap-2 max-w-full min-w-0">
+                                <div className="flex items-center gap-2 max-w-full min-w-0">
                   <span className="text-xs font-mono text-slate-500 font-bold hidden sm:inline shrink-0">Выбор окна:</span>
                   <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl overflow-x-auto max-w-full scrollbar-thin">
                     {windows.map(w => (
@@ -1996,8 +1980,7 @@ export default function PochtaDemo({ currentPath = '/demo', navigate }: { curren
                 </div>
               </div>
 
-              {/* Настройка доступных услуг стойки (ТЗ Спринт 2) */}
-              <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-xs">
+                            <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-xs">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-bold text-slate-600">Услуги окна:</span>
                   {SERVICES.map(srv => {
@@ -2244,10 +2227,8 @@ export default function PochtaDemo({ currentPath = '/demo', navigate }: { curren
           </div>
         )}
 
-        {/* ========================================================================= */}
-        {/* ВКЛАДКА 4: НАЧАЛЬНИК ОПС И ПОЛИТИКА ОЧЕРЕДИ                              */}
-        {/* ========================================================================= */}
-        {activeTab === 'admin' && (
+                {/* ВКЛАДКА 4: НАЧАЛЬНИК ОПС И ПОЛИТИКА ОЧЕРЕДИ                              */}
+                {activeTab === 'admin' && (
           <div className="space-y-4">
             {!isAdminRole ? (
               <div className="bg-white rounded-3xl p-8 text-center border border-slate-200 shadow-sm">
@@ -2561,8 +2542,7 @@ export default function PochtaDemo({ currentPath = '/demo', navigate }: { curren
               </div>
             )}
 
-            {/* Подвкладка: Отклонения и аномалии (ТЗ Спринт 2) */}
-            {adminSubTab === 'anomalies' && (
+                        {adminSubTab === 'anomalies' && (
               <div className="bg-white rounded-3xl border border-[#D2D8E2] p-5 space-y-3 shadow-sm">
                 <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                   <div>
@@ -2718,13 +2698,9 @@ export default function PochtaDemo({ currentPath = '/demo', navigate }: { curren
           </div>
         )}
 
-        {/* ========================================================================= */}
-        {/* ВКЛАДКА 5: ТАБЛО ВЫЗОВА В ЗАЛЕ (ТВ, Высокий контраст, Голосовой диктор)   */}
-        {/* ========================================================================= */}
-        {/* ========================================================================= */}
-        {/* ВКЛАДКА 5: ТАБЛО ВЫЗОВА В ЗАЛЕ (ТВ, Светлый чистый дизайн, Высокая видимость) */}
-        {/* ========================================================================= */}
-        {activeTab === 'tv' && (isOperatorRole ? (
+                {/* ВКЛАДКА 5: ТАБЛО ВЫЗОВА В ЗАЛЕ (ТВ, Высокий контраст, Голосовой диктор)   */}
+                        {/* ВКЛАДКА 5: ТАБЛО ВЫЗОВА В ЗАЛЕ (ТВ, Светлый чистый дизайн, Высокая видимость) */}
+                {activeTab === 'tv' && (isOperatorRole ? (
           <div className="bg-[#F4F7FB] text-slate-900 rounded-3xl p-6 sm:p-8 border border-[#DCE3EC] shadow-xl space-y-6">
             
             {/* Шапка информационного табло в фирменном синем цвете */}
@@ -2872,10 +2848,8 @@ export default function PochtaDemo({ currentPath = '/demo', navigate }: { curren
           </div>
         ))}
 
-        {/* ========================================================================= */}
-        {/* ВКЛАДКА 6: ТЕРМИНАЛ САМООБСЛУЖИВАНИЯ (КИОСК В ЗАЛЕ)                       */}
-        {/* ========================================================================= */}
-        {activeTab === 'kiosk' && (
+                {/* ВКЛАДКА 6: ТЕРМИНАЛ САМООБСЛУЖИВАНИЯ (КИОСК В ЗАЛЕ)                       */}
+                {activeTab === 'kiosk' && (
           <div className="max-w-3xl mx-auto space-y-6">
             
             <div className="bg-[#003B73] text-white rounded-3xl p-6 sm:p-8 text-center space-y-2 border border-[#003B73] shadow-lg relative overflow-hidden">
@@ -2919,16 +2893,14 @@ export default function PochtaDemo({ currentPath = '/demo', navigate }: { curren
           </div>
         )}
 
-        {/* ========================================================================= */}
-        {/* ВКЛАДКА 7: АРХИТЕКТУРА И ДОРОЖНАЯ КАРТА (СПРИНТЫ 1–4 ДЛЯ ЖЮРИ)            */}
-        {/* ========================================================================= */}
-        {activeTab === 'roadmap' && (
+                {/* ВКЛАДКА 7: АРХИТЕКТУРА И ДОРОЖНАЯ КАРТА            */}
+                {activeTab === 'roadmap' && (
           <div className="space-y-5 max-w-4xl mx-auto">
             
             <div className="bg-white rounded-3xl border border-[#D2D8E2] p-5 sm:p-6 shadow-sm">
               <div className="flex items-center gap-2.5 mb-2">
                 <Sparkles className="w-5 h-5 text-emerald-600" />
-                <h3 className="font-black text-base text-slate-900">Готовность решения к ТЗ хакатона (Спринты 1–4)</h3>
+                <h3 className="font-black text-base text-slate-900">Архитектурные этапы развития системы</h3>
               </div>
               <p className="text-xs text-slate-600 leading-relaxed">
                 Разработанная система управления очередью Почты России нового поколения (СУО 3.0) полностью удовлетворяет всем функциональным требованиям ТЗ: от мобильного клиента без терминалов до масштабирования на 40 000 отделений связи.
@@ -2940,7 +2912,7 @@ export default function PochtaDemo({ currentPath = '/demo', navigate }: { curren
               <div className="bg-white rounded-3xl border border-slate-200 p-5 space-y-2.5 shadow-sm">
                 <div className="font-bold text-[#003B73] flex items-center gap-2 text-sm">
                   <span className="w-6 h-6 rounded-lg bg-blue-100 text-[#003B73] flex items-center justify-center font-mono font-black">1</span>
-                  <span>Спринт 1: Фундамент MVP</span>
+                  <span>Этап 1: Базовое ядро и очереди</span>
                 </div>
                 <ul className="space-y-1 text-slate-600 list-disc list-inside">
                   <li>Клиентский веб-интерфейс, рабочее место оператора, админка ОПС</li>
@@ -2952,7 +2924,7 @@ export default function PochtaDemo({ currentPath = '/demo', navigate }: { curren
               <div className="bg-white rounded-3xl border border-slate-200 p-5 space-y-2.5 shadow-sm">
                 <div className="font-bold text-[#003B73] flex items-center gap-2 text-sm">
                   <span className="w-6 h-6 rounded-lg bg-blue-100 text-[#003B73] flex items-center justify-center font-mono font-black">2</span>
-                  <span>Спринт 2: Управление окнами и очередью</span>
+                  <span>Этап 2: Окна и маршрутизация</span>
                 </div>
                 <ul className="space-y-1 text-slate-600 list-disc list-inside">
                   <li>Выдача живой очереди (серия Ж) оператором без смартфона</li>
@@ -2964,7 +2936,7 @@ export default function PochtaDemo({ currentPath = '/demo', navigate }: { curren
               <div className="bg-white rounded-3xl border border-slate-200 p-5 space-y-2.5 shadow-sm">
                 <div className="font-bold text-[#003B73] flex items-center gap-2 text-sm">
                   <span className="w-6 h-6 rounded-lg bg-blue-100 text-[#003B73] flex items-center justify-center font-mono font-black">3</span>
-                  <span>Спринт 3: Алгоритм очереди и интеграции</span>
+                  <span>Этап 3: Детерминированный планировщик</span>
                 </div>
                 <ul className="space-y-1 text-slate-600 list-disc list-inside">
                   <li>Настраиваемые веса (W_apt, W_qr, W_live, K_wait) в конфигураторе</li>
@@ -2976,7 +2948,7 @@ export default function PochtaDemo({ currentPath = '/demo', navigate }: { curren
               <div className="bg-white rounded-3xl border border-slate-200 p-5 space-y-2.5 shadow-sm">
                 <div className="font-bold text-[#003B73] flex items-center gap-2 text-sm">
                   <span className="w-6 h-6 rounded-lg bg-blue-100 text-[#003B73] flex items-center justify-center font-mono font-black">4</span>
-                  <span>Спринт 4: Масштабирование на 40 000 ОПС</span>
+                  <span>Этап 4: Отказоустойчивость и геосервисы</span>
                 </div>
                 <ul className="space-y-1 text-slate-600 list-disc list-inside">
                   <li>Прогноз «Успею ли сегодня?» с предложением соседнего ОПС</li>
@@ -2993,10 +2965,8 @@ export default function PochtaDemo({ currentPath = '/demo', navigate }: { curren
 
       </main>
 
-      {/* ========================================================================= */}
-      {/* МОДАЛЬНЫЕ ОКНА                                                            */}
-      {/* ========================================================================= */}
-
+            {/* МОДАЛЬНЫЕ ОКНА                                                            */}
+      
       {/* Модалка настроек аудио и диктора */}
       {isAudioSettingsModalOpen && (
         <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4">

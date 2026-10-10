@@ -18,8 +18,7 @@ func (p *Postgres) GetBranchWorkload(ctx context.Context, branchID string) (doma
 		return domain.BranchWorkload{}, err
 	}
 
-	// 1. Current Moscow hour and day of week
-	nowMoscow := time.Now().In(time.FixedZone("MSK", 3*3600))
+		nowMoscow := time.Now().In(time.FixedZone("MSK", 3*3600))
 	currentHour := nowMoscow.Hour()
 
 	type baseline struct {
@@ -80,8 +79,7 @@ func (p *Postgres) GetBranchWorkload(ctx context.Context, branchID string) (doma
 		}
 	}
 
-	// 2. Query historical tickets created per hour over last 30 days for this branch
-	rows, err := p.pool.Query(ctx, `
+		rows, err := p.pool.Query(ctx, `
 		SELECT EXTRACT(HOUR FROM (created_at AT TIME ZONE 'Europe/Moscow'))::int AS h, COUNT(*)
 		FROM tickets
 		WHERE branch_id = $1
@@ -113,8 +111,7 @@ func (p *Postgres) GetBranchWorkload(ctx context.Context, branchID string) (doma
 	}
 	rows.Close()
 
-	// 3. Query today's scheduled appointments per hour for dynamic correction
-	scheduledCounts := make(map[int]int)
+		scheduledCounts := make(map[int]int)
 	srows, err := p.pool.Query(ctx, `
 		SELECT EXTRACT(HOUR FROM (scheduled_at AT TIME ZONE 'Europe/Moscow'))::int AS h, COUNT(*)
 		FROM tickets
@@ -152,8 +149,7 @@ func (p *Postgres) GetBranchWorkload(ctx context.Context, branchID string) (doma
 		averageSeconds = 300
 	}
 
-	// 4. Construct hourly distribution 8..21 (14 hours)
-	hourly := make([]domain.HourlyWorkload, 0, 14)
+		hourly := make([]domain.HourlyWorkload, 0, 14)
 	for h := 8; h <= 21; h++ {
 		base := baseMap[h]
 		loadPct := base.load
@@ -240,8 +236,7 @@ func (p *Postgres) CloseShift(ctx context.Context, branchID string) (domain.Shif
 	}
 	defer tx.Rollback(context.Background())
 
-	// 1. Process open windows
-	rows, err := tx.Query(ctx, `
+		rows, err := tx.Query(ctx, `
 		SELECT w.id::text,
 		       EXISTS(SELECT 1 FROM tickets t WHERE t.window_id = w.id AND t.status IN ('CALLED','SERVING')) AS is_busy
 		FROM windows w
@@ -284,8 +279,7 @@ func (p *Postgres) CloseShift(ctx context.Context, branchID string) (domain.Shif
 		}
 	}
 
-	// 2. Select all remaining uncalled tickets (WAITING or SCHEDULED) in this branch
-	ticketRows, err := tx.Query(ctx, `
+		ticketRows, err := tx.Query(ctx, `
 		SELECT id::text, status
 		FROM tickets
 		WHERE branch_id = $1 AND status IN ('WAITING', 'SCHEDULED')
@@ -309,8 +303,7 @@ func (p *Postgres) CloseShift(ctx context.Context, branchID string) (domain.Shif
 	}
 	ticketRows.Close()
 
-	// 3. Cancel each uncalled ticket and insert audit event TicketEventCancelled
-	for _, ut := range uncalled {
+		for _, ut := range uncalled {
 		if _, err := tx.Exec(ctx, `UPDATE tickets SET status='CANCELLED' WHERE id=$1::uuid`, ut.id); err != nil {
 			return result, dbError(err)
 		}
